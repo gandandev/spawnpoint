@@ -130,8 +130,17 @@ function ServerCard({ status, setupReady, onStart, compact = false }: { status: 
   return <Card><CardHeader><CardTitle className="flex items-center gap-2"><ServerStatusIcon status={status} />{copy.title}</CardTitle><CardDescription>{copy.detail}</CardDescription></CardHeader><CardFooter><Badge variant="secondary"><Circle fill="currentColor" />{label.text}{label.detail && ` · ${label.detail}`}</Badge><span className="ml-auto"><StartButton status={status} setupReady={setupReady} onStart={onStart} /></span></CardFooter></Card>;
 }
 
-function AuthScreen({ data, onAuth, onStart, notice }: { data: BootstrapData; onAuth: (username: string, password: string) => Promise<void>; onStart: () => Promise<void>; notice: (message: string) => void }) {
-  const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [busy, setBusy] = useState(false); const [accountExists, setAccountExists] = useState<boolean | null>(null); const [passwordError, setPasswordError] = useState(false);
+const passwordFieldErrorClass = "animate-[password-shake_360ms_ease-in-out] border-red-500 bg-red-50 text-red-900 ring-2 ring-red-500/20 focus-visible:border-red-500 focus-visible:ring-red-500/20";
+
+function AuthScreen({ data, onAuth, onStart, notice }: { data: BootstrapData; onAuth: (username: string, password: string, serverPassword: string) => Promise<void>; onStart: () => Promise<void>; notice: (message: string) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [serverPassword, setServerPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [accountExists, setAccountExists] = useState<boolean | null>(null);
+  const [passwordError, setPasswordError] = useState(false);
+  const [serverPasswordError, setServerPasswordError] = useState(false);
+
   useEffect(() => {
     if (!/^[A-Za-z0-9_]{3,16}$/.test(username)) { setAccountExists(null); return; }
     const controller = new AbortController();
@@ -142,10 +151,80 @@ function AuthScreen({ data, onAuth, onStart, notice }: { data: BootstrapData; on
     }, 250);
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [username]);
-  const submit = async (event: FormEvent) => { event.preventDefault(); setPasswordError(false); setBusy(true); try { await onAuth(username, password); } catch (error) { if (error instanceof ApiError && error.code === "INVALID_LOGIN") setPasswordError(true); else notice(error instanceof Error ? error.message : "인증에 실패했어요"); } finally { setBusy(false); } };
-  return <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4 py-8"><Logo /><ServerCard status={data.server} setupReady={data.setup.eulaAccepted} onStart={onStart} compact />
-    <Card className="overflow-visible border-0 p-0 shadow-none ring-0"><CardContent className="px-0"><form onSubmit={submit}><FieldGroup><div className="flex flex-col gap-2"><Field><FieldLabel className="sr-only" htmlFor="username">플레이어 ID</FieldLabel><Input className="h-11 rounded-full px-4 shadow-none" id="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="플레이어 ID" minLength={3} maxLength={16} pattern="[A-Za-z0-9_]+" required /></Field><Field><FieldLabel className="sr-only" htmlFor="password">비밀번호</FieldLabel><Input className={cn("h-11 rounded-full px-4 shadow-none transition-colors", passwordError && "animate-[password-shake_360ms_ease-in-out] border-red-500 bg-red-50 text-red-900 ring-2 ring-red-500/20 focus-visible:border-red-500 focus-visible:ring-red-500/20")} id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => { setPassword(event.target.value); setPasswordError(false); }} onAnimationEnd={() => setPasswordError(false)} aria-invalid={passwordError} placeholder="비밀번호 (8글자 이상)" minLength={8} maxLength={128} required /></Field></div><Button size="lg" className="h-11 w-full rounded-full px-4" disabled={busy}>{busy ? <Spinner data-icon="inline-end" /> : <ArrowRight data-icon="inline-end" />}{accountExists ? "로그인" : "가입"}</Button></FieldGroup></form></CardContent></Card>
-  </main>;
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setPasswordError(false);
+    setServerPasswordError(false);
+    setBusy(true);
+    try {
+      await onAuth(username, password, serverPassword);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "INVALID_LOGIN") setPasswordError(true);
+      else if (error instanceof ApiError && error.code === "INVALID_SERVER_PASSWORD") setServerPasswordError(true);
+      else notice(error instanceof Error ? error.message : "인증에 실패했어요");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4 py-8">
+      <Logo />
+      <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} onStart={onStart} compact />
+      <Card className="overflow-visible border-0 p-0 shadow-none ring-0">
+        <CardContent className="px-0">
+          <form onSubmit={submit}>
+            <FieldGroup>
+              <div className="flex flex-col gap-2">
+                <Field>
+                  <FieldLabel className="sr-only" htmlFor="username">플레이어 ID</FieldLabel>
+                  <Input className="h-11 rounded-full px-4 shadow-none" id="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="플레이어 ID" minLength={3} maxLength={16} pattern="[A-Za-z0-9_]+" required />
+                </Field>
+                <Field>
+                  <FieldLabel className="sr-only" htmlFor="password">비밀번호</FieldLabel>
+                  <Input
+                    className={cn("h-11 rounded-full px-4 shadow-none transition-colors", passwordError && passwordFieldErrorClass)}
+                    id="password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => { setPassword(event.target.value); setPasswordError(false); }}
+                    onAnimationEnd={() => setPasswordError(false)}
+                    aria-invalid={passwordError}
+                    placeholder="비밀번호 (8글자 이상)"
+                    minLength={8}
+                    maxLength={128}
+                    required
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel className="sr-only" htmlFor="server-password">서버 비밀번호</FieldLabel>
+                  <Input
+                    className={cn("h-11 rounded-full px-4 shadow-none transition-colors", serverPasswordError && passwordFieldErrorClass)}
+                    id="server-password"
+                    type="text"
+                    autoComplete="off"
+                    value={serverPassword}
+                    onChange={(event) => { setServerPassword(event.target.value); setServerPasswordError(false); }}
+                    onAnimationEnd={() => setServerPasswordError(false)}
+                    aria-invalid={serverPasswordError}
+                    placeholder="서버 비밀번호"
+                    maxLength={128}
+                    required
+                  />
+                </Field>
+              </div>
+              <Button size="lg" className="h-11 w-full rounded-full px-4" disabled={busy}>
+                {busy ? <Spinner data-icon="inline-end" /> : <ArrowRight data-icon="inline-end" />}
+                {accountExists ? "로그인" : "가입"}
+              </Button>
+            </FieldGroup>
+          </form>
+        </CardContent>
+      </Card>
+    </main>
+  );
 }
 
 function SkinStudio({ data, onUser, onChanged, notice }: { data: BootstrapData; onUser: (user: PublicUser) => void; onChanged: () => void; notice: (message: string) => void }) {
@@ -221,7 +300,14 @@ export function App() {
   useEffect(() => { void reload().catch(() => notice("spawnpoint에 연결할 수 없어요")); }, [reload, notice]);
   useEffect(() => { const events = new EventSource("/api/server/events"); events.onmessage = (event) => { const server = JSON.parse(event.data) as ServerStatus; setData((current) => current ? { ...current, server } : current); }; return () => events.close(); }, []);
   const startServer = useCallback(async () => { const result = await api<{ server: ServerStatus }>("/server/start", { method: "POST" }); setData((current) => current ? { ...current, server: result.server } : current); }, []);
-  const auth = async (username: string, password: string) => { const result = await api<{ user: PublicUser; csrf: string }>("/auth/continue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }); setData((current) => current ? { ...current, user: result.user, csrf: result.csrf } : current); };
+  const auth = async (username: string, password: string, serverPassword: string) => {
+    const result = await api<{ user: PublicUser; csrf: string }>("/auth/continue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, serverPassword }),
+    });
+    setData((current) => current ? { ...current, user: result.user, csrf: result.csrf } : current);
+  };
   const logout = async () => { await api<void>("/auth/logout", { method: "POST", headers: { "x-spawnpoint-csrf": data!.csrf! } }); setData((current) => current ? { ...current, user: null, csrf: null } : current); };
   const play = async (client: ClientChoice["id"]) => { const launchId = crypto.randomUUID(); const result = await api<{ username: string; profile: string }>("/game-ticket", { method: "POST", headers: { "Content-Type": "application/json", "x-spawnpoint-csrf": data!.csrf! }, body: JSON.stringify({ launchId }) }); window.localStorage.setItem(`_spawnpoint_${result.username.toLowerCase()}.p`, result.profile); setGame({ client, username: result.username, launchId }); };
   const gameUrl = useMemo(() => game ? `/game/${game.client}.html?v=20260711-korean-locale-v13&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}` : "", [game]);

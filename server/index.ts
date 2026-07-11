@@ -62,6 +62,7 @@ app.use("/api", createApiRouter({
   skins,
   serverManager,
   sessionSecret,
+  serverPassword: config.serverPassword,
   secureCookies: config.secureCookies,
   sessionDays: config.sessionDays,
   gameTicketMinutes: config.gameTicketMinutes,

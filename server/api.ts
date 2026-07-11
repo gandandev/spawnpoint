@@ -25,6 +25,7 @@ interface ApiContext {
   skins: SkinService;
   serverManager: MinecraftServerManager;
   sessionSecret: string;
+  serverPassword: string;
   secureCookies: boolean;
   sessionDays: number;
   gameTicketMinutes: number;
@@ -93,6 +94,14 @@ function requireUser(request: Request, response: Response, context: ApiContext, 
     return null;
   }
   return authenticated.user;
+}
+
+function requireServerPassword(request: Request, response: Response, context: ApiContext): boolean {
+  if (!context.serverPassword) return true;
+  const provided = typeof request.body?.serverPassword === "string" ? request.body.serverPassword : "";
+  if (provided === context.serverPassword) return true;
+  fail(response, 401, "서버 비밀번호가 올바르지 않아요.", "INVALID_SERVER_PASSWORD");
+  return false;
 }
 
 export function createApiRouter(context: ApiContext): express.Router {
@@ -179,6 +188,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       fail(response, 429, "시도 횟수가 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
+    if (!requireServerPassword(request, response, context)) return;
     try {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
       if (context.database.getUserByUsername(credentials.username)) {
@@ -207,6 +217,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       fail(response, 429, "시도 횟수가 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
+    if (!requireServerPassword(request, response, context)) return;
     try {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
       const user = context.database.getUserByUsername(credentials.username);
@@ -229,6 +240,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       fail(response, 429, "시도 횟수가 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
+    if (!requireServerPassword(request, response, context)) return;
     try {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
       let user = context.database.getUserByUsername(credentials.username);

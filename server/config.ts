@@ -16,6 +16,7 @@ export const config = {
   clientDir: path.resolve(process.cwd(), "dist/client"),
   seedDir: path.resolve(process.cwd(), "server-runtime/seed"),
   sessionSecret: process.env.SESSION_SECRET?.trim() ?? "",
+  serverPassword: process.env.SERVER_PASSWORD?.trim() ?? "",
   secureCookies: process.env.NODE_ENV === "production",
   javaBin: process.env.MC_JAVA_BIN?.trim() || "java",
   eulaAccepted: process.env.MC_EULA === "true",
