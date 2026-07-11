@@ -1,0 +1,80 @@
+- main [ref=e27]:
+  - generic [ref=e28]:
+    - generic "spawnpoint" [ref=e29]
+    - navigation [ref=e32]:
+      - generic [ref=e33]: designqa11
+      - button "로그아웃" [ref=e37] [cursor=pointer]
+  - generic [ref=e41]:
+    - generic [ref=e46]:
+      - generic [ref=e47]:
+        - generic [ref=e48]: 오프라인
+        - generic [ref=e51]: 공용 서바이벌 월드
+      - heading "서버 오프라인" [level=1] [ref=e52]
+      - paragraph [ref=e53]: 쉬는 동안에는 비용이 들지 않아요
+    - generic [ref=e54]:
+      - generic [ref=e55]:
+        - generic [ref=e56]: 플레이어
+        - strong [ref=e57]:
+          - text: "0"
+          - generic [ref=e58]: /12
+      - generic [ref=e59]:
+        - generic [ref=e60]: 자동 절전
+        - strong [ref=e61]: 15분
+    - button "서버 시작" [disabled] [ref=e62]
+  - generic [ref=e69]:
+    - text: 소유자가 아직 마인크래프트 EULA에 동의하지 않았어요. 내용을 읽은 뒤
+    - code [ref=e70]: MC_EULA=true
+    - text: 로 설정하세요.
+  - generic [ref=e71]:
+    - generic [ref=e72]:
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - generic [ref=e75]: "01"
+          - paragraph [ref=e76]: 스킨 스튜디오
+        - generic [ref=e77]: "현재: moss"
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - generic "steve 스킨 미리보기" [ref=e81]
+          - generic [ref=e82]: steve 모델
+        - generic [ref=e83]:
+          - generic [ref=e84]:
+            - generic [ref=e85]: 마인크래프트 사용자 이름으로 가져오기
+            - generic [ref=e86]:
+              - textbox "마인크래프트 사용자 이름으로 가져오기" [ref=e87]:
+                - /placeholder: 마인크래프트 사용자 이름
+              - button "가져오기" [ref=e88] [cursor=pointer]
+          - generic [ref=e91]:
+            - generic [ref=e92]:
+              - generic [ref=e93]: 스킨 PNG 업로드
+              - generic [ref=e94]: 64 × 64 · PNG
+            - group "스킨 모델 선택" [ref=e95]:
+              - button "스티브" [pressed] [ref=e96] [cursor=pointer]
+              - button "알렉스" [ref=e98] [cursor=pointer]
+            - generic [ref=e100] [cursor=pointer]:
+              - generic [ref=e105]:
+                - strong [ref=e106]: 스킨 파일 선택
+                - generic [ref=e107]: PNG 파일을 끌어오거나 클릭하세요
+              - generic [ref=e108]: 파일 찾기
+    - generic [ref=e109]:
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - generic [ref=e112]: "02"
+          - paragraph [ref=e113]: 클라이언트 실행
+        - generic [ref=e114]: 버전을 선택하세요
+      - button "1.12.2 안정판 학교 노트북에 가장 균형 잡힌 버전" [ref=e116] [cursor=pointer]:
+        - generic [ref=e119]: 1.12.2
+        - generic [ref=e120]: 안정판
+        - generic [ref=e121]: 학교 노트북에 가장 균형 잡힌 버전
+      - generic [ref=e124]:
+        - generic [ref=e125]:
+          - generic [ref=e126]: 플레이어
+          - strong [ref=e127]: designqa11
+        - generic [ref=e128]:
+          - generic [ref=e129]: 클라이언트
+          - strong [ref=e130]: 1.12.2 안정판
+      - button "designqa11(으)로 플레이" [disabled] [ref=e131]
+      - paragraph [ref=e134]: 서버를 먼저 깨우면 플레이 버튼이 활성화돼요.
+  - generic [ref=e135]:
+    - generic [ref=e136]: 15분 동안 접속자가 없으면 서버가 잠들어요
+    - generic [ref=e140]: 사이트 계정이 게임에도 그대로 적용돼요
+    - generic [ref=e144]: 월드는 Railway 볼륨에 계속 저장돼요

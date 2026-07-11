@@ -24,7 +24,7 @@ export interface PublicUser {
 }
 
 export interface ClientChoice {
-  id: "stable" | "experimental" | "lite";
+  id: "stable";
   version: string;
   label: string;
   description: string;
@@ -34,8 +34,6 @@ export interface BootstrapData {
   user: PublicUser | null;
   csrf: string | null;
   server: ServerStatus;
-  presets: Array<{ id: string; name: string; model: "steve" | "alex" }>;
   clients: ClientChoice[];
   setup: { eulaAccepted: boolean };
 }
-

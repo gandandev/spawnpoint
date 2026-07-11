@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import multer from "multer";
 import type { AppDatabase } from "./db.js";
 import type { MinecraftServerManager } from "./server-manager.js";
+import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
 import { ServerStartError } from "./server-manager.js";
 import {
   clearSessionCookie,
@@ -13,9 +14,10 @@ import {
   sessionFromRequest,
   setSessionCookie,
   validateCredentials,
+  validateUsername,
   verifyPassword,
 } from "./security.js";
-import { PRESET_SKINS, SkinService, skinPathForUser, toPublicUser } from "./skins.js";
+import { SkinService, skinPathForUser, toPublicUser } from "./skins.js";
 import type { UserRecord } from "./types.js";
 
 interface ApiContext {
@@ -27,6 +29,7 @@ interface ApiContext {
   sessionDays: number;
   gameTicketMinutes: number;
   eulaAccepted: boolean;
+  gameConnections: GameConnectionTracker;
 }
 
 class MemoryRateLimiter {
@@ -67,7 +70,7 @@ function fail(response: Response, status: number, message: string, code = "REQUE
 
 function requireSameOrigin(request: Request, response: Response): boolean {
   if (isSameOrigin(request)) return true;
-  fail(response, 403, "Cross-origin requests are not allowed.", "BAD_ORIGIN");
+  fail(response, 403, "다른 출처에서 보낸 요청은 허용되지 않아요.", "BAD_ORIGIN");
   return false;
 }
 
@@ -82,11 +85,11 @@ function userForRequest(request: Request, context: ApiContext): { user: UserReco
 function requireUser(request: Request, response: Response, context: ApiContext, csrf = false): UserRecord | null {
   const authenticated = userForRequest(request, context);
   if (!authenticated) {
-    fail(response, 401, "Log in first.", "AUTH_REQUIRED");
+    fail(response, 401, "먼저 로그인하세요.", "AUTH_REQUIRED");
     return null;
   }
   if (csrf && request.headers["x-spawnpoint-csrf"] !== authenticated.csrf) {
-    fail(response, 403, "Refresh the page and try again.", "BAD_CSRF");
+    fail(response, 403, "페이지를 새로고침한 뒤 다시 시도하세요.", "BAD_CSRF");
     return null;
   }
   return authenticated.user;
@@ -114,11 +117,8 @@ export function createApiRouter(context: ApiContext): express.Router {
       user: authenticated ? toPublicUser(authenticated.user) : null,
       csrf: authenticated?.csrf ?? null,
       server: context.serverManager.getStatus(),
-      presets: PRESET_SKINS,
       clients: [
-        { id: "stable", version: "1.12.2", label: "stable", description: "best balance for school laptops" },
-        { id: "experimental", version: "1.21.11", label: "beta", description: "real modern port, still rough" },
-        { id: "lite", version: "1.8.8", label: "lite", description: "fastest fallback" },
+        { id: "stable", version: "1.12.2", label: "안정판", description: "학교 노트북에 가장 균형 잡힌 버전" },
       ],
       setup: { eulaAccepted: context.eulaAccepted },
     });
@@ -147,7 +147,7 @@ export function createApiRouter(context: ApiContext): express.Router {
   router.post("/server/start", async (request, response) => {
     if (!requireSameOrigin(request, response)) return;
     if (!startLimiter.take(requestIp(request))) {
-      fail(response, 429, "Too many start requests. Give it a few minutes.", "RATE_LIMITED");
+      fail(response, 429, "서버 시작 요청이 너무 많아요. 몇 분 뒤 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
     try {
@@ -163,16 +163,26 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
   });
 
+  router.post("/auth/lookup", (request, response) => {
+    if (!requireSameOrigin(request, response)) return;
+    try {
+      const username = validateUsername(request.body?.username);
+      response.json({ exists: Boolean(context.database.getUserByUsername(username)) });
+    } catch (error) {
+      fail(response, 400, error instanceof Error ? error.message : "플레이어 ID를 확인할 수 없어요.", "INVALID_USERNAME");
+    }
+  });
+
   router.post("/auth/register", async (request, response) => {
     if (!requireSameOrigin(request, response)) return;
     if (!authLimiter.take(requestIp(request))) {
-      fail(response, 429, "Too many attempts. Try again later.", "RATE_LIMITED");
+      fail(response, 429, "시도 횟수가 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
     try {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
       if (context.database.getUserByUsername(credentials.username)) {
-        fail(response, 409, "That player ID is already registered.", "USERNAME_TAKEN");
+        fail(response, 409, "이미 등록된 플레이어 ID예요.", "USERNAME_TAKEN");
         return;
       }
       const password = await hashPassword(credentials.password);
@@ -180,21 +190,21 @@ export function createApiRouter(context: ApiContext): express.Router {
       try {
         user = context.database.createUser(credentials.username, password.hash, password.salt);
       } catch {
-        fail(response, 409, "That player ID is already registered.", "USERNAME_TAKEN");
+        fail(response, 409, "이미 등록된 플레이어 ID예요.", "USERNAME_TAKEN");
         return;
       }
       const session = createSessionToken(user, context.sessionSecret, context.sessionDays);
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.status(201).json({ user: toPublicUser(user), csrf: session.csrf });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "Registration failed.", "INVALID_CREDENTIALS");
+      fail(response, 400, error instanceof Error ? error.message : "회원가입에 실패했어요.", "INVALID_CREDENTIALS");
     }
   });
 
   router.post("/auth/login", async (request, response) => {
     if (!requireSameOrigin(request, response)) return;
     if (!authLimiter.take(requestIp(request))) {
-      fail(response, 429, "Too many attempts. Try again later.", "RATE_LIMITED");
+      fail(response, 429, "시도 횟수가 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
     try {
@@ -202,14 +212,48 @@ export function createApiRouter(context: ApiContext): express.Router {
       const user = context.database.getUserByUsername(credentials.username);
       const valid = user ? await verifyPassword(credentials.password, user.passwordSalt, user.passwordHash) : false;
       if (!user || !valid) {
-        fail(response, 401, "Player ID or password is incorrect.", "INVALID_LOGIN");
+        fail(response, 401, "플레이어 ID 또는 비밀번호가 올바르지 않아요.", "INVALID_LOGIN");
         return;
       }
       const session = createSessionToken(user, context.sessionSecret, context.sessionDays);
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({ user: toPublicUser(user), csrf: session.csrf });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "Login failed.", "INVALID_CREDENTIALS");
+      fail(response, 400, error instanceof Error ? error.message : "로그인에 실패했어요.", "INVALID_CREDENTIALS");
+    }
+  });
+
+  router.post("/auth/continue", async (request, response) => {
+    if (!requireSameOrigin(request, response)) return;
+    if (!authLimiter.take(requestIp(request))) {
+      fail(response, 429, "시도 횟수가 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
+      return;
+    }
+    try {
+      const credentials = validateCredentials(request.body?.username, request.body?.password);
+      let user = context.database.getUserByUsername(credentials.username);
+
+      if (user) {
+        const valid = await verifyPassword(credentials.password, user.passwordSalt, user.passwordHash);
+        if (!valid) {
+          fail(response, 401, "비밀번호가 올바르지 않아요.", "INVALID_LOGIN");
+          return;
+        }
+      } else {
+        const password = await hashPassword(credentials.password);
+        try {
+          user = context.database.createUser(credentials.username, password.hash, password.salt);
+        } catch {
+          fail(response, 409, "플레이어 ID가 방금 등록됐어요. 다시 시도하세요.", "USERNAME_TAKEN");
+          return;
+        }
+      }
+
+      const session = createSessionToken(user, context.sessionSecret, context.sessionDays);
+      setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
+      response.json({ user: toPublicUser(user), csrf: session.csrf });
+    } catch (error) {
+      fail(response, 400, error instanceof Error ? error.message : "계속할 수 없어요.", "INVALID_CREDENTIALS");
     }
   });
 
@@ -220,31 +264,19 @@ export function createApiRouter(context: ApiContext): express.Router {
     response.status(204).end();
   });
 
-  router.post("/skin/preset", async (request, response) => {
-    if (!requireSameOrigin(request, response)) return;
-    const user = requireUser(request, response, context, true);
-    if (!user) return;
-    try {
-      const updated = await context.skins.applyPreset(user, request.body?.preset);
-      response.json({ user: toPublicUser(updated) });
-    } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "Skin could not be changed.");
-    }
-  });
-
   router.post("/skin/upload", upload.single("skin"), async (request, response) => {
     if (!requireSameOrigin(request, response)) return;
     const user = requireUser(request, response, context, true);
     if (!user) return;
     if (!skinLimiter.take(`${user.id}:upload`)) {
-      fail(response, 429, "Too many skin updates. Try again in a few minutes.", "RATE_LIMITED");
+      fail(response, 429, "스킨 변경 요청이 너무 많아요. 몇 분 뒤 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
     try {
-      const updated = await context.skins.applyUpload(user, request.file, request.body?.model);
+      const updated = await context.skins.applyUpload(user, request.file);
       response.json({ user: toPublicUser(updated) });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "Skin upload failed.");
+      fail(response, 400, error instanceof Error ? error.message : "스킨 업로드에 실패했어요.");
     }
   });
 
@@ -253,14 +285,14 @@ export function createApiRouter(context: ApiContext): express.Router {
     const user = requireUser(request, response, context, true);
     if (!user) return;
     if (!skinLimiter.take(`${user.id}:fetch`)) {
-      fail(response, 429, "Too many skin lookups. Try again in a few minutes.", "RATE_LIMITED");
+      fail(response, 429, "스킨 검색 요청이 너무 많아요. 몇 분 뒤 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
     try {
       const updated = await context.skins.applyMinecraftUsername(user, request.body?.username);
       response.json({ user: toPublicUser(updated) });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "Skin lookup failed.");
+      fail(response, 400, error instanceof Error ? error.message : "스킨을 찾지 못했어요.");
     }
   });
 
@@ -275,32 +307,60 @@ export function createApiRouter(context: ApiContext): express.Router {
     response.sendFile(skinFile);
   });
 
-  router.post("/game-ticket", (request, response) => {
+  router.post("/game-ticket", async (request, response) => {
     if (!requireSameOrigin(request, response)) return;
     const user = requireUser(request, response, context, true);
     if (!user) return;
     if (context.serverManager.getStatus().phase !== "online") {
-      fail(response, 409, "Start the server before launching the client.", "SERVER_OFFLINE");
+      fail(response, 409, "클라이언트를 실행하기 전에 서버를 시작하세요.", "SERVER_OFFLINE");
       return;
     }
-    const ticket = createGameTicket(
-      user,
-      skinPathForUser(user),
-      context.sessionSecret,
-      context.gameTicketMinutes,
-    );
-    response.json({ ticket, username: user.username });
+    const launchId = request.body?.launchId;
+    if (!isLaunchId(launchId)) {
+      fail(response, 400, "클라이언트 실행 ID가 올바르지 않아요.", "BAD_LAUNCH_ID");
+      return;
+    }
+    try {
+      const [ticket, profile] = await Promise.all([
+        Promise.resolve(createGameTicket(
+          user,
+          skinPathForUser(user),
+          context.sessionSecret,
+          context.gameTicketMinutes,
+        )),
+        context.skins.createClientProfile(user),
+      ]);
+      context.gameConnections.create(launchId, user.id);
+      response.json({ ticket, username: user.username, profile });
+    } catch (error) {
+      fail(response, 500, error instanceof Error ? error.message : "저장된 프로필을 불러오지 못했어요.", "PROFILE_LOAD_FAILED");
+    }
+  });
+
+  router.get("/game-connection/:launchId", (request, response) => {
+    const user = requireUser(request, response, context);
+    if (!user) return;
+    const { launchId } = request.params;
+    if (!isLaunchId(launchId)) {
+      fail(response, 400, "클라이언트 실행 ID가 올바르지 않아요.", "BAD_LAUNCH_ID");
+      return;
+    }
+    const state = context.gameConnections.status(launchId, user.id);
+    if (!state) {
+      fail(response, 404, "클라이언트 실행 정보를 찾지 못했어요.", "LAUNCH_NOT_FOUND");
+      return;
+    }
+    response.json({ state });
   });
 
   router.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
     if (error instanceof multer.MulterError) {
-      fail(response, 400, error.code === "LIMIT_FILE_SIZE" ? "Skin PNG must be smaller than 256KB." : error.message);
+      fail(response, 400, error.code === "LIMIT_FILE_SIZE" ? "스킨 PNG는 256KB보다 작아야 해요." : error.message);
       return;
     }
     console.error(error);
-    fail(response, 500, "Something went wrong on the server.", "INTERNAL_ERROR");
+    fail(response, 500, "서버에서 문제가 발생했어요.", "INTERNAL_ERROR");
   });
 
   return router;
 }
-

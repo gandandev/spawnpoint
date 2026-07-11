@@ -14,6 +14,9 @@ protocols:
   protocol_v4_allowed: true
   protocol_v5_allowed: true
 skin_service:
+  # The disk cache's bundled SQLite driver has no macOS arm64 native library.
+  # Spawnpoint supplies each account's skin directly during registration instead.
+  download_vanilla_skins_to_clients: false
   valid_skin_download_urls:
     - textures.minecraft.net
     - 127.0.0.1
@@ -21,4 +24,3 @@ skin_service:
   skin_cache_thread_count: 2
   skin_cache_memory_max_objects: 256
   skin_cache_disk_max_objects: 2048
-

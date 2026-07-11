@@ -6,14 +6,16 @@ import httpProxy from "http-proxy";
 import { config } from "./config.js";
 import { AppDatabase } from "./db.js";
 import { createApiRouter } from "./api.js";
-import { loadOrCreateSecret, verifyToken } from "./security.js";
+import { createGameTicket, isSameOriginHeaders, loadOrCreateSecret, sessionFromCookieHeader } from "./security.js";
 import { MinecraftServerManager } from "./server-manager.js";
-import { SkinService } from "./skins.js";
+import { SkinService, skinPathForUser } from "./skins.js";
+import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 const sessionSecret = loadOrCreateSecret(config.dataDir, config.sessionSecret);
 const database = new AppDatabase(config.dataDir);
-const skins = new SkinService(database, config.dataDir);
+const skins = new SkinService(database, config.dataDir, config.clientDir);
+const gameConnections = new GameConnectionTracker();
 const serverManager = new MinecraftServerManager({
   dataDir: config.dataDir,
   seedDir: config.seedDir,
@@ -64,6 +66,7 @@ app.use("/api", createApiRouter({
   sessionDays: config.sessionDays,
   gameTicketMinutes: config.gameTicketMinutes,
   eulaAccepted: config.eulaAccepted || config.mockServer,
+  gameConnections,
 }));
 
 app.use("/game", express.static(path.join(config.clientDir, "game"), {
@@ -114,9 +117,14 @@ server.on("upgrade", (request, socket, head) => {
       socket.destroy();
       return;
     }
-    const ticket = parsed.searchParams.get("ticket") ?? undefined;
-    const payload = verifyToken(ticket, sessionSecret, "game");
-    if (!payload) {
+    if (!isSameOriginHeaders(request.headers.origin, request.headers.host)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    const session = sessionFromCookieHeader(request.headers.cookie, sessionSecret);
+    const user = session ? database.getUserById(session.sub) : null;
+    if (!session || !user) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
@@ -126,6 +134,13 @@ server.on("upgrade", (request, socket, head) => {
       socket.destroy();
       return;
     }
+    const launchId = parsed.searchParams.get("launch");
+    const tracked = isLaunchId(launchId) && gameConnections.begin(launchId, user.id);
+    if (tracked) socket.once("close", () => gameConnections.closed(launchId, user.id));
+    const ticket = createGameTicket(user, skinPathForUser(user), sessionSecret, config.gameTicketMinutes);
+    parsed.searchParams.set("ticket", ticket);
+    request.url = `${parsed.pathname}${parsed.search}`;
+    delete request.headers.cookie;
     request.headers["x-real-ip"] = request.socket.remoteAddress ?? "127.0.0.1";
     proxy.ws(request, socket, head);
   } catch {

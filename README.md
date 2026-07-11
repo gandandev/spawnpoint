@@ -2,20 +2,19 @@
 
 an actual Eaglercraft multiplayer portal with site accounts, account-bound in-game names, managed skins, and a Paper server that starts on demand and sleeps when empty.
 
-
 ## what is wired
 
 - player registration and login with a 3 to 16 character player ID and password
 - scrypt password hashing, signed HTTP-only sessions, same-origin checks, CSRF tokens, and request rate limits
 - short-lived signed game tickets passed through the same-origin WebSocket gateway
 - a custom EaglerXServer plugin that verifies the ticket, forces the site player ID as the in-game name, and forces the selected skin
-- preset skins, 64x64 or legacy 64x32 PNG upload, and skin lookup by Minecraft username through Mojang's official profile APIs
+- 64x64 or legacy 64x32 PNG upload, and skin lookup by Minecraft username through Mojang's official profile APIs
 - a public server status stream and public wake button
 - Paper 1.12.2 off by default, with automatic shutdown after 15 empty minutes
 - a persistent SQLite account database, uploaded skins, and Minecraft world under one Railway volume
-- Eaglercraft 1.12.2 WASM-GC as the default, 1.21.11 U1 beta as the real modern experiment, and signed 1.8 u53 as the low-end fallback
+- Eaglercraft 1.12.2 WASM-GC
 
-the default is intentionally 1.12.2. it is the sane middle ground for an older LG Gram. the 1.21.11 beta is included because it is real, but making it the default on that laptop would be self-sabotage.
+the default is intentionally 1.12.2. it is the sane middle ground for an older LG Gram.
 
 ## local development
 
@@ -66,5 +65,4 @@ the Hobby plan's $5 is usage credit, not a hard resource cap. spawnpoint keeps t
 - do not expose port 25565. Paper binds to `127.0.0.1`; only the Node gateway is public.
 - back up `/data`. it contains the account database, skins, and world.
 - the Mojang username field produces the same official skin texture NameMC displays. it does not scrape NameMC.
-- 1.21.11 is community beta software with an unpublished source release. keep 1.12.2 as the default until that changes.
 - this is not affiliated with Mojang, Microsoft, Paper, or the Eaglercraft authors. review the third-party licenses and your right to host each bundled binary before a public launch.

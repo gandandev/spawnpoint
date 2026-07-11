@@ -54,9 +54,9 @@ export class AppDatabase {
         password_salt BLOB NOT NULL,
         created_at INTEGER NOT NULL,
         skin_type TEXT NOT NULL DEFAULT 'preset',
-        skin_ref TEXT NOT NULL DEFAULT 'moss',
+        skin_ref TEXT NOT NULL DEFAULT 'steve',
         skin_model TEXT NOT NULL DEFAULT 'steve',
-        skin_label TEXT NOT NULL DEFAULT 'moss',
+        skin_label TEXT NOT NULL DEFAULT 'steve',
         skin_updated_at INTEGER NOT NULL
       );
     `);
@@ -68,7 +68,7 @@ export class AppDatabase {
         skin_type, skin_ref, skin_model, skin_label, skin_updated_at
       ) VALUES (
         @id, @username, @passwordHash, @passwordSalt, @createdAt,
-        'preset', 'moss', 'steve', 'moss', @createdAt
+        'preset', 'steve', 'steve', 'steve', @createdAt
       )
     `);
     this.updateSkinStatement = this.db.prepare(`
@@ -117,4 +117,3 @@ export class AppDatabase {
     this.db.close();
   }
 }
-

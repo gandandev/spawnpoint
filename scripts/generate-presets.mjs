@@ -3,6 +3,7 @@ import path from "node:path";
 import sharp from "sharp";
 
 const palettes = {
+  steve: { skin: "b77a5c", dark: "353535", cloth: "00a6a6", accent: "00a6a6", hair: "2b1b12", eye: "8dcbff" },
   moss: { skin: "c9916b", dark: "3d4b2c", cloth: "728f45", accent: "b9d96a", hair: "332b22", eye: "9fdaef" },
   ember: { skin: "ad735d", dark: "381d18", cloth: "8d382b", accent: "e3a24a", hair: "251715", eye: "d8e8df" },
   slate: { skin: "d2a078", dark: "20272a", cloth: "526069", accent: "a8c2c7", hair: "3b302d", eye: "78c6d0" },
@@ -63,4 +64,3 @@ for (const [name, palette] of Object.entries(palettes)) {
     .toFile(path.join(outputDir, `${name}.png`));
   console.log(`generated ${name}.png`);
 }
-

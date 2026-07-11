@@ -65,13 +65,18 @@ export async function verifyPassword(password: string, salt: Buffer, expected: B
 }
 
 export function validateCredentials(username: unknown, password: unknown): { username: string; password: string } {
-  if (typeof username !== "string" || !USERNAME_PATTERN.test(username)) {
-    throw new Error("Player ID must be 3-16 letters, numbers, or underscores.");
-  }
+  const validUsername = validateUsername(username);
   if (typeof password !== "string" || password.length < 8 || password.length > 128) {
-    throw new Error("Password must be between 8 and 128 characters.");
+    throw new Error("비밀번호는 8~128자로 입력하세요.");
   }
-  return { username, password };
+  return { username: validUsername, password };
+}
+
+export function validateUsername(username: unknown): string {
+  if (typeof username !== "string" || !USERNAME_PATTERN.test(username)) {
+    throw new Error("플레이어 ID는 영문, 숫자, 밑줄을 사용해 3~16자로 입력하세요.");
+  }
+  return username;
 }
 
 export function signToken(payload: TokenEnvelope, secret: string): string {
@@ -133,7 +138,11 @@ export function createGameTicket(
 }
 
 export function sessionFromRequest(request: Request, secret: string): TokenEnvelope | null {
-  const cookies = parseCookie(request.headers.cookie ?? "");
+  return sessionFromCookieHeader(request.headers.cookie, secret);
+}
+
+export function sessionFromCookieHeader(cookieHeader: string | undefined, secret: string): TokenEnvelope | null {
+  const cookies = parseCookie(cookieHeader ?? "");
   return verifyToken(cookies[SESSION_COOKIE], secret, "session");
 }
 
@@ -157,12 +166,15 @@ export function clearSessionCookie(response: Response, secure: boolean): void {
   }));
 }
 
-export function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.origin;
+export function isSameOriginHeaders(origin: string | undefined, host: string | undefined): boolean {
   if (!origin) return process.env.NODE_ENV !== "production";
   try {
-    return new URL(origin).host === request.headers.host;
+    return new URL(origin).host === host;
   } catch {
     return false;
   }
+}
+
+export function isSameOrigin(request: Request): boolean {
+  return isSameOriginHeaders(request.headers.origin, request.headers.host);
 }

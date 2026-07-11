@@ -189,7 +189,7 @@ export class MinecraftServerManager extends EventEmitter {
       });
       return;
     }
-    const join = line.match(/: ([A-Za-z0-9_]{3,16}) joined the game/);
+    const join = line.match(/: ([A-Za-z0-9_]{3,16})(?: joined the game|\[[^\]]+\] logged in with entity id)/);
     if (join) {
       const players = new Set(this.state.players);
       players.add(join[1]);

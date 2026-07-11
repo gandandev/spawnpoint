@@ -1,4 +1,8 @@
+import fs from "node:fs";
 import path from "node:path";
+
+const localEnvPath = path.join(process.cwd(), ".env");
+if (fs.existsSync(localEnvPath)) process.loadEnvFile(localEnvPath);
 
 function integerEnv(name: string, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(process.env[name] ?? "", 10);

@@ -3,6 +3,9 @@ package dev.spawnpoint;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,14 +21,17 @@ import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftAuthC
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftLoginEvent;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftRegisterSkinEvent;
 import net.lax1dude.eaglercraft.backend.server.api.skins.EnumSkinModel;
+import net.lax1dude.eaglercraft.backend.server.api.skins.IEaglerPlayerSkin;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener {
     private byte[] secret;
     private String portalOrigin;
+    private boolean awaitingFirstPlayer;
 
     @Override
     public void onEnable() {
@@ -37,8 +43,17 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             return;
         }
         this.portalOrigin = env("PORTAL_INTERNAL_ORIGIN", "http://127.0.0.1:3000").replaceAll("/+$", "");
+        this.awaitingFirstPlayer = true;
         getServer().getPluginManager().registerEvents(this, this);
         getLogger().info("Site-ticket authentication is active.");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onFirstPlayerJoin(PlayerJoinEvent event) {
+        if (!awaitingFirstPlayer) return;
+        awaitingFirstPlayer = false;
+        getServer().getWorlds().forEach(world -> world.setTime(1_000L));
+        getLogger().info("Set all loaded worlds to morning for the first player.");
     }
 
     private byte[] loadSecret() throws IOException {
@@ -71,22 +86,39 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onLogin(EaglercraftLoginEvent event) {
-        Ticket ticket = verifyPath(event.getLoginConnection().asEaglerPlayer().getWebSocketPath());
+        Ticket ticket = verifyPath(event.getLoginConnection().getWebSocketPath());
         if (ticket == null) {
             event.setKickMessage("Your spawnpoint launch ticket is invalid or expired.");
             event.setCancelled(true);
             return;
         }
+        // Bukkit owns the offline UUID and rejects setProfileUUID during this event.
         event.setProfileUsername(ticket.username);
-        event.setProfileUUID(ticket.profileId);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onSkin(EaglercraftRegisterSkinEvent event) {
-        Ticket ticket = verifyPath(event.getLoginConnection().asEaglerPlayer().getWebSocketPath());
+        Ticket ticket = verifyPath(event.getLoginConnection().getWebSocketPath());
         if (ticket == null) return;
         EnumSkinModel model = "alex".equals(ticket.skinModel) ? EnumSkinModel.ALEX : EnumSkinModel.STEVE;
-        event.forceSkinFromURL(portalOrigin + ticket.skinPath, model);
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) URI.create(portalOrigin + ticket.skinPath).toURL().openConnection();
+            connection.setConnectTimeout(2_000);
+            connection.setReadTimeout(2_000);
+            connection.setUseCaches(false);
+            try (InputStream input = connection.getInputStream()) {
+                IEaglerPlayerSkin skin = event.getServerAPI()
+                    .getSkinService()
+                    .getSkinLoader(false)
+                    .loadSkinImageData(input, model);
+                if (skin.isSuccess()) event.forceSkinEagler(skin);
+            }
+        } catch (IOException | IllegalArgumentException exception) {
+            getLogger().warning("Could not load the spawnpoint skin; continuing with the client skin: " + exception.getMessage());
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
     }
 
     private Ticket verifyPath(String websocketPath) {
@@ -110,11 +142,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             String skinPath = string(json, "skinPath");
             String skinModel = string(json, "skinModel");
             if (username == null || !username.matches("[A-Za-z0-9_]{3,16}") || subject == null) return null;
-            UUID profileId = UUID.fromString(subject);
+            UUID.fromString(subject);
             if (skinPath == null || !(skinPath.startsWith("/api/skins/") || skinPath.startsWith("/assets/skins/"))) return null;
             if (skinPath.contains("..") || skinPath.contains("\\") || skinPath.contains("#")) return null;
             if (!("steve".equals(skinModel) || "alex".equals(skinModel))) return null;
-            return new Ticket(username, profileId, skinPath, skinModel);
+            return new Ticket(username, skinPath, skinModel);
         } catch (GeneralSecurityException | IllegalArgumentException | IllegalStateException exception) {
             return null;
         }
@@ -139,5 +171,5 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         return null;
     }
 
-    private record Ticket(String username, UUID profileId, String skinPath, String skinModel) {}
+    private record Ticket(String username, String skinPath, String skinModel) {}
 }

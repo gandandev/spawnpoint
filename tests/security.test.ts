@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  hashPassword, signToken, validateCredentials, verifyPassword, verifyToken,
+  createSessionToken, hashPassword, isSameOriginHeaders, sessionFromCookieHeader,
+  signToken, validateCredentials, verifyPassword, verifyToken,
 } from "../server/security.js";
 
 const secret = "test-secret-that-is-longer-than-thirty-two-characters";
@@ -30,6 +31,22 @@ describe("signed tickets", () => {
   });
 });
 
+describe("gateway sessions", () => {
+  it("reads the signed session from a websocket cookie header", () => {
+    const now = Date.now();
+    const session = createSessionToken({
+      id: "user-1", username: "mossrunner", passwordHash: Buffer.alloc(0), passwordSalt: Buffer.alloc(0),
+      createdAt: now, skinType: "preset", skinRef: "moss", skinModel: "steve", skinLabel: "moss", skinUpdatedAt: now,
+    }, secret, 1);
+    expect(sessionFromCookieHeader(`other=value; spawnpoint_session=${session.token}`, secret)?.sub).toBe("user-1");
+  });
+
+  it("rejects cross-origin websocket handshakes", () => {
+    expect(isSameOriginHeaders("https://spawnpoint.test", "spawnpoint.test")).toBe(true);
+    expect(isSameOriginHeaders("https://evil.test", "spawnpoint.test")).toBe(false);
+  });
+});
+
 describe("credentials", () => {
   it("enforces minecraft-safe names and useful passwords", () => {
     expect(validateCredentials("player_01", "password123").username).toBe("player_01");
@@ -37,4 +54,3 @@ describe("credentials", () => {
     expect(() => validateCredentials("player", "short")).toThrow();
   });
 });
-
