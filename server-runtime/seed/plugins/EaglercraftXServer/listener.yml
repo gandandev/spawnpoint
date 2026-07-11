@@ -1,0 +1,31 @@
+dual_stack: true
+forward_ip: true
+forward_ip_header: X-Real-IP
+forward_secret: false
+spoof_player_address_forwarded: true
+allow_motd: true
+allow_query: true
+allow_cookie_revoke_query: false
+server_motd:
+  - "&aspawnpoint"
+  - "&7wake, join, sleep."
+server_icon: server-icon.png
+tls_config:
+  enable_tls: false
+ratelimit:
+  disable_ratelimit:
+    - 127.0.0.0/8
+    - ::1/128
+  ip:
+    enable: true
+    period: 90
+    limit: 60
+    limit_lockout: 80
+    lockout_duration: 300
+  login:
+    enable: true
+    period: 50
+    limit: 5
+    limit_lockout: 10
+    lockout_duration: 300
+

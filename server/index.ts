@@ -1,0 +1,152 @@
+import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import express from "express";
+import httpProxy from "http-proxy";
+import { config } from "./config.js";
+import { AppDatabase } from "./db.js";
+import { createApiRouter } from "./api.js";
+import { loadOrCreateSecret, verifyToken } from "./security.js";
+import { MinecraftServerManager } from "./server-manager.js";
+import { SkinService } from "./skins.js";
+
+fs.mkdirSync(config.dataDir, { recursive: true });
+const sessionSecret = loadOrCreateSecret(config.dataDir, config.sessionSecret);
+const database = new AppDatabase(config.dataDir);
+const skins = new SkinService(database, config.dataDir);
+const serverManager = new MinecraftServerManager({
+  dataDir: config.dataDir,
+  seedDir: config.seedDir,
+  javaBin: config.javaBin,
+  memoryMb: config.memoryMb,
+  idleMinutes: config.idleMinutes,
+  startCooldownSeconds: config.startCooldownSeconds,
+  maxPlayers: config.maxPlayers,
+  eulaAccepted: config.eulaAccepted,
+  mockServer: config.mockServer,
+});
+
+const app = express();
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+
+app.use((request, response, next) => {
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  if (request.path.startsWith("/game/")) {
+    response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+    response.setHeader(
+      "Content-Security-Policy",
+      "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data:; style-src 'self' 'unsafe-inline' data:; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: blob: data:; worker-src 'self' blob:; media-src 'self' blob: data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
+    );
+  } else {
+    response.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    );
+  }
+  next();
+});
+
+app.get("/healthz", (_request, response) => {
+  response.json({ ok: true, server: serverManager.getStatus().phase });
+});
+
+app.use("/api", createApiRouter({
+  database,
+  skins,
+  serverManager,
+  sessionSecret,
+  secureCookies: config.secureCookies,
+  sessionDays: config.sessionDays,
+  gameTicketMinutes: config.gameTicketMinutes,
+  eulaAccepted: config.eulaAccepted || config.mockServer,
+}));
+
+app.use("/game", express.static(path.join(config.clientDir, "game"), {
+  fallthrough: false,
+  index: false,
+  maxAge: "1h",
+  setHeaders(response, filePath) {
+    if (filePath.endsWith(".html")) response.setHeader("Cache-Control", "public, max-age=300");
+  },
+}));
+
+app.use(express.static(config.clientDir, {
+  index: false,
+  maxAge: "1h",
+  setHeaders(response, filePath) {
+    if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    }
+  },
+}));
+
+app.use((request, response, next) => {
+  if (request.method !== "GET" || request.path.startsWith("/api/") || request.path.startsWith("/gateway")) {
+    next();
+    return;
+  }
+  response.sendFile(path.join(config.clientDir, "index.html"));
+});
+
+const server = http.createServer(app);
+const proxy = httpProxy.createProxyServer({
+  target: "ws://127.0.0.1:25565",
+  ws: true,
+  xfwd: true,
+  changeOrigin: false,
+  proxyTimeout: 15_000,
+});
+
+proxy.on("error", (_error, _request, socket) => {
+  if (socket && "destroy" in socket) socket.destroy();
+});
+
+server.on("upgrade", (request, socket, head) => {
+  try {
+    const parsed = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    if (parsed.pathname !== "/gateway") {
+      socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    const ticket = parsed.searchParams.get("ticket") ?? undefined;
+    const payload = verifyToken(ticket, sessionSecret, "game");
+    if (!payload) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    if (serverManager.getStatus().phase !== "online") {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 5\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    request.headers["x-real-ip"] = request.socket.remoteAddress ?? "127.0.0.1";
+    proxy.ws(request, socket, head);
+  } catch {
+    socket.destroy();
+  }
+});
+
+server.listen(config.port, "0.0.0.0", () => {
+  console.log(`spawnpoint is listening on port ${config.port}`);
+});
+
+let closing = false;
+async function shutdown(): Promise<void> {
+  if (closing) return;
+  closing = true;
+  await serverManager.shutdown();
+  database.close();
+  proxy.close();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 25_000).unref();
+}
+
+process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown());

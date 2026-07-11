@@ -1,0 +1,8 @@
+name: SpawnpointBridge
+version: 1.0.0
+main: dev.spawnpoint.SpawnpointBridgePlugin
+author: spawnpoint
+description: Enforces signed spawnpoint accounts and skins for Eaglercraft players.
+depend:
+  - EaglercraftXServer
+

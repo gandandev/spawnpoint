@@ -1,0 +1,13 @@
+settings:
+  allow-end: true
+  warn-on-overload: true
+spawn-limits:
+  monsters: 45
+  animals: 8
+  water-animals: 4
+  ambient: 4
+ticks-per:
+  animal-spawns: 500
+  monster-spawns: 2
+  autosave: 6000
+

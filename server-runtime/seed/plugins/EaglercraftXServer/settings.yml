@@ -1,0 +1,24 @@
+enable_authentication_events: true
+debug_log_client_brands: false
+debug_log_new_channels: false
+debug_log_origin_headers: false
+debug_log_real_ip_headers: false
+eagler_players_view_distance: 4
+http_websocket_compression_level: 6
+protocols:
+  min_minecraft_protocol: 47
+  max_minecraft_protocol: 340
+  max_minecraft_protocol_v5: -1
+  protocol_legacy_allowed: false
+  protocol_v3_allowed: true
+  protocol_v4_allowed: true
+  protocol_v5_allowed: true
+skin_service:
+  valid_skin_download_urls:
+    - textures.minecraft.net
+    - 127.0.0.1
+    - localhost
+  skin_cache_thread_count: 2
+  skin_cache_memory_max_objects: 256
+  skin_cache_disk_max_objects: 2048
+
