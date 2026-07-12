@@ -39,6 +39,9 @@ app.use((request, response, next) => {
   response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  if (process.env.NODE_ENV === "production") {
+    response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
   if (request.path.startsWith("/game/")) {
     response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
     response.setHeader(
@@ -171,7 +174,12 @@ server.on("upgrade", (request, socket, head) => {
     }
     const launchId = parsed.searchParams.get("launch");
     const tracked = isLaunchId(launchId) && gameConnections.begin(launchId, user.id);
-    if (tracked) socket.once("close", () => gameConnections.closed(launchId, user.id));
+    if (!tracked) {
+      socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    socket.once("close", () => gameConnections.closed(launchId, user.id));
     const ticket = createGameTicket(user, skinPathForUser(user), sessionSecret, config.gameTicketMinutes);
     parsed.searchParams.set("ticket", ticket);
     request.url = `${parsed.pathname}${parsed.search}`;

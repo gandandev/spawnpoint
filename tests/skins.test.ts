@@ -68,6 +68,21 @@ describe("account skin storage", () => {
     database.close();
   });
 
+  it("reuses a generated profile until the skin changes", async () => {
+    const database = createDatabase();
+    const user = database.createUser("cacheplayer", Buffer.from("hash"), Buffer.from("salt"));
+    const service = new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public"));
+
+    const first = service.createClientProfile(user);
+    const second = service.createClientProfile(user);
+    expect(second).toBe(first);
+    expect(await second).toBe(await first);
+
+    const updated = database.updateSkin(user.id, "preset", "moss", "steve", "moss");
+    expect(service.createClientProfile(updated)).not.toBe(first);
+    database.close();
+  });
+
   it("converts browser RGBA pixels to the client's ARGB layout", () => {
     const rgba = Buffer.alloc(64 * 64 * 4);
     rgba.set([17, 34, 51, 68]);

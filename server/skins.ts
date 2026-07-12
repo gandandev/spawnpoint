@@ -123,6 +123,7 @@ export function encodeClientProfile(username: string, model: SkinModel, rgbaSkin
 
 export class SkinService {
   private readonly skinDir: string;
+  private readonly profileCache = new Map<string, Promise<string>>();
 
   constructor(
     private readonly database: AppDatabase,
@@ -198,7 +199,22 @@ export class SkinService {
     return this.database.updateSkin(user.id, "mojang", user.id, model, profile.name ?? usernameInput);
   }
 
-  async createClientProfile(user: UserRecord): Promise<string> {
+  createClientProfile(user: UserRecord): Promise<string> {
+    const cacheKey = `${user.id}:${user.username}:${user.skinType}:${user.skinRef}:${user.skinModel}:${user.skinUpdatedAt}`;
+    const cached = this.profileCache.get(cacheKey);
+    if (cached) return cached;
+
+    const profile = this.buildClientProfile(user);
+    this.profileCache.set(cacheKey, profile);
+    profile.catch(() => this.profileCache.delete(cacheKey));
+    if (this.profileCache.size > 256) {
+      const oldest = this.profileCache.keys().next().value;
+      if (oldest) this.profileCache.delete(oldest);
+    }
+    return profile;
+  }
+
+  private async buildClientProfile(user: UserRecord): Promise<string> {
     const skinFile = user.skinType === "preset"
       ? path.join(this.clientDir, "assets", "skins", `${user.skinRef}.png`)
       : this.skinFile(user.id);
