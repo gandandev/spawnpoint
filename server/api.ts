@@ -116,6 +116,16 @@ export function createApiRouter(context: ApiContext): express.Router {
     next();
   });
 
+  const createUserWithRandomSkin = async (username: string, passwordHash: Buffer, passwordSalt: Buffer): Promise<UserRecord> => {
+    const created = context.database.createUser(username, passwordHash, passwordSalt);
+    try {
+      return await context.skins.applyRandomSkin(created);
+    } catch {
+      // Account creation still succeeds if the external skin host is temporarily unavailable.
+      return created;
+    }
+  };
+
   router.get("/bootstrap", (request, response) => {
     const authenticated = userForRequest(request, context);
     response.json({
@@ -186,7 +196,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       const password = await hashPassword(credentials.password);
       let user: UserRecord;
       try {
-        user = context.database.createUser(credentials.username, password.hash, password.salt);
+        user = await createUserWithRandomSkin(credentials.username, password.hash, password.salt);
       } catch {
         fail(response, 409, "이미 등록된 플레이어 ID예요.", "USERNAME_TAKEN");
         return;
@@ -242,7 +252,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       } else {
         const password = await hashPassword(credentials.password);
         try {
-          user = context.database.createUser(credentials.username, password.hash, password.salt);
+          user = await createUserWithRandomSkin(credentials.username, password.hash, password.salt);
         } catch {
           fail(response, 409, "플레이어 ID가 방금 등록됐어요. 다시 시도하세요.", "USERNAME_TAKEN");
           return;
@@ -293,6 +303,22 @@ export function createApiRouter(context: ApiContext): express.Router {
       response.json({ user: toPublicUser(updated) });
     } catch (error) {
       fail(response, 400, error instanceof Error ? error.message : "스킨을 찾지 못했어요.");
+    }
+  });
+
+  router.post("/skin/random", async (request, response) => {
+    if (!requireSameOrigin(request, response)) return;
+    const user = requireUser(request, response, context, true);
+    if (!user) return;
+    if (!skinLimiter.take(`${user.id}:random`)) {
+      fail(response, 429, "스킨 변경 요청이 너무 많아요. 몇 분 뒤 다시 시도하세요.", "RATE_LIMITED");
+      return;
+    }
+    try {
+      const updated = await context.skins.applyRandomSkin(user);
+      response.json({ user: toPublicUser(updated) });
+    } catch (error) {
+      fail(response, 400, error instanceof Error ? error.message : "랜덤 스킨을 적용하지 못했어요.");
     }
   });
 

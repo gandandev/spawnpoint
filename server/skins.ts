@@ -3,7 +3,7 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import sharp from "sharp";
 import type { AppDatabase } from "./db.js";
-import type { PublicUser, SkinModel, UserRecord } from "./types.js";
+import type { PublicUser, SkinModel, SkinType, UserRecord } from "./types.js";
 
 export function skinPathForUser(user: UserRecord): string {
   if (user.skinType === "preset") return `/assets/skins/${user.skinRef}.png`;
@@ -22,6 +22,18 @@ export function toPublicUser(user: UserRecord): PublicUser {
     },
   };
 }
+
+export const RANDOM_SKIN_URLS = [
+  "https://s.namemc.com/i/5b3eacb5eae8cc05.png",
+  "https://s.namemc.com/i/6284e38ae0ad125d.png",
+  "https://s.namemc.com/i/c42444f67d4d8b8d.png",
+  "https://s.namemc.com/i/fef2b519ed94ba29.png",
+  "https://s.namemc.com/i/71b51ff645f6d8ab.png",
+  "https://s.namemc.com/i/219aa6f666ad9076.png",
+  "https://s.namemc.com/i/38ea1f7c1259ba9d.png",
+  "https://s.namemc.com/i/fe719aacb649026e.png",
+  "https://s.namemc.com/i/c48671978c4ff2c4.png",
+] as const;
 
 async function normalizeSkin(input: Buffer, outputPath: string): Promise<void> {
   const source = sharp(input, { limitInputPixels: 64 * 64 });
@@ -185,18 +197,28 @@ export class SkinService {
       throw new Error("Mojang returned an untrusted skin URL.");
     }
     parsedUrl.protocol = "https:";
-    const skinResponse = await fetch(parsedUrl, {
+    const model: SkinModel = textures.textures?.SKIN?.metadata?.model === "slim" ? "alex" : "steve";
+    return this.applyRemoteSkin(user, parsedUrl, "mojang", model, profile.name ?? usernameInput);
+  }
+
+  async applyRandomSkin(user: UserRecord): Promise<UserRecord> {
+    const url = RANDOM_SKIN_URLS[Math.floor(Math.random() * RANDOM_SKIN_URLS.length)];
+    return this.applyRemoteSkin(user, new URL(url), "upload", "steve", "random skin");
+  }
+
+  private async applyRemoteSkin(user: UserRecord, url: URL, skinType: SkinType, model: SkinModel, label: string): Promise<UserRecord> {
+    const skinResponse = await fetch(url, {
       signal: AbortSignal.timeout(10_000),
       headers: { "User-Agent": "spawnpoint/1.0" },
     });
-    if (!skinResponse.ok) throw new Error("The Minecraft skin image could not be downloaded.");
+    if (!skinResponse.ok) throw new Error("The skin image could not be downloaded.");
     const body = Buffer.from(await skinResponse.arrayBuffer());
-    if (body.length > 256 * 1024) throw new Error("The Minecraft skin image is unexpectedly large.");
+    if (body.length > 256 * 1024) throw new Error("The skin image is unexpectedly large.");
+    const detectedModel = await detectSkinModel(body);
     const destination = this.skinFile(user.id);
     if (!destination) throw new Error("Invalid user ID.");
     await normalizeSkin(body, destination);
-    const model: SkinModel = textures.textures?.SKIN?.metadata?.model === "slim" ? "alex" : "steve";
-    return this.database.updateSkin(user.id, "mojang", user.id, model, profile.name ?? usernameInput);
+    return this.database.updateSkin(user.id, skinType, user.id, skinType === "upload" ? detectedModel : model, label);
   }
 
   createClientProfile(user: UserRecord): Promise<string> {

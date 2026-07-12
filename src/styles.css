@@ -94,4 +94,8 @@
     @apply absolute bottom-5 right-5 z-10;
   }
 
+  .character-random {
+    @apply absolute bottom-5 left-5 z-10;
+  }
+
 }

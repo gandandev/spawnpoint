@@ -1,5 +1,5 @@
 import { DragEvent, FormEvent, ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, Circle, LogOut, Play, Server, ServerOff, ShieldCheck, Upload, X } from "lucide-react";
+import { ArrowRight, Check, Circle, Dices, LogOut, Play, Server, ServerOff, ShieldCheck, Upload, X } from "lucide-react";
 import { SkinPreview } from "./SkinPreview";
 import type { BootstrapData, ClientChoice, PublicUser, ServerStatus } from "./types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -245,7 +245,7 @@ function GameScreen({ game, gameUrl, onClose }: { game: GameSession; gameUrl: st
 }
 
 function Dashboard({ data, onData, onStart, onLogout, notice, onPlay }: { data: BootstrapData; onData: (patch: Partial<BootstrapData>) => void; onStart: () => Promise<void>; onLogout: () => Promise<void>; notice: (message: string) => void; onPlay: (client: ClientChoice["id"]) => Promise<void> }) {
-  const [launching, setLaunching] = useState(false); const [skinDialogOpen, setSkinDialogOpen] = useState(false); const selected = data.clients[0]!;
+  const [launching, setLaunching] = useState(false); const [skinDialogOpen, setSkinDialogOpen] = useState(false); const [randomizingSkin, setRandomizingSkin] = useState(false); const selected = data.clients[0]!;
   const serverBusy = ["preparing", "starting", "stopping"].includes(data.server.phase);
   const execute = async () => {
     setLaunching(true);
@@ -261,6 +261,17 @@ function Dashboard({ data, onData, onStart, onLogout, notice, onPlay }: { data: 
       setLaunching(false);
     }
   };
+  const randomizeSkin = async () => {
+    setRandomizingSkin(true);
+    try {
+      const result = await api<{ user: PublicUser }>("/skin/random", { method: "POST", headers: { "x-spawnpoint-csrf": data.csrf! } });
+      onData({ user: result.user });
+    } catch (error) {
+      notice(error instanceof Error ? error.message : "랜덤 스킨을 적용하지 못했어요");
+    } finally {
+      setRandomizingSkin(false);
+    }
+  };
   return <main className="dashboard-shell">
     <header className="dashboard-header">
       <Logo />
@@ -270,6 +281,9 @@ function Dashboard({ data, onData, onStart, onLogout, notice, onPlay }: { data: 
     {!data.setup.eulaAccepted && <Alert><ShieldCheck /><AlertTitle>서버 설정이 필요해요</AlertTitle><AlertDescription>소유자가 아직 마인크래프트 EULA에 동의하지 않았어요. <code>MC_EULA=true</code>로 설정하세요.</AlertDescription></Alert>}
     <section className="character-stage" aria-label="캐릭터 미리보기">
       <SkinPreview src={data.user!.skin.previewUrl} model={data.user!.skin.model} nameTag={data.user!.username} className="character-preview" />
+      <Button variant="outline" size="icon" className="character-random active:scale-[0.98]" onClick={() => void randomizeSkin()} disabled={randomizingSkin} aria-label="랜덤 스킨 적용" title="랜덤 스킨 적용">
+        {randomizingSkin ? <Spinner /> : <Dices />}
+      </Button>
       <Dialog open={skinDialogOpen} onOpenChange={setSkinDialogOpen}>
         <DialogTrigger asChild><Button variant="outline" className="character-change active:scale-[0.98]">변경</Button></DialogTrigger>
         <DialogContent className="max-h-[90dvh] overflow-y-auto ring-0 sm:max-w-md">
