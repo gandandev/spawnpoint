@@ -73,6 +73,11 @@
   80% { transform: translateX(2px); }
 }
 
+@keyframes auth-label-in {
+  from { opacity: 0; transform: translateY(0.25rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @layer components {
   .dashboard-shell {
     @apply mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4 py-8;

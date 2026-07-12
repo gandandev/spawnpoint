@@ -139,6 +139,15 @@ export function createApiRouter(context: ApiContext): express.Router {
     });
   });
 
+  router.get("/auth/username-availability", (request, response) => {
+    try {
+      const username = validateUsername(request.query.username);
+      response.json({ available: context.database.getUserByUsername(username) === null });
+    } catch (error) {
+      fail(response, 400, error instanceof Error ? error.message : "플레이어 ID를 확인할 수 없어요.", "INVALID_USERNAME");
+    }
+  });
+
   router.get("/server/status", (_request, response) => {
     response.json({ server: context.serverManager.getStatus() });
   });

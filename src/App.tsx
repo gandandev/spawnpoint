@@ -136,11 +136,33 @@ const passwordFieldErrorClass = "animate-[password-shake_360ms_ease-in-out] bord
 
 function AuthScreen({ data, onAuth, notice }: { data: BootstrapData; onAuth: (username: string, password: string, serverPassword: string) => Promise<void>; notice: (message: string) => void }) {
   const [username, setUsername] = useState("");
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [serverPassword, setServerPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [passwordError, setPasswordError] = useState(false);
   const [serverPasswordError, setServerPasswordError] = useState(false);
+
+  useEffect(() => {
+    setUsernameAvailable(null);
+    if (!/^[A-Za-z0-9_]{3,16}$/.test(username)) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void api<{ available: boolean }>(`/auth/username-availability?username=${encodeURIComponent(username)}`, { signal: controller.signal })
+        .then(({ available }) => setUsernameAvailable(available))
+        .catch((error) => {
+          if (!(error instanceof DOMException && error.name === "AbortError")) setUsernameAvailable(null);
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [username]);
+
+  const authLabel = usernameAvailable === null ? "계속" : usernameAvailable ? "가입" : "로그인";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -207,7 +229,7 @@ function AuthScreen({ data, onAuth, notice }: { data: BootstrapData; onAuth: (us
               </div>
               <Button size="lg" className="h-11 w-full rounded-full px-4" disabled={busy}>
                 {busy ? <Spinner data-icon="inline-end" /> : <ArrowRight data-icon="inline-end" />}
-                계속
+                <span key={authLabel} className="animate-[auth-label-in_180ms_ease-out] motion-reduce:animate-none" aria-live="polite">{authLabel}</span>
               </Button>
             </FieldGroup>
           </form>
