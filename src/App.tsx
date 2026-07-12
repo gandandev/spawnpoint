@@ -162,7 +162,7 @@ function AuthScreen({ data, onAuth, notice }: { data: BootstrapData; onAuth: (us
     };
   }, [username]);
 
-  const authLabel = usernameAvailable === null ? "계속" : usernameAvailable ? "가입" : "로그인";
+  const authLabel = usernameAvailable ? "가입" : "로그인";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
