@@ -13,6 +13,8 @@ outputs/
 public/game/stable.html
 public/game/experimental.html
 public/game/lite.html
+public/game/*.html.br
+public/game/*.html.gz
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

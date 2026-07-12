@@ -86,15 +86,17 @@ class ApiError extends Error {
   }
 }
 
-async function waitForServerOnline(): Promise<void> {
-  while (true) {
+async function waitForServerOnline(timeoutMs = 135_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
     const { server } = await api<{ server: ServerStatus }>("/server/status");
     if (server.phase === "online") return;
     if (server.phase === "off" || server.phase === "error") {
       throw new Error(server.lastError ?? "서버를 시작하지 못했어요");
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 750));
+    await new Promise((resolve) => window.setTimeout(resolve, Math.min(750, deadline - Date.now())));
   }
+  throw new Error("서버 시작이 예상보다 오래 걸려요. 잠시 후 다시 시도하세요.");
 }
 
 function Logo() {
@@ -117,7 +119,7 @@ function StartButton({ status, setupReady, onStart }: { status: ServerStatus; se
   </Button>;
 }
 
-function ServerCard({ status, setupReady, onStart, compact = false }: { status: ServerStatus; setupReady: boolean; onStart: () => Promise<void>; compact?: boolean }) {
+function ServerCard({ status, setupReady, onStart, compact = false }: { status: ServerStatus; setupReady: boolean; onStart?: () => Promise<void>; compact?: boolean }) {
   const copy = statusCopy(status);
   const label = useStatusLabel(status);
   const starting = status.phase === "preparing" || status.phase === "starting";
@@ -125,32 +127,20 @@ function ServerCard({ status, setupReady, onStart, compact = false }: { status: 
     {starting && <span aria-hidden="true" className="pointer-events-none absolute inset-0 animate-[shimmer_1.5s_linear_infinite] bg-[linear-gradient(110deg,transparent,rgba(255,255,255,.6),transparent)] bg-[length:200%_100%]" />}
     <ServerStatusIcon status={status} className={cn("relative size-4 shrink-0 text-muted-foreground", status.phase === "online" && "text-[#65952c]")} />
     <strong className={cn("relative text-sm", status.phase === "online" && "text-[#65952c]")}>{label.text}</strong>
-    {status.phase === "online" ? label.detail && <span className="relative ml-auto mr-1 text-sm text-[#65952c]">{label.detail}</span> : <span className="relative ml-auto"><StartButton status={status} setupReady={setupReady} onStart={onStart} /></span>}
+    {status.phase === "online" ? label.detail && <span className="relative ml-auto mr-1 text-sm text-[#65952c]">{label.detail}</span> : onStart && <span className="relative ml-auto"><StartButton status={status} setupReady={setupReady} onStart={onStart} /></span>}
   </Card>;
-  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><ServerStatusIcon status={status} />{copy.title}</CardTitle><CardDescription>{copy.detail}</CardDescription></CardHeader><CardFooter><Badge variant="secondary"><Circle fill="currentColor" />{label.text}{label.detail && ` · ${label.detail}`}</Badge><span className="ml-auto"><StartButton status={status} setupReady={setupReady} onStart={onStart} /></span></CardFooter></Card>;
+  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><ServerStatusIcon status={status} />{copy.title}</CardTitle><CardDescription>{copy.detail}</CardDescription></CardHeader><CardFooter><Badge variant="secondary"><Circle fill="currentColor" />{label.text}{label.detail && ` · ${label.detail}`}</Badge>{onStart && <span className="ml-auto"><StartButton status={status} setupReady={setupReady} onStart={onStart} /></span>}</CardFooter></Card>;
 }
 
 const passwordFieldErrorClass = "animate-[password-shake_360ms_ease-in-out] border-red-500 bg-red-50 text-red-900 ring-2 ring-red-500/20 focus-visible:border-red-500 focus-visible:ring-red-500/20";
 
-function AuthScreen({ data, onAuth, onStart, notice }: { data: BootstrapData; onAuth: (username: string, password: string, serverPassword: string) => Promise<void>; onStart: () => Promise<void>; notice: (message: string) => void }) {
+function AuthScreen({ data, onAuth, notice }: { data: BootstrapData; onAuth: (username: string, password: string, serverPassword: string) => Promise<void>; notice: (message: string) => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [serverPassword, setServerPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [accountExists, setAccountExists] = useState<boolean | null>(null);
   const [passwordError, setPasswordError] = useState(false);
   const [serverPasswordError, setServerPasswordError] = useState(false);
-
-  useEffect(() => {
-    if (!/^[A-Za-z0-9_]{3,16}$/.test(username)) { setAccountExists(null); return; }
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void api<{ exists: boolean }>("/auth/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username }), signal: controller.signal })
-        .then((result) => { if (!controller.signal.aborted) setAccountExists(result.exists); })
-        .catch(() => { if (!controller.signal.aborted) setAccountExists(null); });
-    }, 250);
-    return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [username]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -171,7 +161,7 @@ function AuthScreen({ data, onAuth, onStart, notice }: { data: BootstrapData; on
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4 py-8">
       <Logo />
-      <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} onStart={onStart} compact />
+      <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} compact />
       <Card className="overflow-visible border-0 p-0 shadow-none ring-0">
         <CardContent className="px-0">
           <form onSubmit={submit}>
@@ -203,7 +193,7 @@ function AuthScreen({ data, onAuth, onStart, notice }: { data: BootstrapData; on
                   <Input
                     className={cn("h-11 rounded-full px-4 shadow-none transition-colors", serverPasswordError && passwordFieldErrorClass)}
                     id="server-password"
-                    type="text"
+                    type="password"
                     autoComplete="off"
                     value={serverPassword}
                     onChange={(event) => { setServerPassword(event.target.value); setServerPasswordError(false); }}
@@ -217,7 +207,7 @@ function AuthScreen({ data, onAuth, onStart, notice }: { data: BootstrapData; on
               </div>
               <Button size="lg" className="h-11 w-full rounded-full px-4" disabled={busy}>
                 {busy ? <Spinner data-icon="inline-end" /> : <ArrowRight data-icon="inline-end" />}
-                {accountExists ? "로그인" : "가입"}
+                계속
               </Button>
             </FieldGroup>
           </form>
@@ -299,7 +289,13 @@ export function App() {
   const notice = useCallback((message: string) => toast(message, { duration: 4_500 }), []); const reload = useCallback(async () => setData(await api<BootstrapData>("/bootstrap")), []);
   useEffect(() => { void reload().catch(() => notice("spawnpoint에 연결할 수 없어요")); }, [reload, notice]);
   useEffect(() => { const events = new EventSource("/api/server/events"); events.onmessage = (event) => { const server = JSON.parse(event.data) as ServerStatus; setData((current) => current ? { ...current, server } : current); }; return () => events.close(); }, []);
-  const startServer = useCallback(async () => { const result = await api<{ server: ServerStatus }>("/server/start", { method: "POST" }); setData((current) => current ? { ...current, server: result.server } : current); }, []);
+  const startServer = useCallback(async () => {
+    const result = await api<{ server: ServerStatus }>("/server/start", {
+      method: "POST",
+      headers: { "x-spawnpoint-csrf": data?.csrf ?? "" },
+    });
+    setData((current) => current ? { ...current, server: result.server } : current);
+  }, [data?.csrf]);
   const auth = async (username: string, password: string, serverPassword: string) => {
     const result = await api<{ user: PublicUser; csrf: string }>("/auth/continue", {
       method: "POST",
@@ -310,8 +306,8 @@ export function App() {
   };
   const logout = async () => { await api<void>("/auth/logout", { method: "POST", headers: { "x-spawnpoint-csrf": data!.csrf! } }); setData((current) => current ? { ...current, user: null, csrf: null } : current); };
   const play = async (client: ClientChoice["id"]) => { const launchId = crypto.randomUUID(); const result = await api<{ username: string; profile: string }>("/game-ticket", { method: "POST", headers: { "Content-Type": "application/json", "x-spawnpoint-csrf": data!.csrf! }, body: JSON.stringify({ launchId }) }); window.localStorage.setItem(`_spawnpoint_${result.username.toLowerCase()}.p`, result.profile); setGame({ client, username: result.username, launchId }); };
-  const gameUrl = useMemo(() => game ? `/game/${game.client}.html?v=20260711-korean-locale-v13&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}` : "", [game]);
+  const gameUrl = useMemo(() => game ? `/game/${game.client}.html?v=20260712-performance-v1&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}` : "", [game]);
   if (!data) return <main className="flex min-h-dvh items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />월드 상태 불러오는 중</main>;
   if (game) return <GameScreen game={game} gameUrl={gameUrl} onClose={() => setGame(null)} />;
-  return <>{data.user ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} /> : <AuthScreen data={data} onAuth={auth} onStart={startServer} notice={notice} />}<Toaster position="bottom-right" /></>;
+  return <>{data.user ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} /> : <AuthScreen data={data} onAuth={auth} notice={notice} />}<Toaster position="bottom-right" /></>;
 }

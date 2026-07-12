@@ -57,16 +57,12 @@ class MemoryRateLimiter {
   }
 }
 
-function requestIp(request: Request): string {
-  const cloudflare = request.headers["cf-connecting-ip"];
-  if (typeof cloudflare === "string") return cloudflare;
-  const forwarded = request.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
-  return request.ip || request.socket.remoteAddress || "unknown";
-}
-
 function fail(response: Response, status: number, message: string, code = "REQUEST_FAILED"): void {
   response.status(status).json({ error: { code, message } });
+}
+
+function requestIp(request: Request): string {
+  return request.ip || request.socket.remoteAddress || "unknown";
 }
 
 function requireSameOrigin(request: Request, response: Response): boolean {
@@ -155,7 +151,9 @@ export function createApiRouter(context: ApiContext): express.Router {
 
   router.post("/server/start", async (request, response) => {
     if (!requireSameOrigin(request, response)) return;
-    if (!startLimiter.take(requestIp(request))) {
+    const user = requireUser(request, response, context, true);
+    if (!user) return;
+    if (!startLimiter.take(user.id)) {
       fail(response, 429, "서버 시작 요청이 너무 많아요. 몇 분 뒤 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
@@ -169,16 +167,6 @@ export function createApiRouter(context: ApiContext): express.Router {
         return;
       }
       throw error;
-    }
-  });
-
-  router.post("/auth/lookup", (request, response) => {
-    if (!requireSameOrigin(request, response)) return;
-    try {
-      const username = validateUsername(request.body?.username);
-      response.json({ exists: Boolean(context.database.getUserByUsername(username)) });
-    } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "플레이어 ID를 확인할 수 없어요.", "INVALID_USERNAME");
     }
   });
 

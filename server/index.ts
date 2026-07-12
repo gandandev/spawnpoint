@@ -29,6 +29,7 @@ const serverManager = new MinecraftServerManager({
 });
 
 const app = express();
+const gameDir = path.join(config.clientDir, "game");
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
@@ -70,12 +71,45 @@ app.use("/api", createApiRouter({
   gameConnections,
 }));
 
-app.use("/game", express.static(path.join(config.clientDir, "game"), {
+function preferredGameEncoding(acceptEncoding: string | undefined): "br" | "gzip" | null {
+  if (!acceptEncoding) return null;
+  if (/\bbr\b/i.test(acceptEncoding)) return "br";
+  if (/\bgzip\b/i.test(acceptEncoding)) return "gzip";
+  return null;
+}
+
+app.get("/game/stable.html", (request, response, next) => {
+  const version = request.query.v;
+  if (typeof version !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(version)) {
+    next();
+    return;
+  }
+  const encoding = preferredGameEncoding(request.headers["accept-encoding"]);
+  if (!encoding) {
+    next();
+    return;
+  }
+  const extension = encoding === "br" ? "br" : "gz";
+  const precompressed = path.join(gameDir, `stable.html.${extension}`);
+  if (!fs.existsSync(precompressed)) {
+    next();
+    return;
+  }
+  response.setHeader("Content-Encoding", encoding);
+  response.setHeader("Content-Type", "text/html; charset=utf-8");
+  response.setHeader("Vary", "Accept-Encoding");
+  response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  response.sendFile(precompressed, (error) => {
+    if (error) next(error);
+  });
+});
+
+app.use("/game", express.static(gameDir, {
   fallthrough: false,
   index: false,
   maxAge: "1h",
   setHeaders(response, filePath) {
-    if (filePath.endsWith(".html")) response.setHeader("Cache-Control", "public, max-age=300");
+    if (filePath.endsWith(".html")) response.setHeader("Cache-Control", "public, max-age=300, must-revalidate");
   },
 }));
 

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { brotliCompressSync, gzipSync, constants as zlibConstants } from "node:zlib";
 
 const root = process.cwd();
 const clients = [
@@ -52,5 +53,12 @@ for (const [name, sourceName] of clients) {
   );
   const output = brandedInput.slice(0, scriptEnd + 9) + bridgeTag + brandedInput.slice(scriptEnd + 9);
   await fs.writeFile(outputPath, output, "utf8");
-  console.log(`${name}: ${input.length.toLocaleString()} chars, loading screens and bridge injected`);
+  const outputBuffer = Buffer.from(output, "utf8");
+  await Promise.all([
+    fs.writeFile(`${outputPath}.br`, brotliCompressSync(outputBuffer, {
+      params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 6 },
+    })),
+    fs.writeFile(`${outputPath}.gz`, gzipSync(outputBuffer, { level: 9 })),
+  ]);
+  console.log(`${name}: ${input.length.toLocaleString()} chars, loading screens and bridge injected with Brotli and gzip variants`);
 }
