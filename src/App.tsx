@@ -193,7 +193,7 @@ function AuthScreen({ data, onAuth, notice }: { data: BootstrapData; onAuth: (us
                   <Input
                     className={cn("h-11 rounded-full px-4 shadow-none transition-colors", serverPasswordError && passwordFieldErrorClass)}
                     id="server-password"
-                    type="password"
+                    type="text"
                     autoComplete="off"
                     value={serverPassword}
                     onChange={(event) => { setServerPassword(event.target.value); setServerPasswordError(false); }}
