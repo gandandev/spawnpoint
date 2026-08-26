@@ -21,5 +21,6 @@ yarn-error.log*
 pnpm-debug.log*
 *.log
 coverage/
+.playwright-cli/
 .idea/
 .vscode/

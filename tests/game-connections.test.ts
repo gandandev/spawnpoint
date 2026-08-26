@@ -42,4 +42,19 @@ describe("game connection tracker", () => {
     expect(isLaunchId(launchId)).toBe(true);
     expect(isLaunchId("launch-123")).toBe(false);
   });
+
+  it("invalidates waiting launches and closes active sockets for a reset user", () => {
+    const secondLaunchId = "34f432da-1f3b-4f10-8d13-53e93a90872d";
+    const tracker = new GameConnectionTracker();
+    const disconnect = vi.fn();
+    tracker.create(launchId, "user-1");
+    tracker.create(secondLaunchId, "user-1");
+    expect(tracker.begin(launchId, "user-1", disconnect)).toBe(true);
+
+    expect(tracker.disconnectUser("user-1")).toBe(2);
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(tracker.status(launchId, "user-1")).toBeNull();
+    expect(tracker.status(secondLaunchId, "user-1")).toBeNull();
+    expect(tracker.begin(secondLaunchId, "user-1")).toBe(false);
+  });
 });

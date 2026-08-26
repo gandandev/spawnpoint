@@ -1,8 +1,17 @@
 name: SpawnpointBridge
-version: 1.0.0
+version: 1.2.2
 main: dev.spawnpoint.SpawnpointBridgePlugin
 author: spawnpoint
-description: Enforces signed spawnpoint accounts and skins for Eaglercraft players.
+description: Enforces signed spawnpoint accounts and exposes a loopback-only admin bridge.
 depend:
   - EaglercraftXServer
-
+commands:
+  tpa:
+    description: Request teleportation to an online player or manage TPA.
+    usage: "/tpa <게임 ID 또는 표시 이름> | /tpa <on|off>"
+  tpaccept:
+    description: Accept the latest TPA request.
+    usage: "/tpaccept"
+  tpdeny:
+    description: Deny the latest TPA request.
+    usage: "/tpdeny"

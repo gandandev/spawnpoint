@@ -10,6 +10,8 @@ an actual Eaglercraft multiplayer portal with site accounts, account-bound in-ga
 - a custom EaglerXServer plugin that verifies the ticket, forces the site player ID as the in-game name, and forces the selected skin
 - 64x64 or legacy 64x32 PNG upload, and skin lookup by Minecraft username through Mojang's official profile APIs
 - a public server status stream and an authenticated wake button
+- editable login IDs, Korean display names, password changes, and one-time administrator password resets
+- an administrator panel backed by a loopback-only bridge for live player details, OP controls, and server logs
 - Paper 1.12.2 off by default, with automatic shutdown after 15 empty minutes
 - a persistent SQLite account database, uploaded skins, and Minecraft world under one Railway volume
 - Eaglercraft 1.12.2 WASM-GC
@@ -45,8 +47,9 @@ the repository never ships `eula.txt` and never accepts it for you. first startu
 4. set `SESSION_SECRET` to at least 32 random characters, for example `openssl rand -base64 48`.
 5. set a non-empty `SERVER_PASSWORD` for the people allowed to join.
 6. after reading the Minecraft EULA, set `MC_EULA=true` if you accept it.
-7. keep `MC_MEMORY_MB=768` and `MC_IDLE_MINUTES=15` for the cheap profile.
+7. leave `SPAWNPOINT_ADMIN_USERNAMES` and `SPAWNPOINT_ADMIN_USER_IDS` empty for the first deploy, and keep `MC_MEMORY_MB=768` and `MC_IDLE_MINUTES=15` for the cheap profile.
 8. deploy. the included `railway.toml` uses the Dockerfile and `/healthz` check.
+9. create the first account through the protected portal, add its login ID to `SPAWNPOINT_ADMIN_USERNAMES`, then redeploy. for rename-safe access, replace or supplement it later with the stable account UUID in `SPAWNPOINT_ADMIN_USER_IDS`.
 
 the Hobby plan's $5 is usage credit, not a hard resource cap. spawnpoint keeps the always-on Node control plane small and pays the Java memory cost only while the world is awake, but nobody can honestly guarantee a fixed bill. watch Railway usage, especially if people hammer the public wake button or keep the world occupied. the portal also enforces a start cooldown and per-IP rate limits.
 

@@ -18,8 +18,9 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
 
     let cancelled = false;
     let disposeViewer: (() => void) | undefined;
+    let disposeNameTag: (() => void) | undefined;
 
-    void import("skin3d").then(({ Render, WalkingAnimation }) => {
+    void Promise.all([import("skin3d"), import("./minecraft-name-tag")]).then(([{ Render, WalkingAnimation }, { createMinecraftNameTag }]) => {
       if (cancelled) return;
 
       const viewer = new Render({
@@ -29,10 +30,28 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
         skin: src,
         model: model === "alex" ? "slim" : "default",
         animation: new WalkingAnimation(),
+        pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
         zoom: 0.66,
       });
 
-      if (nameTag) viewer.nameTag = nameTag;
+      if (nameTag) {
+        void createMinecraftNameTag(nameTag)
+          .then((tag) => {
+            if (cancelled) {
+              tag.material.map?.dispose();
+              tag.material.dispose();
+              return;
+            }
+            disposeNameTag = () => {
+              tag.material.map?.dispose();
+              tag.material.dispose();
+            };
+            viewer.nameTag = tag as never;
+          })
+          .catch(() => {
+            if (!cancelled) viewer.nameTag = nameTag;
+          });
+      }
       viewer.playerWrapper.position.y = -2;
 
       if (viewer.animation) viewer.animation.speed = 1.35;
@@ -42,13 +61,64 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
       viewer.controls.enableDamping = true;
       viewer.controls.dampingFactor = 0.08;
 
-      const resizeObserver = new ResizeObserver(([entry]) => {
-        const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) viewer.setSize(width, height);
+      let visible = true;
+      let active = true;
+      let lastWidth = 0;
+      let lastHeight = 0;
+      let idleTimer: number | null = null;
+      const updateAnimationState = () => {
+        const paused = document.hidden || !visible || !active;
+        if (viewer.animation) viewer.animation.paused = paused;
+        viewer.renderPaused = paused;
+      };
+      const scheduleIdle = (delay = 2_000) => {
+        if (idleTimer !== null) window.clearTimeout(idleTimer);
+        idleTimer = window.setTimeout(() => {
+          active = false;
+          idleTimer = null;
+          updateAnimationState();
+        }, delay);
+      };
+      const resume = () => {
+        active = true;
+        updateAnimationState();
+      };
+      const scheduleIdleSoon = () => scheduleIdle(500);
+      const scheduleIdleNormally = () => scheduleIdle();
+      const intersectionObserver = new IntersectionObserver(([entry]) => {
+        visible = entry?.isIntersecting ?? true;
+        updateAnimationState();
       });
+      const resizeObserver = new ResizeObserver(([entry]) => {
+        const width = Math.round(entry.contentRect.width);
+        const height = Math.round(entry.contentRect.height);
+        if (width > 0 && height > 0 && (width !== lastWidth || height !== lastHeight)) {
+          lastWidth = width;
+          lastHeight = height;
+          viewer.setSize(width, height);
+          if (viewer.renderPaused) viewer.render();
+        }
+      });
+      container.addEventListener("pointerenter", resume);
+      container.addEventListener("pointerdown", resume);
+      container.addEventListener("pointerleave", scheduleIdleSoon);
+      container.addEventListener("pointerup", scheduleIdleNormally);
+      container.addEventListener("wheel", resume, { passive: true });
+      intersectionObserver.observe(container);
       resizeObserver.observe(container);
+      document.addEventListener("visibilitychange", updateAnimationState);
+      updateAnimationState();
+      scheduleIdle(3_000);
 
       disposeViewer = () => {
+        if (idleTimer !== null) window.clearTimeout(idleTimer);
+        container.removeEventListener("pointerenter", resume);
+        container.removeEventListener("pointerdown", resume);
+        container.removeEventListener("pointerleave", scheduleIdleSoon);
+        container.removeEventListener("pointerup", scheduleIdleNormally);
+        container.removeEventListener("wheel", resume);
+        document.removeEventListener("visibilitychange", updateAnimationState);
+        intersectionObserver.disconnect();
         resizeObserver.disconnect();
         viewer.dispose();
       };
@@ -56,13 +126,14 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
 
     return () => {
       cancelled = true;
+      disposeNameTag?.();
       disposeViewer?.();
     };
   }, [src, model, nameTag]);
 
   return (
     <div ref={containerRef} className={className}>
-      <canvas ref={canvasRef} className="size-full touch-none" aria-label={`${model} 3D 스킨 미리보기`} />
+      <canvas ref={canvasRef} className="size-full touch-pan-y" aria-label={`${model} 3D 스킨 미리보기`} />
     </div>
   );
 }

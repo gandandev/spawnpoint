@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  createSessionToken, hashPassword, isSameOriginHeaders, sessionFromCookieHeader,
-  signToken, validateCredentials, verifyPassword, verifyToken,
+  createPasswordResetCode, createSessionToken, hashPassword, isSameOriginHeaders, sessionFromCookieHeader,
+  signToken, validateCredentials, validateDisplayName, verifyPassword, verifyPasswordResetCode, verifyToken,
 } from "../server/security.js";
 
 const secret = "test-secret-that-is-longer-than-thirty-two-characters";
@@ -11,6 +11,18 @@ describe("passwords", () => {
     const stored = await hashPassword("correct horse battery staple");
     await expect(verifyPassword("correct horse battery staple", stored.salt, stored.hash)).resolves.toBe(true);
     await expect(verifyPassword("wrong horse battery staple", stored.salt, stored.hash)).resolves.toBe(false);
+  });
+
+  it("creates uniform six-digit reset codes and verifies only their HMAC digest", () => {
+    const reset = createPasswordResetCode(secret);
+
+    expect(reset.code).toMatch(/^\d{6}$/);
+    expect(reset.digest).toHaveLength(32);
+    expect(reset.digest.toString("utf8")).not.toContain(reset.code);
+    expect(verifyPasswordResetCode(reset.code, secret, reset.digest)).toBe(true);
+    const wrongCode = reset.code === "000000" ? "000001" : "000000";
+    expect(verifyPasswordResetCode(wrongCode, secret, reset.digest)).toBe(false);
+    expect(verifyPasswordResetCode(undefined, secret, reset.digest)).toBe(false);
   });
 });
 
@@ -35,7 +47,9 @@ describe("gateway sessions", () => {
   it("reads the signed session from a websocket cookie header", () => {
     const now = Date.now();
     const session = createSessionToken({
-      id: "user-1", username: "mossrunner", passwordHash: Buffer.alloc(0), passwordSalt: Buffer.alloc(0),
+      id: "user-1", username: "mossrunner", gameUsername: "mossrunner", displayName: "이끼 러너",
+      passwordHash: Buffer.alloc(0), passwordSalt: Buffer.alloc(0), passwordResetDigest: null,
+      passwordResetExpiresAt: null, sessionVersion: 0,
       createdAt: now, skinType: "preset", skinRef: "moss", skinModel: "steve", skinLabel: "moss", skinUpdatedAt: now,
     }, secret, 1);
     expect(sessionFromCookieHeader(`other=value; spawnpoint_session=${session.token}`, secret)?.sub).toBe("user-1");
@@ -48,9 +62,18 @@ describe("gateway sessions", () => {
 });
 
 describe("credentials", () => {
-  it("enforces minecraft-safe names and useful passwords", () => {
+  it("accepts Korean account names while enforcing safe characters and useful passwords", () => {
     expect(validateCredentials("player_01", "password123").username).toBe("player_01");
+    expect(validateCredentials(" 텔레그램 ", "password123").username).toBe("텔레그램");
+    expect(validateCredentials("민수", "password123").username).toBe("민수");
     expect(() => validateCredentials("two words", "password123")).toThrow();
     expect(() => validateCredentials("player", "short")).toThrow();
+  });
+
+  it("accepts Korean display names without Minecraft formatting characters", () => {
+    expect(validateDisplayName(" 이끼 러너 ")).toBe("이끼 러너");
+    expect(Array.from(validateDisplayName("가나다라마바사아자차카타파하가나"))).toHaveLength(16);
+    expect(() => validateDisplayName("§c관리자")).toThrow();
+    expect(() => validateDisplayName("가나다라마바사아자차카타파하가나다")).toThrow();
   });
 });

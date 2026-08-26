@@ -14,6 +14,7 @@ export function toPublicUser(user: UserRecord): PublicUser {
   return {
     id: user.id,
     username: user.username,
+    displayName: user.displayName,
     skin: {
       type: user.skinType,
       model: user.skinModel,
@@ -23,19 +24,86 @@ export function toPublicUser(user: UserRecord): PublicUser {
   };
 }
 
-export const RANDOM_SKIN_URLS = [
-  "https://s.namemc.com/i/5b3eacb5eae8cc05.png",
-  "https://s.namemc.com/i/6284e38ae0ad125d.png",
-  "https://s.namemc.com/i/c42444f67d4d8b8d.png",
-  "https://s.namemc.com/i/fef2b519ed94ba29.png",
-  "https://s.namemc.com/i/71b51ff645f6d8ab.png",
-  "https://s.namemc.com/i/219aa6f666ad9076.png",
-  "https://s.namemc.com/i/38ea1f7c1259ba9d.png",
-  "https://s.namemc.com/i/fe719aacb649026e.png",
-  "https://s.namemc.com/i/c48671978c4ff2c4.png",
+const CATALOG_TEXTURE_VERSION = "texture-v1";
+const CATALOG_SOURCE_CACHE_VERSION = "source-v1";
+const catalogTextureUrl = (skinId: string): string => `/api/skin/catalog/${skinId}.png?v=${CATALOG_TEXTURE_VERSION}`;
+
+export const SKIN_CATALOG = [{
+  id: "famous",
+  label: "유명",
+  skins: [
+    { id: "spawnpoint", label: "spawnpoint", textureUrl: catalogTextureUrl("spawnpoint") },
+    { id: "famous-1", label: "유명 스킨 1", textureUrl: catalogTextureUrl("famous-1") },
+    { id: "famous-2", label: "유명 스킨 2", textureUrl: catalogTextureUrl("famous-2") },
+    { id: "famous-3", label: "유명 스킨 3", textureUrl: catalogTextureUrl("famous-3") },
+    { id: "famous-4", label: "유명 스킨 4", textureUrl: catalogTextureUrl("famous-4") },
+    { id: "famous-5", label: "유명 스킨 5", textureUrl: catalogTextureUrl("famous-5") },
+    { id: "famous-6", label: "유명 스킨 6", textureUrl: catalogTextureUrl("famous-6") },
+    { id: "famous-7", label: "유명 스킨 7", textureUrl: catalogTextureUrl("famous-7") },
+    { id: "famous-8", label: "유명 스킨 8", textureUrl: catalogTextureUrl("famous-8") },
+    { id: "famous-9", label: "유명 스킨 9", textureUrl: catalogTextureUrl("famous-9") },
+    { id: "saved-01", label: "저장한 스킨 1", textureUrl: catalogTextureUrl("saved-01") },
+    { id: "saved-02", label: "저장한 스킨 2", textureUrl: catalogTextureUrl("saved-02") },
+    { id: "saved-03", label: "저장한 스킨 3", textureUrl: catalogTextureUrl("saved-03") },
+    { id: "saved-04", label: "저장한 스킨 4", textureUrl: catalogTextureUrl("saved-04") },
+    { id: "saved-05", label: "저장한 스킨 5", textureUrl: catalogTextureUrl("saved-05") },
+    { id: "saved-06", label: "저장한 스킨 6", textureUrl: catalogTextureUrl("saved-06") },
+    { id: "saved-07", label: "저장한 스킨 7", textureUrl: catalogTextureUrl("saved-07") },
+    { id: "saved-08", label: "저장한 스킨 8", textureUrl: catalogTextureUrl("saved-08") },
+    { id: "saved-09", label: "저장한 스킨 9", textureUrl: catalogTextureUrl("saved-09") },
+    { id: "saved-10", label: "저장한 스킨 10", textureUrl: catalogTextureUrl("saved-10") },
+    { id: "saved-11", label: "저장한 스킨 11", textureUrl: catalogTextureUrl("saved-11") },
+    { id: "saved-12", label: "저장한 스킨 12", textureUrl: catalogTextureUrl("saved-12") },
+    { id: "saved-13", label: "저장한 스킨 13", textureUrl: catalogTextureUrl("saved-13") },
+    { id: "saved-14", label: "저장한 스킨 14", textureUrl: catalogTextureUrl("saved-14") },
+    { id: "saved-15", label: "저장한 스킨 15", textureUrl: catalogTextureUrl("saved-15") },
+    { id: "saved-16", label: "저장한 스킨 16", textureUrl: catalogTextureUrl("saved-16") },
+  ],
+}] as const;
+
+type CatalogSkinSource =
+  | { kind: "preset"; ref: string; model: SkinModel }
+  | { kind: "remote"; url: string; model: SkinModel };
+
+const CATALOG_SKIN_SOURCES: Readonly<Record<string, CatalogSkinSource>> = {
+  spawnpoint: { kind: "preset", ref: "spawnpoint", model: "steve" },
+  "famous-1": { kind: "remote", url: "https://s.namemc.com/i/5b3eacb5eae8cc05.png", model: "steve" },
+  "famous-2": { kind: "remote", url: "https://s.namemc.com/i/6284e38ae0ad125d.png", model: "steve" },
+  "famous-3": { kind: "remote", url: "https://s.namemc.com/i/c42444f67d4d8b8d.png", model: "steve" },
+  "famous-4": { kind: "remote", url: "https://s.namemc.com/i/fef2b519ed94ba29.png", model: "steve" },
+  "famous-5": { kind: "remote", url: "https://s.namemc.com/i/71b51ff645f6d8ab.png", model: "steve" },
+  "famous-6": { kind: "remote", url: "https://s.namemc.com/i/219aa6f666ad9076.png", model: "steve" },
+  "famous-7": { kind: "remote", url: "https://s.namemc.com/i/38ea1f7c1259ba9d.png", model: "steve" },
+  "famous-8": { kind: "remote", url: "https://s.namemc.com/i/fe719aacb649026e.png", model: "steve" },
+  "famous-9": { kind: "remote", url: "https://s.namemc.com/i/c48671978c4ff2c4.png", model: "steve" },
+  "saved-01": { kind: "preset", ref: "saved-01", model: "steve" },
+  "saved-02": { kind: "preset", ref: "saved-02", model: "alex" },
+  "saved-03": { kind: "preset", ref: "saved-03", model: "alex" },
+  "saved-04": { kind: "preset", ref: "saved-04", model: "alex" },
+  "saved-05": { kind: "preset", ref: "saved-05", model: "alex" },
+  "saved-06": { kind: "preset", ref: "saved-06", model: "alex" },
+  "saved-07": { kind: "preset", ref: "saved-07", model: "alex" },
+  "saved-08": { kind: "preset", ref: "saved-08", model: "steve" },
+  "saved-09": { kind: "preset", ref: "saved-09", model: "steve" },
+  "saved-10": { kind: "preset", ref: "saved-10", model: "steve" },
+  "saved-11": { kind: "preset", ref: "saved-11", model: "steve" },
+  "saved-12": { kind: "preset", ref: "saved-12", model: "alex" },
+  "saved-13": { kind: "preset", ref: "saved-13", model: "alex" },
+  "saved-14": { kind: "preset", ref: "saved-14", model: "steve" },
+  "saved-15": { kind: "preset", ref: "saved-15", model: "alex" },
+  "saved-16": { kind: "preset", ref: "saved-16", model: "alex" },
+};
+
+const LEGACY_MIRROR_PARTS = [
+  [4, 16, 4, 4, 20, 48], [8, 16, 4, 4, 24, 48],
+  [0, 20, 4, 12, 24, 52], [4, 20, 4, 12, 20, 52],
+  [8, 20, 4, 12, 16, 52], [12, 20, 4, 12, 28, 52],
+  [44, 16, 4, 4, 36, 48], [48, 16, 4, 4, 40, 48],
+  [40, 20, 4, 12, 40, 52], [44, 20, 4, 12, 36, 52],
+  [48, 20, 4, 12, 32, 52], [52, 20, 4, 12, 44, 52],
 ] as const;
 
-async function normalizeSkin(input: Buffer, outputPath: string): Promise<void> {
+async function normalizedSkinBuffer(input: Buffer): Promise<Buffer> {
   const source = sharp(input, { limitInputPixels: 64 * 64 });
   const metadata = await source.metadata();
   if (metadata.format !== "png") throw new Error("Skin must be a PNG file.");
@@ -43,16 +111,26 @@ async function normalizeSkin(input: Buffer, outputPath: string): Promise<void> {
     throw new Error("Skin must be 64x64 or legacy 64x32 pixels.");
   }
 
+  if (metadata.height === 64) {
+    return source.ensureAlpha().png({ compressionLevel: 9 }).toBuffer();
+  }
+
+  const upper = await source.ensureAlpha().png().toBuffer();
+  const mirrored = await Promise.all(LEGACY_MIRROR_PARTS.map(async ([left, top, width, height, targetLeft, targetTop]) => ({
+    input: await sharp(upper).extract({ left, top, width, height }).flop().png().toBuffer(),
+    left: targetLeft,
+    top: targetTop,
+  })));
+  return sharp({
+    create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  }).composite([{ input: upper, top: 0, left: 0 }, ...mirrored]).png({ compressionLevel: 9 }).toBuffer();
+}
+
+async function normalizeSkin(input: Buffer, outputPath: string): Promise<void> {
+  const normalized = await normalizedSkinBuffer(input);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const temporary = `${outputPath}.${process.pid}.${Date.now()}.tmp`;
-  if (metadata.height === 64) {
-    await source.ensureAlpha().png({ compressionLevel: 9 }).toFile(temporary);
-  } else {
-    const upper = await source.ensureAlpha().png().toBuffer();
-    await sharp({
-      create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-    }).composite([{ input: upper, top: 0, left: 0 }]).png({ compressionLevel: 9 }).toFile(temporary);
-  }
+  await fs.writeFile(temporary, normalized);
   await fs.rename(temporary, outputPath);
 }
 
@@ -135,7 +213,9 @@ export function encodeClientProfile(username: string, model: SkinModel, rgbaSkin
 
 export class SkinService {
   private readonly skinDir: string;
+  private readonly catalogSkinDir: string;
   private readonly profileCache = new Map<string, Promise<string>>();
+  private readonly catalogSkinCache = new Map<string, Promise<Buffer>>();
 
   constructor(
     private readonly database: AppDatabase,
@@ -143,6 +223,7 @@ export class SkinService {
     private readonly clientDir = path.resolve(process.cwd(), "dist/client"),
   ) {
     this.skinDir = path.join(dataDir, "skins");
+    this.catalogSkinDir = path.join(dataDir, "catalog-skins");
   }
 
   skinFile(id: string): string | null {
@@ -201,19 +282,68 @@ export class SkinService {
     return this.applyRemoteSkin(user, parsedUrl, "mojang", model, profile.name ?? usernameInput);
   }
 
-  async applyRandomSkin(user: UserRecord): Promise<UserRecord> {
-    const url = RANDOM_SKIN_URLS[Math.floor(Math.random() * RANDOM_SKIN_URLS.length)];
-    return this.applyRemoteSkin(user, new URL(url), "upload", "steve", "random skin");
+  async applyCatalogSkin(user: UserRecord, skinId: unknown): Promise<UserRecord> {
+    if (typeof skinId !== "string") throw new Error("스킨을 선택하세요.");
+    const skin = SKIN_CATALOG.flatMap((category) => category.skins).find((candidate) => candidate.id === skinId);
+    const source = CATALOG_SKIN_SOURCES[skinId];
+    if (!skin || !source) throw new Error("선택한 스킨을 찾을 수 없어요.");
+    if (source.kind === "preset") {
+      return this.database.updateSkin(user.id, "preset", source.ref, source.model, skin.label);
+    }
+    const body = await this.catalogSkinBuffer(skinId, source);
+    return this.applySkinBuffer(user, body, "upload", source.model, skin.label);
   }
 
-  private async applyRemoteSkin(user: UserRecord, url: URL, skinType: SkinType, model: SkinModel, label: string): Promise<UserRecord> {
-    const skinResponse = await fetch(url, {
+  catalogTexture(skinId: unknown): Promise<Buffer> | null {
+    if (typeof skinId !== "string") return null;
+    const source = CATALOG_SKIN_SOURCES[skinId];
+    if (!source) return null;
+    return this.catalogSkinBuffer(skinId, source).then(normalizedSkinBuffer);
+  }
+
+  private catalogSkinBuffer(skinId: string, source: CatalogSkinSource): Promise<Buffer> {
+    const cached = this.catalogSkinCache.get(skinId);
+    if (cached) return cached;
+    const skin = source.kind === "preset"
+      ? fs.readFile(path.join(this.clientDir, "assets", "skins", `${source.ref}.png`))
+      : this.loadCachedCatalogSkin(skinId, new URL(source.url));
+    this.catalogSkinCache.set(skinId, skin);
+    skin.catch(() => this.catalogSkinCache.delete(skinId));
+    return skin;
+  }
+
+  private async loadCachedCatalogSkin(skinId: string, url: URL): Promise<Buffer> {
+    const cachePath = path.join(this.catalogSkinDir, `${skinId}-${CATALOG_SOURCE_CACHE_VERSION}.png`);
+    try {
+      return await fs.readFile(cachePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const normalized = await normalizedSkinBuffer(await this.downloadRemoteSkin(url));
+    await fs.mkdir(this.catalogSkinDir, { recursive: true });
+    const temporary = `${cachePath}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(temporary, normalized);
+    await fs.rename(temporary, cachePath);
+    return normalized;
+  }
+
+  private async downloadRemoteSkin(url: URL): Promise<Buffer> {
+    const response = await fetch(url, {
       signal: AbortSignal.timeout(10_000),
       headers: { "User-Agent": "spawnpoint/1.0" },
     });
-    if (!skinResponse.ok) throw new Error("The skin image could not be downloaded.");
-    const body = Buffer.from(await skinResponse.arrayBuffer());
+    if (!response.ok) throw new Error("The skin image could not be downloaded.");
+    const body = Buffer.from(await response.arrayBuffer());
     if (body.length > 256 * 1024) throw new Error("The skin image is unexpectedly large.");
+    return body;
+  }
+
+  private async applyRemoteSkin(user: UserRecord, url: URL, skinType: SkinType, model: SkinModel, label: string): Promise<UserRecord> {
+    const body = await this.downloadRemoteSkin(url);
+    return this.applySkinBuffer(user, body, skinType, model, label);
+  }
+
+  private async applySkinBuffer(user: UserRecord, body: Buffer, skinType: SkinType, model: SkinModel, label: string): Promise<UserRecord> {
     const detectedModel = await detectSkinModel(body);
     const destination = this.skinFile(user.id);
     if (!destination) throw new Error("Invalid user ID.");
@@ -222,7 +352,7 @@ export class SkinService {
   }
 
   createClientProfile(user: UserRecord): Promise<string> {
-    const cacheKey = `${user.id}:${user.username}:${user.skinType}:${user.skinRef}:${user.skinModel}:${user.skinUpdatedAt}`;
+    const cacheKey = `${user.id}:${user.gameUsername}:${user.skinType}:${user.skinRef}:${user.skinModel}:${user.skinUpdatedAt}`;
     const cached = this.profileCache.get(cacheKey);
     if (cached) return cached;
 
@@ -248,6 +378,6 @@ export class SkinService {
     if (info.width !== 64 || info.height !== 64 || info.channels !== 4) {
       throw new Error("The saved skin is not a 64x64 RGBA image.");
     }
-    return encodeClientProfile(user.username, user.skinModel, data);
+    return encodeClientProfile(user.gameUsername, user.skinModel, data);
   }
 }

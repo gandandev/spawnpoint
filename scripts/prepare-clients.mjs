@@ -23,11 +23,11 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
-<script src="/game/portal-bridge.js?v=20260711-korean-locale-v13"></script>
+<script src="/game/portal-bridge.js?v=20260826-mobile-touch-v39"></script>
 `;
 
 await fs.mkdir(path.join(root, "public/game"), { recursive: true });
-const patchedEpw = await fs.readFile(path.join(root, "vendor/clients/stable-locale-fixed.epw"));
+const patchedEpw = await fs.readFile(path.join(root, "vendor/clients/stable-galmuri.epw"));
 const patchedEpwDataUri = `data:application/octet-stream;base64,${patchedEpw.toString("base64")}`;
 
 for (const [name, sourceName] of clients) {

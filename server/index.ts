@@ -19,6 +19,8 @@ const gameConnections = new GameConnectionTracker();
 const serverManager = new MinecraftServerManager({
   dataDir: config.dataDir,
   seedDir: config.seedDir,
+  portalPort: config.port,
+  bridgePort: config.bridgePort,
   javaBin: config.javaBin,
   memoryMb: config.memoryMb,
   idleMinutes: config.idleMinutes,
@@ -51,7 +53,7 @@ app.use((request, response, next) => {
   } else {
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws: wss:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
     );
   }
   next();
@@ -72,9 +74,14 @@ app.use("/api", createApiRouter({
   gameTicketMinutes: config.gameTicketMinutes,
   eulaAccepted: config.eulaAccepted || config.mockServer,
   gameConnections,
+  adminUsernames: config.adminUsernames,
+  adminUserIds: config.adminUserIds,
+  adminPassword: config.adminPassword,
+  bridgeOrigin: `http://127.0.0.1:${config.bridgePort}`,
+  bridgeSecret: sessionSecret,
 }));
 
-function preferredGameEncoding(acceptEncoding: string | undefined): "br" | "gzip" | null {
+function preferredEncoding(acceptEncoding: string | undefined): "br" | "gzip" | null {
   if (!acceptEncoding) return null;
   if (/\bbr\b/i.test(acceptEncoding)) return "br";
   if (/\bgzip\b/i.test(acceptEncoding)) return "gzip";
@@ -87,7 +94,7 @@ app.get("/game/stable.html", (request, response, next) => {
     next();
     return;
   }
-  const encoding = preferredGameEncoding(request.headers["accept-encoding"]);
+  const encoding = preferredEncoding(request.headers["accept-encoding"]);
   if (!encoding) {
     next();
     return;
@@ -115,6 +122,32 @@ app.use("/game", express.static(gameDir, {
     if (filePath.endsWith(".html")) response.setHeader("Cache-Control", "public, max-age=300, must-revalidate");
   },
 }));
+
+app.get("/assets/:file", (request, response, next) => {
+  const file = request.params.file;
+  if (!/^[A-Za-z0-9_.-]+\.(?:css|js|json|svg)$/.test(file)) {
+    next();
+    return;
+  }
+  const encoding = preferredEncoding(request.headers["accept-encoding"]);
+  if (!encoding) {
+    next();
+    return;
+  }
+  const extension = encoding === "br" ? "br" : "gz";
+  const precompressed = path.join(config.clientDir, "assets", `${file}.${extension}`);
+  if (!fs.existsSync(precompressed)) {
+    next();
+    return;
+  }
+  response.setHeader("Content-Encoding", encoding);
+  response.setHeader("Content-Type", file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".json") ? "application/json; charset=utf-8" : "image/svg+xml");
+  response.setHeader("Vary", "Accept-Encoding");
+  response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  response.sendFile(precompressed, (error) => {
+    if (error) next(error);
+  });
+});
 
 app.use(express.static(config.clientDir, {
   index: false,
@@ -162,7 +195,12 @@ server.on("upgrade", (request, socket, head) => {
     }
     const session = sessionFromCookieHeader(request.headers.cookie, sessionSecret);
     const user = session ? database.getUserById(session.sub) : null;
-    if (!session || !user) {
+    if (
+      !session
+      || !user
+      || user.username.toLowerCase() !== session.username.toLowerCase()
+      || user.sessionVersion !== (session.sessionVersion ?? 0)
+    ) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
@@ -173,7 +211,7 @@ server.on("upgrade", (request, socket, head) => {
       return;
     }
     const launchId = parsed.searchParams.get("launch");
-    const tracked = isLaunchId(launchId) && gameConnections.begin(launchId, user.id);
+    const tracked = isLaunchId(launchId) && gameConnections.begin(launchId, user.id, () => socket.destroy());
     if (!tracked) {
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       socket.destroy();
@@ -203,6 +241,7 @@ async function shutdown(): Promise<void> {
   database.close();
   proxy.close();
   server.close(() => process.exit(0));
+  server.closeAllConnections();
   setTimeout(() => process.exit(1), 25_000).unref();
 }
 

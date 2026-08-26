@@ -2,9 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { afterEach, describe, expect, it } from "vitest";
+import sharp from "sharp";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppDatabase } from "../server/db.js";
-import { encodeClientProfile, SkinService, skinPathForUser } from "../server/skins.js";
+import { encodeClientProfile, SKIN_CATALOG, SkinService, skinPathForUser } from "../server/skins.js";
 
 const dataDirectories: string[] = [];
 
@@ -15,19 +16,85 @@ function createDatabase(): AppDatabase {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   for (const dataDir of dataDirectories.splice(0)) fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
 describe("account skin storage", () => {
-  it("uses Steve as the default skin", () => {
+  it("uses the Spawnpoint catalog skin as the default for new accounts", () => {
     const database = createDatabase();
     const user = database.createUser("newplayer", Buffer.from("hash"), Buffer.from("salt"));
 
     expect(user.skinType).toBe("preset");
-    expect(user.skinRef).toBe("steve");
+    expect(user.skinRef).toBe("spawnpoint");
     expect(user.skinModel).toBe("steve");
-    expect(user.skinLabel).toBe("steve");
-    expect(skinPathForUser(user)).toBe("/assets/skins/steve.png");
+    expect(user.skinLabel).toBe("spawnpoint");
+    expect(user.displayName).toBe("newplayer");
+    expect(user.gameUsername).toBe("newplayer");
+    expect(skinPathForUser(user)).toBe("/assets/skins/spawnpoint.png");
+    database.close();
+  });
+
+  it("adds the default skin to the stable catalog choices", () => {
+    expect(SKIN_CATALOG).toHaveLength(1);
+    expect(SKIN_CATALOG[0].label).toBe("유명");
+    expect(SKIN_CATALOG[0].skins).toHaveLength(26);
+    expect(SKIN_CATALOG[0].skins[0].id).toBe("spawnpoint");
+    expect(SKIN_CATALOG[0].skins.at(-1)?.id).toBe("saved-16");
+    expect(new Set(SKIN_CATALOG[0].skins.map((skin) => skin.id)).size).toBe(26);
+    expect(SKIN_CATALOG[0].skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);
+  });
+
+  it("serves normalized skin textures for the real 3D renderer", async () => {
+    const database = createDatabase();
+    const service = new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public"));
+    const texture = await service.catalogTexture("spawnpoint");
+    const metadata = await sharp(texture).metadata();
+
+    expect(metadata.format).toBe("png");
+    expect(metadata.width).toBe(64);
+    expect(metadata.height).toBe(64);
+    database.close();
+  });
+
+  it("serves the locally saved catalog skins", async () => {
+    const database = createDatabase();
+    const service = new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public"));
+
+    for (let index = 1; index <= 16; index += 1) {
+      const texture = await service.catalogTexture(`saved-${String(index).padStart(2, "0")}`);
+      const metadata = await sharp(texture).metadata();
+      expect(metadata.format).toBe("png");
+      expect(metadata.width).toBe(64);
+      expect(metadata.height).toBe(64);
+    }
+    database.close();
+  });
+
+  it("reuses downloaded catalog skins across service restarts", async () => {
+    const database = createDatabase();
+    const source = fs.readFileSync(path.join(process.cwd(), "public", "assets", "skins", "spawnpoint.png"));
+    const fetchMock = vi.fn(async () => new Response(source, { status: 200, headers: { "Content-Type": "image/png" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public")).catalogTexture("famous-1");
+    await new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public")).catalogTexture("famous-1");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fs.existsSync(path.join(dataDirectories[0], "catalog-skins", "famous-1-source-v1.png"))).toBe(true);
+    database.close();
+  });
+
+  it("updates account identity and invalidates old sessions after password changes", () => {
+    const database = createDatabase();
+    const user = database.createUser("oldplayer", Buffer.from("old-hash"), Buffer.from("old-salt"));
+    const renamed = database.updateIdentity(user.id, "newplayer", "새 플레이어");
+    const passwordChanged = database.updatePassword(user.id, Buffer.from("new-hash"), Buffer.from("new-salt"));
+
+    expect(renamed.username).toBe("newplayer");
+    expect(renamed.gameUsername).toBe("oldplayer");
+    expect(renamed.displayName).toBe("새 플레이어");
+    expect(passwordChanged.sessionVersion).toBe(1);
     database.close();
   });
 

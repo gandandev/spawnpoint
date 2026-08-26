@@ -24,3 +24,7 @@ skin_service:
   skin_cache_thread_count: 2
   skin_cache_memory_max_objects: 256
   skin_cache_disk_max_objects: 2048
+update_checker:
+  enable_update_checker: true
+  check_for_update_every: 86400
+  print_chat_messages: false

@@ -10,6 +10,13 @@ function integerEnv(name: string, fallback: number, min: number, max: number): n
   return Math.min(max, Math.max(min, parsed));
 }
 
+function listEnv(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 export const config = {
   port: integerEnv("PORT", 3000, 1, 65_535),
   dataDir: path.resolve(process.env.DATA_DIR ?? path.join(process.cwd(), "data")),
@@ -17,6 +24,11 @@ export const config = {
   seedDir: path.resolve(process.cwd(), "server-runtime/seed"),
   sessionSecret: process.env.SESSION_SECRET?.trim() ?? "",
   serverPassword: process.env.SERVER_PASSWORD?.trim() ?? "",
+  adminUsernames: listEnv("SPAWNPOINT_ADMIN_USERNAMES"),
+  adminUserIds: listEnv("SPAWNPOINT_ADMIN_USER_IDS"),
+  adminPassword: process.env.SPAWNPOINT_ADMIN_PASSWORD?.trim()
+    ?? (process.env.NODE_ENV === "production" ? "" : "G4ndan"),
+  bridgePort: integerEnv("SPAWNPOINT_BRIDGE_PORT", 25_566, 1_024, 65_535),
   secureCookies: process.env.NODE_ENV === "production",
   javaBin: process.env.MC_JAVA_BIN?.trim() || "java",
   eulaAccepted: process.env.MC_EULA === "true",

@@ -9,6 +9,8 @@ import type { ServerStatus } from "./types.js";
 interface ServerManagerOptions {
   dataDir: string;
   seedDir: string;
+  portalPort: number;
+  bridgePort: number;
   javaBin: string;
   memoryMb: number;
   idleMinutes: number;
@@ -63,6 +65,27 @@ export class MinecraftServerManager extends EventEmitter {
 
   getStatus(): ServerStatus {
     return { ...this.state, players: [...this.state.players] };
+  }
+
+  getRecentLogs(limit = 200): string[] {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
+    return this.recentOutput.slice(-safeLimit);
+  }
+
+  async sendCommand(command: string): Promise<void> {
+    if (this.state.phase !== "online") throw new Error("게임 서버가 온라인일 때만 명령을 실행할 수 있어요.");
+    this.recentOutput.push(`> ${command}`);
+    if (this.recentOutput.length > 500) this.recentOutput.shift();
+    if (this.options.mockServer) return;
+    if (command.toLowerCase() === "stop") {
+      await this.stop();
+      return;
+    }
+    const child = this.child;
+    if (!child || child.stdin.destroyed || !child.stdin.writable) throw new Error("게임 서버 콘솔에 연결할 수 없어요.");
+    await new Promise<void>((resolve, reject) => {
+      child.stdin.write(`${command}\n`, (error) => error ? reject(error) : resolve());
+    });
   }
 
   private publish(patch: Partial<ServerStatus>): void {
@@ -153,7 +176,8 @@ export class MinecraftServerManager extends EventEmitter {
         env: {
           ...process.env,
           DATA_DIR: this.options.dataDir,
-          PORTAL_INTERNAL_ORIGIN: `http://127.0.0.1:${process.env.PORT ?? "3000"}`,
+          PORTAL_INTERNAL_ORIGIN: `http://127.0.0.1:${this.options.portalPort}`,
+          SPAWNPOINT_BRIDGE_PORT: String(this.options.bridgePort),
         },
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -178,7 +202,7 @@ export class MinecraftServerManager extends EventEmitter {
   private handleLogLine(line: string): void {
     console.log(`[minecraft] ${line}`);
     this.recentOutput.push(line.replace(/\x1b\[[0-9;]*m/g, ""));
-    if (this.recentOutput.length > 30) this.recentOutput.shift();
+    if (this.recentOutput.length > 500) this.recentOutput.shift();
     if (/Done \([\d.]+s\)!/.test(line) || /For help, type "help"/.test(line)) {
       const readyAt = Date.now();
       this.publish({
@@ -196,7 +220,7 @@ export class MinecraftServerManager extends EventEmitter {
       this.publish({ players: [...players].sort(), idleShutdownAt: null });
       return;
     }
-    const leave = line.match(/: ([A-Za-z0-9_]{3,16}) left the game/);
+    const leave = line.match(/: ([A-Za-z0-9_]{3,16})(?: left the game| lost connection(?::|$))/);
     if (leave) {
       const players = new Set(this.state.players);
       players.delete(leave[1]);

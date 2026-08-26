@@ -5,13 +5,16 @@ import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import type { Request, Response } from "express";
 import type { SkinModel, UserRecord } from "./types.js";
 
-const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/;
+const USERNAME_PATTERN = /^[\p{L}\p{N}_]{1,16}$/u;
 const SESSION_COOKIE = "spawnpoint_session";
+const ADMIN_COOKIE = "spawnpoint_admin";
 
 interface TokenEnvelope {
-  aud: "session" | "game";
+  aud: "session" | "game" | "admin";
   sub: string;
   username: string;
+  displayName?: string;
+  sessionVersion?: number;
   iat: number;
   exp: number;
   csrf?: string;
@@ -64,19 +67,52 @@ export async function verifyPassword(password: string, salt: Buffer, expected: B
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
+export function createPasswordResetCode(secret: string): { code: string; digest: Buffer } {
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+  return { code, digest: passwordResetDigest(code, secret) };
+}
+
+export function passwordResetDigest(code: string, secret: string): Buffer {
+  return crypto.createHmac("sha256", secret).update(code, "utf8").digest();
+}
+
+export function verifyPasswordResetCode(code: unknown, secret: string, expected: Buffer): boolean {
+  if (typeof code !== "string") return false;
+  const actual = passwordResetDigest(code, secret);
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
 export function validateCredentials(username: unknown, password: unknown): { username: string; password: string } {
   const validUsername = validateUsername(username);
+  const validPassword = validatePassword(password);
+  return { username: validUsername, password: validPassword };
+}
+
+export function validatePassword(password: unknown): string {
   if (typeof password !== "string" || password.length < 8 || password.length > 128) {
     throw new Error("비밀번호는 8~128자로 입력하세요.");
   }
-  return { username: validUsername, password };
+  return password;
+}
+
+export function validateDisplayName(input: unknown): string {
+  if (typeof input !== "string") throw new Error("표시 이름을 입력하세요.");
+  const displayName = input.normalize("NFC").trim();
+  const length = Array.from(displayName).length;
+  if (length < 1 || length > 16 || !/^[\p{L}\p{N}_ ]+$/u.test(displayName) || /  /.test(displayName)) {
+    throw new Error("표시 이름은 한글, 영문, 숫자, 공백, 밑줄을 사용해 1~16자로 입력하세요.");
+  }
+  return displayName;
 }
 
 export function validateUsername(username: unknown): string {
-  if (typeof username !== "string" || !USERNAME_PATTERN.test(username)) {
-    throw new Error("플레이어 ID는 영문, 숫자, 밑줄을 사용해 3~16자로 입력하세요.");
+  if (typeof username !== "string") throw new Error("플레이어 이름을 입력하세요.");
+  const normalized = username.normalize("NFC").trim();
+  const length = Array.from(normalized).length;
+  if (length < 1 || length > 16 || !USERNAME_PATTERN.test(normalized)) {
+    throw new Error("플레이어 이름은 한글, 영문, 숫자, 밑줄을 사용해 1~16자로 입력하세요.");
   }
-  return username;
+  return normalized;
 }
 
 export function signToken(payload: TokenEnvelope, secret: string): string {
@@ -111,9 +147,29 @@ export function createSessionToken(user: UserRecord, secret: string, days: numbe
       aud: "session",
       sub: user.id,
       username: user.username,
+      sessionVersion: user.sessionVersion,
       csrf,
       iat: now,
       exp: now + days * 86_400,
+    }, secret),
+  };
+}
+
+export function createAdminToken(user: UserRecord, secret: string, minutes: number): { token: string; csrf: string; expiresAt: number } {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + minutes * 60;
+  const csrf = crypto.randomBytes(24).toString("base64url");
+  return {
+    csrf,
+    expiresAt: expiresAt * 1_000,
+    token: signToken({
+      aud: "admin",
+      sub: user.id,
+      username: user.username,
+      sessionVersion: user.sessionVersion,
+      csrf,
+      iat: now,
+      exp: expiresAt,
     }, secret),
   };
 }
@@ -128,7 +184,8 @@ export function createGameTicket(
   return signToken({
     aud: "game",
     sub: user.id,
-    username: user.username,
+    username: user.gameUsername,
+    displayName: user.displayName,
     skinPath,
     skinModel: user.skinModel,
     jti: crypto.randomUUID(),
@@ -146,6 +203,11 @@ export function sessionFromCookieHeader(cookieHeader: string | undefined, secret
   return verifyToken(cookies[SESSION_COOKIE], secret, "session");
 }
 
+export function adminFromRequest(request: Request, secret: string): TokenEnvelope | null {
+  const cookies = parseCookie(request.headers.cookie ?? "");
+  return verifyToken(cookies[ADMIN_COOKIE], secret, "admin");
+}
+
 export function setSessionCookie(response: Response, token: string, days: number, secure: boolean): void {
   response.append("Set-Cookie", serializeCookie(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -156,8 +218,28 @@ export function setSessionCookie(response: Response, token: string, days: number
   }));
 }
 
+export function setAdminCookie(response: Response, token: string, minutes: number, secure: boolean): void {
+  response.append("Set-Cookie", serializeCookie(ADMIN_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure,
+    path: "/",
+    maxAge: minutes * 60,
+  }));
+}
+
 export function clearSessionCookie(response: Response, secure: boolean): void {
   response.append("Set-Cookie", serializeCookie(SESSION_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure,
+    path: "/",
+    maxAge: 0,
+  }));
+}
+
+export function clearAdminCookie(response: Response, secure: boolean): void {
+  response.append("Set-Cookie", serializeCookie(ADMIN_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
     secure,

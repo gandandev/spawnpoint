@@ -2,7 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
-@import "@south-paw/typeface-minecraft";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -34,6 +33,35 @@
 }
 
 :root {
+  --duration-stagger: 40ms;
+  --duration-micro: 80ms;
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+  --duration-slow: 400ms;
+  --duration-very-slow: 500ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: ease-in-out;
+  --ease-out: ease-out;
+  --ease-linear: linear;
+  --ease-bounce: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --ease-bounce-strong: cubic-bezier(0.34, 3.85, 0.64, 1);
+  --distance-micro: 4px;
+  --distance-small: 6px;
+  --distance-base: 8px;
+  --distance-medium: 12px;
+  --distance-large: 30px;
+  --scale-large: 0.96;
+  --scale-medium: 0.97;
+  --scale-small: 0.98;
+  --scale-tiny: 0.99;
+  --blur-small: 2px;
+  --blur-medium: 3px;
+  --blur-large: 8px;
+  --acc-expand: var(--duration-fast);
+  --acc-collapse: var(--duration-fast);
+  --acc-chevron: var(--duration-fast);
+  --acc-ease: var(--ease-smooth-out);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -67,24 +95,44 @@
 
 @keyframes password-shake {
   0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-5px); }
-  40% { transform: translateX(4px); }
-  60% { transform: translateX(-3px); }
-  80% { transform: translateX(2px); }
+  20% { transform: translateX(calc(-1 * var(--distance-base))); }
+  40% { transform: translateX(var(--distance-base)); }
+  60% { transform: translateX(calc(-1 * var(--distance-small))); }
+  80% { transform: translateX(var(--distance-small)); }
 }
 
 @keyframes auth-label-in {
-  from { opacity: 0; transform: translateY(0.25rem); }
+  from { opacity: 0; transform: translateY(var(--distance-micro)); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @layer components {
+  .auth-shell {
+    @apply mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4 py-8;
+    padding-top: max(2rem, env(safe-area-inset-top));
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  }
+
+  .password-field-error {
+    animation: password-shake calc(var(--duration-micro) * 5) var(--ease-in-out);
+  }
+
+  .auth-label-in {
+    animation: auth-label-in var(--duration-quick) var(--ease-in-out);
+  }
+
   .dashboard-shell {
     @apply mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4 py-8;
+    padding-top: max(2rem, env(safe-area-inset-top));
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
   }
 
   .dashboard-header {
-    @apply flex items-center justify-between;
+    @apply flex min-w-0 items-center justify-between gap-2;
+  }
+
+  .dashboard-actions {
+    @apply flex min-w-0 flex-1 items-center justify-end gap-0.5;
   }
 
   .character-stage {
@@ -99,8 +147,114 @@
     @apply absolute bottom-5 right-5 z-10;
   }
 
-  .character-random {
-    @apply absolute bottom-5 left-5 z-10;
+  .game-close-button {
+    @apply absolute;
+    right: max(1rem, env(safe-area-inset-right));
+    top: max(1rem, env(safe-area-inset-top));
   }
 
+  .admin-split-panel {
+    @apply grid min-h-0 gap-3;
+    grid-template-columns: minmax(10rem, 0.7fr) minmax(0, 1.6fr);
+  }
+
+  .admin-list-panel {
+    @apply flex max-h-[32rem] min-h-24 flex-col gap-1 overflow-y-auto rounded-lg border p-1;
+  }
+
+  .admin-list-button {
+    @apply flex min-w-0 touch-manipulation cursor-pointer flex-col rounded-md px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .admin-list-button.is-selected {
+    @apply bg-muted;
+  }
+
+  .admin-stat {
+    @apply flex min-w-0 flex-col gap-1 rounded-md bg-muted/55 px-2.5 py-2 text-xs;
+  }
+
+  .admin-stat > span {
+    @apply text-muted-foreground;
+  }
+
+  .admin-stat > strong {
+    @apply truncate font-medium tabular-nums;
+  }
+
+  .admin-inventory-list {
+    @apply flex max-h-48 flex-col gap-1 overflow-y-auto pr-1;
+  }
+
+  .admin-log-view {
+    @apply h-[min(32rem,60dvh)] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#111411] p-3 font-mono text-[11px] leading-relaxed text-[#d8ddcf];
+  }
+
+}
+
+/* grid-template-rows 0fr → 1fr gives a clean height animation
+   with no JS measurement; the inner element clips overflow. */
+.t-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
+}
+.t-acc-panel-inner {
+  overflow: hidden;
+  opacity: 0;
+  filter: blur(2px);
+  transition:
+    opacity var(--acc-collapse) var(--acc-ease),
+    filter var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel-inner {
+  opacity: 1;
+  filter: blur(0);
+  transition:
+    opacity var(--acc-expand) var(--acc-ease),
+    filter var(--acc-expand) var(--acc-ease);
+}
+/* Flip the chevron vertically to turn the "v" into a "^".
+   scaleY(-1) about the centre passes through a flat line at
+   the midpoint (same look as a `d:` path morph) but animates
+   in every browser, unlike CSS `d:` morphing (Chromium only).
+   The chevron path is symmetric about the 16x16 viewBox
+   centre, so the flip lands exactly on the "^"; non-scaling
+   -stroke keeps the stroke width constant through the flip. */
+.t-acc-chevron {
+  display: inline-flex;
+  transform: scaleY(1);
+  transform-origin: center;
+  transition: transform var(--acc-chevron) var(--acc-ease);
+}
+.t-acc-chevron path { vector-effect: non-scaling-stroke; }
+.t-acc[data-open="true"] .t-acc-chevron {
+  transform: scaleY(-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-acc-panel, .t-acc-panel-inner, .t-acc-chevron {
+    transition: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .password-field-error,
+  .auth-label-in {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-split-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-list-panel {
+    @apply max-h-36;
+  }
 }
