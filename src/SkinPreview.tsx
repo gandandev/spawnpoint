@@ -62,29 +62,13 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
       viewer.controls.dampingFactor = 0.08;
 
       let visible = true;
-      let active = true;
       let lastWidth = 0;
       let lastHeight = 0;
-      let idleTimer: number | null = null;
       const updateAnimationState = () => {
-        const paused = document.hidden || !visible || !active;
+        const paused = document.hidden || !visible;
         if (viewer.animation) viewer.animation.paused = paused;
         viewer.renderPaused = paused;
       };
-      const scheduleIdle = (delay = 2_000) => {
-        if (idleTimer !== null) window.clearTimeout(idleTimer);
-        idleTimer = window.setTimeout(() => {
-          active = false;
-          idleTimer = null;
-          updateAnimationState();
-        }, delay);
-      };
-      const resume = () => {
-        active = true;
-        updateAnimationState();
-      };
-      const scheduleIdleSoon = () => scheduleIdle(500);
-      const scheduleIdleNormally = () => scheduleIdle();
       const intersectionObserver = new IntersectionObserver(([entry]) => {
         visible = entry?.isIntersecting ?? true;
         updateAnimationState();
@@ -99,24 +83,12 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
           if (viewer.renderPaused) viewer.render();
         }
       });
-      container.addEventListener("pointerenter", resume);
-      container.addEventListener("pointerdown", resume);
-      container.addEventListener("pointerleave", scheduleIdleSoon);
-      container.addEventListener("pointerup", scheduleIdleNormally);
-      container.addEventListener("wheel", resume, { passive: true });
       intersectionObserver.observe(container);
       resizeObserver.observe(container);
       document.addEventListener("visibilitychange", updateAnimationState);
       updateAnimationState();
-      scheduleIdle(3_000);
 
       disposeViewer = () => {
-        if (idleTimer !== null) window.clearTimeout(idleTimer);
-        container.removeEventListener("pointerenter", resume);
-        container.removeEventListener("pointerdown", resume);
-        container.removeEventListener("pointerleave", scheduleIdleSoon);
-        container.removeEventListener("pointerup", scheduleIdleNormally);
-        container.removeEventListener("wheel", resume);
         document.removeEventListener("visibilitychange", updateAnimationState);
         intersectionObserver.disconnect();
         resizeObserver.disconnect();

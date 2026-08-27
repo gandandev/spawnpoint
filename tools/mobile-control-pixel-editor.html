@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>모바일 컨트롤 픽셀 에디터</title>
+  <style>
+    @font-face {
+      font-family: "Spawnpoint Pixel";
+      src: url("/vendor/fonts/galmuri/Galmuri11.ttf") format("truetype");
+      font-display: swap;
+    }
+
+    :root {
+      color-scheme: dark;
+      --bg: #0b110e;
+      --surface: #111a15;
+      --surface-2: #17221b;
+      --line: rgba(255, 255, 255, 0.13);
+      --line-strong: rgba(255, 255, 255, 0.25);
+      --text: #f7fbf5;
+      --muted: #9eada3;
+      --green: #9fc98f;
+      --green-dark: #223a28;
+      --danger: #d8968f;
+      font-family: "Spawnpoint Pixel", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    body {
+      min-width: 1040px;
+      overflow: auto;
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      color: inherit;
+    }
+
+    .app-header {
+      height: 66px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: #0d1511;
+    }
+
+    .title-block {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+    }
+
+    .spec,
+    .save-status {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .save-status[data-state="saved"]::before {
+      content: "";
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 7px;
+      background: var(--green);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 228px minmax(430px, 1fr) 350px;
+      gap: 14px;
+      min-height: calc(100vh - 66px);
+      padding: 14px;
+    }
+
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .panel-title {
+      margin: 0;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .icon-panel {
+      padding-bottom: 14px;
+    }
+
+    .icon-group-title {
+      margin: 15px 14px 7px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .icon-list {
+      display: grid;
+      gap: 4px;
+      padding: 0 8px;
+    }
+
+    .icon-row {
+      width: 100%;
+      min-height: 42px;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      align-items: center;
+      gap: 9px;
+      padding: 4px 8px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .icon-row:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .icon-row[aria-pressed="true"] {
+      border-color: rgba(159, 201, 143, 0.46);
+      background: var(--green-dark);
+    }
+
+    .icon-row canvas {
+      width: 28px;
+      height: 28px;
+      image-rendering: pixelated;
+    }
+
+    .icon-row span {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .fixed-labels {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+      padding: 0 10px;
+    }
+
+    .fixed-label {
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: rgba(8, 12, 10, 0.46);
+      font-size: 12px;
+      font-weight: 900;
+      text-shadow: 1px 0 0 currentColor;
+    }
+
+    .editor-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .editor-toolbar {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .selected-title {
+      min-width: 115px;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .tool-button {
+      min-width: 42px;
+      height: 36px;
+      padding: 0 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 4px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tool-button:hover:not(:disabled) {
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.42);
+    }
+
+    .tool-button[aria-pressed="true"],
+    .tool-button.primary {
+      border-color: rgba(159, 201, 143, 0.58);
+      background: var(--green-dark);
+      color: #eaffdf;
+    }
+
+    .tool-button:disabled {
+      opacity: 0.34;
+      cursor: default;
+    }
+
+    .canvas-wrap {
+      flex: 1;
+      min-height: 510px;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background-color: #0e1712;
+      background-image:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+
+    #pixel-canvas {
+      width: min(54vh, 520px);
+      height: min(54vh, 520px);
+      min-width: 420px;
+      min-height: 420px;
+      max-width: 520px;
+      max-height: 520px;
+      border: 1px solid rgba(255, 255, 255, 0.34);
+      background: #0a100d;
+      image-rendering: pixelated;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .canvas-help {
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .right-column {
+      display: grid;
+      grid-template-rows: auto minmax(250px, 1fr);
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .preview-panel {
+      min-height: 300px;
+    }
+
+    .game-preview {
+      position: relative;
+      height: 270px;
+      overflow: hidden;
+      background:
+        linear-gradient(rgba(16, 26, 20, 0.12), rgba(16, 26, 20, 0.28)),
+        #50675a;
+    }
+
+    .preview-size-controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      gap: 5px;
+    }
+
+    .preview-move,
+    .preview-actions {
+      position: absolute;
+      bottom: 10px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .preview-move {
+      left: 10px;
+      grid-template: repeat(3, 46px) / repeat(3, 46px);
+    }
+
+    .preview-actions {
+      right: 10px;
+      grid-template: repeat(2, 46px) / repeat(2, 46px);
+    }
+
+    .preview-control {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      padding: 4px;
+      border: 0;
+      border-radius: 6px;
+      background: rgba(8, 12, 10, 0.52);
+      color: white;
+    }
+
+    .preview-control.fixed-key {
+      font-size: 13px;
+      font-weight: 900;
+      text-shadow: 1px 0 0 currentColor;
+    }
+
+    .preview-control canvas {
+      width: 28px;
+      height: 28px;
+      image-rendering: pixelated;
+    }
+
+    .preview-size-controls .preview-control {
+      width: 34px;
+      height: 34px;
+      border-radius: 5px;
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .code-panel {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+    }
+
+    .code-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 5px;
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    #code-output {
+      width: 100%;
+      min-height: 180px;
+      flex: 1;
+      resize: none;
+      padding: 12px;
+      border: 0;
+      outline: 0;
+      background: #090e0b;
+      color: #dce8d8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      line-height: 1.45;
+      tab-size: 2;
+    }
+
+    .danger {
+      color: var(--danger);
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 10;
+      padding: 10px 13px;
+      border: 1px solid rgba(159, 201, 143, 0.55);
+      background: #16251a;
+      color: #eaffdf;
+      font-size: 12px;
+      opacity: 0;
+      transform: translateY(6px);
+      pointer-events: none;
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+
+    .toast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-height: 760px) {
+      .canvas-wrap {
+        min-height: 440px;
+      }
+
+      #pixel-canvas {
+        width: 420px;
+        height: 420px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .toast {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="title-block">
+      <h1>모바일 컨트롤 픽셀 에디터</h1>
+      <span class="spec">16×16 · 흰색 1비트 · 자동 저장</span>
+    </div>
+    <span id="save-status" class="save-status" data-state="saved">저장됨</span>
+  </header>
+
+  <main class="workspace">
+    <aside class="panel icon-panel" aria-label="아이콘 목록">
+      <h2 class="panel-title">편집할 아이콘</h2>
+      <h3 class="icon-group-title">이동</h3>
+      <div id="move-icons" class="icon-list"></div>
+      <h3 class="icon-group-title">오른쪽 컨트롤</h3>
+      <div id="action-icons" class="icon-list"></div>
+      <h3 class="icon-group-title">글자로 고정</h3>
+      <div class="fixed-labels" aria-label="고정 키 글자">
+        <span class="fixed-label">ESC</span>
+        <span class="fixed-label">T</span>
+        <span class="fixed-label">Q</span>
+        <span class="fixed-label">E</span>
+      </div>
+    </aside>
+
+    <section class="panel editor-panel" aria-labelledby="selected-title">
+      <div class="editor-toolbar">
+        <strong id="selected-title" class="selected-title">위</strong>
+        <div class="toolbar-actions" aria-label="그리기 도구">
+          <button id="draw-tool" class="tool-button" type="button" aria-pressed="true">그리기</button>
+          <button id="erase-tool" class="tool-button" type="button" aria-pressed="false">지우기</button>
+          <button id="undo-button" class="tool-button" type="button" title="Command+Z">되돌리기</button>
+          <button id="redo-button" class="tool-button" type="button" title="Command+Shift+Z">다시</button>
+          <button id="flip-button" class="tool-button" type="button">좌우 반전</button>
+          <button id="clear-button" class="tool-button danger" type="button">비우기</button>
+        </div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="pixel-canvas" width="512" height="512" aria-label="16×16 픽셀 편집 격자"></canvas>
+      </div>
+      <div class="canvas-help">왼쪽 클릭 또는 드래그: 현재 도구 사용 · 오른쪽 클릭 또는 드래그: 지우기 · ⌘Z: 되돌리기</div>
+    </section>
+
+    <aside class="right-column">
+      <section class="panel preview-panel">
+        <h2 class="panel-title">실제 배치 미리보기</h2>
+        <div class="game-preview">
+          <div class="preview-size-controls" aria-label="크기 조절 미리보기">
+            <span class="preview-control">−</span>
+            <span class="preview-control">+</span>
+          </div>
+          <div id="preview-move" class="preview-move"></div>
+          <div id="preview-actions" class="preview-actions"></div>
+        </div>
+      </section>
+
+      <section class="panel code-panel">
+        <h2 class="panel-title">내보낼 코드</h2>
+        <div class="code-toolbar">
+          <button id="import-button" class="tool-button" type="button">코드 불러오기</button>
+          <button id="reset-button" class="tool-button danger" type="button">초안 복원</button>
+          <button id="copy-button" class="tool-button primary" type="button">코드 복사</button>
+        </div>
+        <textarea id="code-output" aria-label="픽셀 아이콘 코드" spellcheck="false"></textarea>
+      </section>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const GRID = 16;
+      const STORAGE_KEY = "spawnpoint_mobile_pixel_icons_v1";
+      const labels = {
+        forward: "위",
+        back: "아래",
+        left: "왼쪽",
+        right: "오른쪽",
+        sprint: "스프린트",
+        jump: "점프",
+        sneak: "Shift",
+        attack: "왼쪽 클릭",
+        use: "오른쪽 클릭",
+      };
+      const moveNames = ["forward", "back", "left", "right", "sprint"];
+      const actionNames = ["jump", "sneak", "attack", "use"];
+
+      const blank = () => Array.from({ length: GRID }, () => Array(GRID).fill(0));
+      const cloneGrid = (grid) => grid.map((row) => [...row]);
+      const put = (grid, x, y) => {
+        if (x >= 0 && x < GRID && y >= 0 && y < GRID) grid[y][x] = 1;
+      };
+      const rect = (grid, x, y, width, height) => {
+        for (let py = y; py < y + height; py += 1) {
+          for (let px = x; px < x + width; px += 1) put(grid, px, py);
+        }
+      };
+      const hline = (grid, x1, x2, y, thickness = 1) => rect(grid, x1, y, x2 - x1 + 1, thickness);
+      const vline = (grid, x, y1, y2, thickness = 1) => rect(grid, x, y1, thickness, y2 - y1 + 1);
+      const mirror = (grid) => grid.map((row) => [...row].reverse());
+
+      function arrowUp(withBase = false) {
+        const grid = blank();
+        rect(grid, 7, 3, 2, 10);
+        rect(grid, 6, 4, 4, 2);
+        rect(grid, 5, 5, 2, 2);
+        rect(grid, 9, 5, 2, 2);
+        rect(grid, 4, 6, 2, 2);
+        rect(grid, 10, 6, 2, 2);
+        if (withBase) hline(grid, 3, 12, 14, 2);
+        return grid;
+      }
+
+      function arrowDown(withBase = false) {
+        const grid = blank();
+        rect(grid, 7, 3, 2, 10);
+        rect(grid, 4, 8, 2, 2);
+        rect(grid, 10, 8, 2, 2);
+        rect(grid, 5, 9, 2, 2);
+        rect(grid, 9, 9, 2, 2);
+        rect(grid, 6, 10, 4, 2);
+        if (withBase) hline(grid, 3, 12, 14, 2);
+        return grid;
+      }
+
+      function arrowLeft() {
+        const grid = blank();
+        rect(grid, 3, 7, 10, 2);
+        rect(grid, 4, 6, 2, 4);
+        rect(grid, 5, 5, 2, 2);
+        rect(grid, 5, 9, 2, 2);
+        rect(grid, 6, 4, 2, 2);
+        rect(grid, 6, 10, 2, 2);
+        return grid;
+      }
+
+      function sprintIcon() {
+        const grid = blank();
+        [[3, 2], [9, 8]].forEach(([top, bottom]) => {
+          rect(grid, 3, top + 3, 2, 2);
+          rect(grid, 11, top + 3, 2, 2);
+          rect(grid, 4, top + 2, 2, 2);
+          rect(grid, 10, top + 2, 2, 2);
+          rect(grid, 5, top + 1, 2, 2);
+          rect(grid, 9, top + 1, 2, 2);
+          hline(grid, 6, 9, top, 2);
+        });
+        return grid;
+      }
+
+      function mouseIcon(side) {
+        const grid = blank();
+        hline(grid, 6, 9, 1, 1);
+        hline(grid, 4, 11, 2, 1);
+        hline(grid, 3, 12, 3, 1);
+        vline(grid, 3, 3, 11, 1);
+        vline(grid, 12, 3, 11, 1);
+        hline(grid, 4, 11, 12, 1);
+        hline(grid, 6, 9, 13, 1);
+        vline(grid, 8, 2, 7, 1);
+        if (side === "left") rect(grid, 4, 3, 4, 4);
+        else rect(grid, 9, 3, 3, 4);
+        return grid;
+      }
+
+      function createSeed() {
+        const left = arrowLeft();
+        return {
+          forward: arrowUp(),
+          back: arrowDown(),
+          left,
+          right: mirror(left),
+          sprint: sprintIcon(),
+          jump: arrowUp(true),
+          sneak: arrowDown(true),
+          attack: mouseIcon("left"),
+          use: mouseIcon("right"),
+        };
+      }
+
+      const seed = createSeed();
+      let icons = loadSavedIcons() || Object.fromEntries(Object.entries(seed).map(([name, grid]) => [name, cloneGrid(grid)]));
+      let selected = "forward";
+      let tool = "draw";
+      let drawing = false;
+      let strokeValue = 1;
+      let strokeChanged = false;
+      let history = [];
+      let future = [];
+      let toastTimer = 0;
+
+      const editor = document.getElementById("pixel-canvas");
+      const editorContext = editor.getContext("2d");
+      const moveList = document.getElementById("move-icons");
+      const actionList = document.getElementById("action-icons");
+      const selectedTitle = document.getElementById("selected-title");
+      const drawTool = document.getElementById("draw-tool");
+      const eraseTool = document.getElementById("erase-tool");
+      const undoButton = document.getElementById("undo-button");
+      const redoButton = document.getElementById("redo-button");
+      const codeOutput = document.getElementById("code-output");
+      const saveStatus = document.getElementById("save-status");
+      const toast = document.getElementById("toast");
+
+      function validGrid(grid) {
+        return Array.isArray(grid)
+          && grid.length === GRID
+          && grid.every((row) => Array.isArray(row) && row.length === GRID && row.every((cell) => cell === 0 || cell === 1));
+      }
+
+      function loadSavedIcons() {
+        try {
+          const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+          if (!stored || !stored.icons) return null;
+          const parsed = {};
+          for (const name of Object.keys(labels)) {
+            const rows = stored.icons[name];
+            if (!Array.isArray(rows) || rows.length !== GRID || rows.some((row) => typeof row !== "string" || row.length !== GRID)) return null;
+            parsed[name] = rows.map((row) => [...row].map((cell) => cell === "#" ? 1 : 0));
+          }
+          return parsed;
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      function rowsFor(grid) {
+        return grid.map((row) => row.map((cell) => cell ? "#" : ".").join(""));
+      }
+
+      function exportData() {
+        return {
+          version: 1,
+          grid: GRID,
+          labels: { menu: "ESC", chat: "T", drop: "Q", inventory: "E" },
+          actionLayout: [["jump", "attack"], ["sneak", "use"]],
+          icons: Object.fromEntries(Object.keys(labels).map((name) => [name, rowsFor(icons[name])])),
+        };
+      }
+
+      function save() {
+        saveStatus.textContent = "저장 중";
+        saveStatus.dataset.state = "saving";
+        const value = JSON.stringify(exportData(), null, 2);
+        codeOutput.value = value;
+        try {
+          localStorage.setItem(STORAGE_KEY, value);
+          saveStatus.textContent = "저장됨";
+          saveStatus.dataset.state = "saved";
+        } catch (_error) {
+          saveStatus.textContent = "저장 실패";
+          saveStatus.dataset.state = "error";
+        }
+      }
+
+      function drawGridToCanvas(canvas, grid, options = {}) {
+        const context = canvas.getContext("2d");
+        const width = canvas.width;
+        const cell = width / GRID;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = options.background || "transparent";
+        if (options.background) context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = options.color || "#fff";
+        for (let y = 0; y < GRID; y += 1) {
+          for (let x = 0; x < GRID; x += 1) {
+            if (grid[y][x]) context.fillRect(x * cell, y * cell, cell, cell);
+          }
+        }
+        if (options.grid) {
+          context.strokeStyle = "rgba(255,255,255,.10)";
+          context.lineWidth = 1;
+          context.beginPath();
+          for (let index = 0; index <= GRID; index += 1) {
+            const point = Math.round(index * cell) + 0.5;
+            context.moveTo(point, 0);
+            context.lineTo(point, width);
+            context.moveTo(0, point);
+            context.lineTo(width, point);
+          }
+          context.stroke();
+          context.strokeStyle = "rgba(159,201,143,.34)";
+          context.strokeRect(0.5, 0.5, width - 1, width - 1);
+        }
+      }
+
+      function renderEditor() {
+        drawGridToCanvas(editor, icons[selected], { background: "#0a100d", color: "#f8fbf7", grid: true });
+        selectedTitle.textContent = labels[selected];
+        drawTool.setAttribute("aria-pressed", String(tool === "draw"));
+        eraseTool.setAttribute("aria-pressed", String(tool === "erase"));
+        undoButton.disabled = history.length === 0;
+        redoButton.disabled = future.length === 0;
+      }
+
+      function createIconRow(name) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "icon-row";
+        button.dataset.icon = name;
+        button.setAttribute("aria-pressed", String(name === selected));
+        const canvas = document.createElement("canvas");
+        canvas.width = 32;
+        canvas.height = 32;
+        canvas.setAttribute("aria-hidden", "true");
+        const text = document.createElement("span");
+        text.textContent = labels[name];
+        button.append(canvas, text);
+        button.addEventListener("click", () => selectIcon(name));
+        return button;
+      }
+
+      function populateIconLists() {
+        moveList.replaceChildren(...moveNames.map(createIconRow));
+        actionList.replaceChildren(...actionNames.map(createIconRow));
+      }
+
+      function renderIconLists() {
+        document.querySelectorAll(".icon-row").forEach((button) => {
+          const name = button.dataset.icon;
+          button.setAttribute("aria-pressed", String(name === selected));
+          drawGridToCanvas(button.querySelector("canvas"), icons[name]);
+        });
+      }
+
+      function iconCanvas(name, accessibleLabel) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 32;
+        canvas.height = 32;
+        canvas.dataset.previewIcon = name;
+        canvas.setAttribute("aria-label", accessibleLabel);
+        return canvas;
+      }
+
+      function previewControl(content, className = "") {
+        const control = document.createElement("span");
+        control.className = `preview-control ${className}`.trim();
+        if (typeof content === "string") control.textContent = content;
+        else control.appendChild(content);
+        return control;
+      }
+
+      function buildPreview() {
+        const move = document.getElementById("preview-move");
+        const actions = document.getElementById("preview-actions");
+        move.replaceChildren(
+          previewControl("ESC", "fixed-key"),
+          previewControl(iconCanvas("forward", "위")),
+          previewControl("T", "fixed-key"),
+          previewControl(iconCanvas("left", "왼쪽")),
+          previewControl(iconCanvas("sprint", "스프린트")),
+          previewControl(iconCanvas("right", "오른쪽")),
+          previewControl("Q", "fixed-key"),
+          previewControl(iconCanvas("back", "아래")),
+          previewControl("E", "fixed-key"),
+        );
+        actions.replaceChildren(
+          previewControl(iconCanvas("jump", "점프")),
+          previewControl(iconCanvas("attack", "왼쪽 클릭")),
+          previewControl(iconCanvas("sneak", "Shift")),
+          previewControl(iconCanvas("use", "오른쪽 클릭")),
+        );
+      }
+
+      function renderPreview() {
+        document.querySelectorAll("[data-preview-icon]").forEach((canvas) => {
+          drawGridToCanvas(canvas, icons[canvas.dataset.previewIcon]);
+        });
+      }
+
+      function renderAll() {
+        renderEditor();
+        renderIconLists();
+        renderPreview();
+        save();
+      }
+
+      function selectIcon(name) {
+        if (!icons[name]) return;
+        selected = name;
+        renderEditor();
+        renderIconLists();
+      }
+
+      function snapshot() {
+        return { name: selected, grid: cloneGrid(icons[selected]) };
+      }
+
+      function pushHistory(state) {
+        history.push(state);
+        if (history.length > 100) history.shift();
+        future = [];
+      }
+
+      function setCellFromEvent(event, forcedValue = null) {
+        const bounds = editor.getBoundingClientRect();
+        const x = Math.max(0, Math.min(GRID - 1, Math.floor((event.clientX - bounds.left) / bounds.width * GRID)));
+        const y = Math.max(0, Math.min(GRID - 1, Math.floor((event.clientY - bounds.top) / bounds.height * GRID)));
+        const value = forcedValue ?? (tool === "draw" ? 1 : 0);
+        if (icons[selected][y][x] === value) return;
+        icons[selected][y][x] = value;
+        strokeChanged = true;
+        renderEditor();
+        renderIconLists();
+        renderPreview();
+      }
+
+      function beginStroke(event) {
+        if (event.button !== 0 && event.button !== 2) return;
+        event.preventDefault();
+        editor.setPointerCapture(event.pointerId);
+        drawing = true;
+        strokeValue = event.button === 2 ? 0 : tool === "draw" ? 1 : 0;
+        strokeChanged = false;
+        pushHistory(snapshot());
+        setCellFromEvent(event, strokeValue);
+      }
+
+      function moveStroke(event) {
+        if (!drawing) return;
+        event.preventDefault();
+        setCellFromEvent(event, strokeValue);
+      }
+
+      function endStroke(event) {
+        if (!drawing) return;
+        drawing = false;
+        if (!strokeChanged) history.pop();
+        else save();
+        if (editor.hasPointerCapture(event.pointerId)) editor.releasePointerCapture(event.pointerId);
+        renderEditor();
+      }
+
+      function restoreState(state) {
+        selected = state.name;
+        icons[selected] = cloneGrid(state.grid);
+        renderAll();
+      }
+
+      function undo() {
+        const state = history.pop();
+        if (!state) return;
+        future.push(snapshot());
+        restoreState(state);
+      }
+
+      function redo() {
+        const state = future.pop();
+        if (!state) return;
+        history.push(snapshot());
+        restoreState(state);
+      }
+
+      function modifySelected(modifier) {
+        pushHistory(snapshot());
+        icons[selected] = modifier(cloneGrid(icons[selected]));
+        renderAll();
+      }
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("is-visible");
+        clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 1400);
+      }
+
+      async function copyCode() {
+        save();
+        try {
+          await navigator.clipboard.writeText(codeOutput.value);
+        } catch (_error) {
+          codeOutput.select();
+          document.execCommand("copy");
+          codeOutput.setSelectionRange(0, 0);
+        }
+        showToast("코드를 복사했어");
+      }
+
+      function importCode() {
+        try {
+          const data = JSON.parse(codeOutput.value);
+          if (!data || data.grid !== GRID || !data.icons) throw new Error("format");
+          const imported = {};
+          for (const name of Object.keys(labels)) {
+            const rows = data.icons[name];
+            if (!Array.isArray(rows) || rows.length !== GRID || rows.some((row) => typeof row !== "string" || row.length !== GRID || /[^.#]/.test(row))) {
+              throw new Error(name);
+            }
+            imported[name] = rows.map((row) => [...row].map((cell) => cell === "#" ? 1 : 0));
+          }
+          history.push(snapshot());
+          icons = imported;
+          future = [];
+          renderAll();
+          showToast("코드를 불러왔어");
+        } catch (_error) {
+          showToast("코드 형식을 확인해 줘");
+        }
+      }
+
+      editor.addEventListener("pointerdown", beginStroke);
+      editor.addEventListener("pointermove", moveStroke);
+      editor.addEventListener("pointerup", endStroke);
+      editor.addEventListener("pointercancel", endStroke);
+      editor.addEventListener("contextmenu", (event) => event.preventDefault());
+      drawTool.addEventListener("click", () => { tool = "draw"; renderEditor(); });
+      eraseTool.addEventListener("click", () => { tool = "erase"; renderEditor(); });
+      undoButton.addEventListener("click", undo);
+      redoButton.addEventListener("click", redo);
+      document.getElementById("flip-button").addEventListener("click", () => modifySelected(mirror));
+      document.getElementById("clear-button").addEventListener("click", () => modifySelected(() => blank()));
+      document.getElementById("copy-button").addEventListener("click", copyCode);
+      document.getElementById("import-button").addEventListener("click", importCode);
+      document.getElementById("reset-button").addEventListener("click", () => {
+        if (!window.confirm("모든 아이콘을 처음 초안으로 되돌릴까?")) return;
+        icons = Object.fromEntries(Object.entries(seed).map(([name, grid]) => [name, cloneGrid(grid)]));
+        history = [];
+        future = [];
+        renderAll();
+        showToast("초안을 복원했어");
+      });
+      codeOutput.addEventListener("input", () => {
+        saveStatus.textContent = "코드 수정 중";
+        saveStatus.dataset.state = "editing";
+      });
+      window.addEventListener("keydown", (event) => {
+        if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      });
+
+      populateIconLists();
+      buildPreview();
+      renderAll();
+
+      window.__pixelEditor = {
+        exportData,
+        getSelected: () => selected,
+        getPixel: (name, x, y) => icons[name]?.[y]?.[x],
+        selectIcon,
+        setPixel(name, x, y, value) {
+          if (!icons[name] || x < 0 || x >= GRID || y < 0 || y >= GRID) return false;
+          icons[name][y][x] = value ? 1 : 0;
+          renderAll();
+          return true;
+        },
+      };
+    })();
+  </script>
+</body>
+</html>

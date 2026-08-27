@@ -120,21 +120,13 @@ const testPlayer: PlayerDetails = {
   enderChest: [],
 };
 
-describe("standalone administrator access", () => {
-  it("opens the panel without signing in as the configured administrator", async () => {
+describe("administrator access", () => {
+  it("does not react to the old hidden admin keyword", async () => {
     const signedOutData = { ...adminData, user: null, csrf: null };
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/bootstrap") return Promise.resolve(jsonResponse(signedOutData));
-      if (path === "/api/auth/admin-unlock" && options?.method === "POST") {
-        return Promise.resolve(jsonResponse({
-          user: adminData.user,
-          csrf: "standalone-admin-csrf",
-          adminExpiresAt: Date.now() + 10 * 60_000,
-          standalone: true,
-        }));
-      }
-      if (path === "/api/admin/overview") return Promise.resolve(jsonResponse(adminOverview(true)));
+      void options;
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -151,20 +143,9 @@ describe("standalone administrator access", () => {
       for (const key of "admin") window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: `Key${key.toUpperCase()}`, key }));
     });
 
-    const password = document.body.querySelector('[aria-label="관리자 비밀번호"]') as HTMLInputElement;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      setter.call(password, "G4ndan");
-      password.dispatchEvent(new Event("input", { bubbles: true }));
-      password.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(document.body.textContent).toContain("관리자 패널");
+    expect(document.body.querySelector('[aria-label="관리자 비밀번호"]')).toBeNull();
     expect(container.querySelector("#username")).toBeTruthy();
-    expect(document.body.textContent).not.toContain("로그아웃");
-    expect(fetchMock).toHaveBeenCalledWith("/api/auth/admin-unlock", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/auth/admin-unlock", expect.anything());
     await act(async () => root.unmount());
   });
 });
@@ -182,20 +163,37 @@ async function renderCard(status: ServerStatus) {
 describe("online player dropdown", () => {
   it("expands below the status card and shows display names", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      players: [{ gameUsername: "qaadmin", displayName: "관리자봇" }],
+      players: [
+        { gameUsername: "qaadmin", displayName: "관리자봇" },
+        { gameUsername: "friend", displayName: "친구" },
+      ],
     }), { status: 200, headers: { "Content-Type": "application/json" } })));
     const { container, root } = await renderCard(onlineStatus);
     const toggle = [...container.querySelectorAll("button")].find((button) => button.getAttribute("aria-controls") === "online-player-list");
+    const card = toggle?.parentElement;
     expect(toggle).toBeTruthy();
-    expect(toggle?.textContent).toBe("1명");
+    expect(toggle?.getAttribute("aria-label")).toBe("온라인 1명, 접속자 목록 펼치기");
+    expect(toggle?.className).toContain("absolute inset-0");
+    expect(card?.querySelector(".t-acc-head")).toBeNull();
+    expect(card?.querySelector(".pr-3\\.5")).toBeTruthy();
+    expect([...card!.querySelectorAll("strong")].some((label) => label.textContent === "온라인")).toBe(true);
+    expect(card?.className).toContain("duration-[var(--duration-quick)]");
+    expect(card?.className).toContain("hover:bg-[#96ce4d]/25");
+    expect(card?.className).toContain("has-[:active]:scale-[var(--scale-large)]");
+    expect(card?.className).toContain("has-[:active]:bg-[#96ce4d]/35");
+    expect(card?.className).not.toContain("focus-within:bg-[#96ce4d]/25");
 
     await act(async () => {
       toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(container.querySelector("#online-player-list")?.textContent).toContain("관리자봇");
+    expect(container.querySelector("#online-player-list")?.textContent).toContain("관리자봇, 친구");
+    expect(container.querySelector("#online-player-list ul")?.className).toContain("block");
+    expect(container.querySelector("#online-player-list li")?.className).toContain("font-mark");
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle?.getAttribute("aria-label")).toBe("온라인 1명, 접속자 목록 접기");
+    expect(toggle?.parentElement).toBe(container.querySelector("#online-player-list")?.parentElement);
     expect(container.querySelector("[data-open='true'] .t-acc-panel")).toBeTruthy();
 
     await act(async () => {
@@ -301,7 +299,7 @@ describe("skin change flow", () => {
     const root = createRoot(container);
     await act(async () => {
       root.render(<Dashboard
-        data={adminData}
+        data={{ ...adminData, server: { ...onlineStatus, phase: "off", players: [], startedAt: null, readyAt: null } }}
         onData={vi.fn()}
         onSession={vi.fn()}
         onStart={vi.fn()}
@@ -309,8 +307,6 @@ describe("skin change flow", () => {
         notice={vi.fn()}
         onPlay={vi.fn()}
         onOpenAdmin={vi.fn()}
-        onRevokeAdmin={vi.fn()}
-        onAdminExpired={vi.fn()}
         initialSkinDialogOpen
         onInitialSkinDialogHandled={vi.fn()}
       />);
@@ -321,6 +317,10 @@ describe("skin change flow", () => {
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain("스킨 변경");
     expect(document.body.textContent).not.toContain("스킨 카탈로그");
     expect(document.body.textContent).not.toContain("유명 스킨을 고르거나");
+    const skinButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "스킨 변경");
+    const serverButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "서버 시작");
+    expect(skinButton?.className).toContain("max-sm:min-h-8");
+    expect(serverButton?.className).toContain("max-sm:min-h-7");
     await act(async () => root.unmount());
   });
 
@@ -339,21 +339,25 @@ describe("skin change flow", () => {
     expect(container.textContent).toContain("업로드");
     expect(container.textContent).not.toContain("spawnpoint");
     expect(container.querySelector("form")?.className).toContain("overflow-y-auto");
-    expect([...container.querySelectorAll('[data-slot="toggle-group-item"]')].every((item) => item.className.includes("min-w-0") && item.className.includes("whitespace-normal"))).toBe(true);
+    expect([...container.querySelectorAll('[data-slot="toggle-group-item"]')].every((item) => item.className.includes("min-w-0") && item.className.includes("whitespace-normal") && item.className.includes("active:scale-[var(--scale-large)]"))).toBe(true);
     const preview = container.querySelector('[data-testid="catalog-skin-3d"]');
     expect(preview?.getAttribute("data-src")).toBe("/api/skin/catalog/spawnpoint.png?v=texture-v1");
+    expect(preview?.closest("button")?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
+    const animatedHeight = preview?.closest(".p-1")?.parentElement;
+    expect(animatedHeight?.className).toContain("transition-[height]");
 
     await act(async () => {
       [...container.querySelectorAll('[data-slot="toggle-group-item"]')]
         .find((item) => item.textContent === "업로드")!
         .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    const animatedHeight = container.querySelector("#skin-file")?.closest(".p-1")?.parentElement;
-    expect(animatedHeight?.className).toContain("shrink-0");
+    expect(container.querySelector("#skin-file")?.closest(".p-1")?.parentElement).toBe(animatedHeight);
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "선택")?.closest(".p-1")?.parentElement).toBe(animatedHeight);
     await act(async () => root.unmount());
   });
 
-  it("does not expose an administrator button on the dashboard", async () => {
+  it("shows an administrator button beside the account controls", async () => {
+    const onOpenAdmin = vi.fn();
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -366,61 +370,23 @@ describe("skin change flow", () => {
         onLogout={vi.fn()}
         notice={vi.fn()}
         onPlay={vi.fn()}
-        onOpenAdmin={vi.fn()}
-        onRevokeAdmin={vi.fn()}
-        onAdminExpired={vi.fn()}
-        initialSkinDialogOpen={false}
-        onInitialSkinDialogHandled={vi.fn()}
-      />);
-    });
-
-    expect(container.querySelector('[aria-label="관리자 패널"]')).toBeNull();
-    await act(async () => root.unmount());
-  });
-
-  it("opens from the shield and replaces the remaining time with an immediate lock action on hover", async () => {
-    const now = new Date("2026-08-25T08:00:00.000Z");
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-    const onOpenAdmin = vi.fn();
-    const onRevokeAdmin = vi.fn(async () => {});
-    const onAdminExpired = vi.fn();
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    await act(async () => {
-      root.render(<Dashboard
-        data={{ ...adminData, adminExpiresAt: now.getTime() + 8 * 60_000 }}
-        onData={vi.fn()}
-        onSession={vi.fn()}
-        onStart={vi.fn()}
-        onLogout={vi.fn()}
-        notice={vi.fn()}
-        onPlay={vi.fn()}
         onOpenAdmin={onOpenAdmin}
-        onRevokeAdmin={onRevokeAdmin}
-        onAdminExpired={onAdminExpired}
         initialSkinDialogOpen={false}
         onInitialSkinDialogHandled={vi.fn()}
       />);
     });
 
-    const shortcut = container.querySelector('[aria-label="관리자 바로가기, 8분 남음"]');
-    expect(shortcut?.textContent).toContain("8분");
-    const time = shortcut?.querySelector('[data-slot="admin-shortcut-time"]');
-    const lockIcon = shortcut?.querySelector('[data-slot="admin-shortcut-lock"]');
-    expect(time?.className).toContain("group-hover/admin:opacity-0");
-    expect(lockIcon?.className).toContain("group-hover/admin:opacity-100");
-    expect(container.querySelector('[aria-label="관리자 바로가기 삭제"]')).toBeNull();
+    const adminButton = container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement;
+    const accountButton = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes(adminData.user!.displayName));
+    expect(adminButton).toBeTruthy();
+    expect(accountButton).toBeTruthy();
+    expect(adminButton.parentElement).toBe(accountButton?.parentElement);
+    expect(container.textContent).not.toContain("분");
+    expect(container.querySelector('[aria-label="관리자 잠금"]')).toBeNull();
     await act(async () => {
-      (container.querySelector('[aria-label="관리자 페이지 열기"]') as HTMLButtonElement).click();
+      adminButton.click();
     });
     expect(onOpenAdmin).toHaveBeenCalledOnce();
-    await act(async () => {
-      (container.querySelector('[aria-label="관리자 잠금"]') as HTMLButtonElement).click();
-      await Promise.resolve();
-    });
-    expect(onRevokeAdmin).toHaveBeenCalledOnce();
     await act(async () => root.unmount());
   });
 
@@ -462,8 +428,6 @@ describe("mobile portal controls", () => {
         notice={vi.fn()}
         onPlay={vi.fn()}
         onOpenAdmin={vi.fn()}
-        onRevokeAdmin={vi.fn()}
-        onAdminExpired={vi.fn()}
         initialSkinDialogOpen={false}
         onInitialSkinDialogHandled={vi.fn()}
       />);
@@ -473,25 +437,26 @@ describe("mobile portal controls", () => {
     const accountTrigger = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("가나다라"));
     expect(accountTrigger?.className).toContain("min-w-11");
     expect(accountTrigger?.className).toContain("[@media(max-height:480px)]:min-h-11");
+    expect(accountTrigger?.className).toContain("active:scale-[var(--scale-large)]");
+    expect(accountTrigger?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
     expect(accountTrigger?.querySelector("span")?.className).toContain("truncate");
     const logout = container.querySelector('[aria-label="로그아웃"]');
     expect(logout?.className).toContain("max-sm:min-w-11");
     expect(logout?.className).toContain("[@media(pointer:coarse)]:min-w-11");
+    expect(logout?.className).toContain("active:scale-[var(--scale-large)]");
+    expect(logout?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
     await act(async () => root.unmount());
   });
 
-  it("uses a full finger-sized close control over the game on mobile", async () => {
+  it("does not show a close control over the game", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onClose={vi.fn()} />);
+      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" />);
     });
 
-    const close = container.querySelector('[aria-label="게임 종료"]') as HTMLButtonElement;
-    expect(close.className).toContain("size-11");
-    expect(close.className).toContain("sm:size-7");
-    expect(close.className).toContain("[@media(max-height:480px)]:min-h-11");
+    expect(container.querySelector('[aria-label="게임 종료"]')).toBeNull();
     await act(async () => root.unmount());
   });
 });

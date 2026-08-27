@@ -8,7 +8,9 @@ const bridgeSource = fs.readFileSync(path.join(process.cwd(), "public/game/porta
 
 type BridgeEnvironment = {
   coarsePointer?: boolean;
+  hostname?: string;
   maxTouchPoints?: number;
+  mobileControlSize?: number;
   renderDom?: boolean;
   userAgent?: string;
 };
@@ -37,12 +39,18 @@ function loadBridge(
   }> = [];
   const locatorElementsById = new Map<string, Record<string, any>>();
   const locatorIntervals: Array<{ callback: () => void; delay: number }> = [];
+  const windowTimeouts = new Map<number, () => void>();
+  let nextWindowTimeout = 1;
   if (gameSettings !== undefined) {
     storage.set("_spawnpoint_mossrunner.g", Buffer.from(gameSettings, "binary").toString("base64"));
+  }
+  if (environment.mobileControlSize !== undefined) {
+    storage.set("spawnpoint_mobile_control_size", String(environment.mobileControlSize));
   }
   const canvas = {
     width: 960,
     height: 600,
+    style: { touchAction: "pan-x pan-y" },
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 960, bottom: 600, width: 960, height: 600 }),
     dispatchEvent: (event: Record<string, unknown>) => {
       canvasEvents.push(event);
@@ -76,7 +84,13 @@ function loadBridge(
   let documentObject: Record<string, any>;
   const clientTextInputEvents: Array<Record<string, unknown>> = [];
   const clientTextInputActiveStates: boolean[] = [];
-  const clientTextInput = {
+  const clientTextInputFocusTypes: string[] = [];
+  function FakeHTMLInputElement() {}
+  FakeHTMLInputElement.prototype.focus = function (this: Record<string, any>) {
+    clientTextInputFocusTypes.push(this.type);
+    documentObject.activeElement = this;
+  };
+  const clientTextInput = Object.assign(Object.create(FakeHTMLInputElement.prototype), {
     classList: { contains: (name: string) => name === "_eaglercraftX_text_input_element" },
     dispatchEvent: (event: Record<string, unknown>) => {
       clientTextInputEvents.push(event);
@@ -86,16 +100,13 @@ function loadBridge(
     blur() {
       documentObject.activeElement = null;
     },
-    focus() {
-      documentObject.activeElement = clientTextInput;
-    },
     inputMode: "",
     lang: "",
     setSelectionRange: vi.fn(),
     spellcheck: true,
     type: "password",
     value: " ",
-  };
+  });
   const keyboardZone = {
     style: { display: "none" },
     dispatchEvent(event: Record<string, unknown>) {
@@ -125,12 +136,15 @@ function loadBridge(
     }
   }
   let mutationObserverCallback: ((records: Array<Record<string, unknown>>) => void) | null = null;
+  let mutationObserverOptions: Record<string, unknown> | null = null;
   class FakeMutationObserver {
     constructor(callback: (records: Array<Record<string, unknown>>) => void) {
       mutationObserverCallback = callback;
     }
 
-    observe() {}
+    observe(_target: unknown, options: Record<string, unknown>) {
+      mutationObserverOptions = options;
+    }
   }
   const windowObject: Record<string, unknown> = {
     eaglercraftXOpts: options,
@@ -147,6 +161,7 @@ function loadBridge(
     Event: FakeEvent,
     InputEvent: FakeEvent,
     KeyboardEvent: FakeEvent,
+    HTMLInputElement: FakeHTMLInputElement,
     MouseEvent: FakeEvent,
     MutationObserver: FakeMutationObserver,
     PointerEvent: FakeEvent,
@@ -154,6 +169,14 @@ function loadBridge(
     Proxy,
     WeakMap,
     WebSocket: FakeWebSocket,
+    setTimeout(callback: () => void) {
+      const id = nextWindowTimeout++;
+      windowTimeouts.set(id, callback);
+      return id;
+    },
+    clearTimeout(id: number) {
+      windowTimeouts.delete(id);
+    },
     matchMedia: (query: string) => ({ matches: query === "(pointer: coarse)" && environment.coarsePointer === true }),
     navigator: {
       maxTouchPoints: environment.maxTouchPoints ?? 0,
@@ -167,7 +190,8 @@ function loadBridge(
     location: {
       search: "?account=mossrunner&launch=launch-123",
       protocol: "https:",
-      host: "spawnpoint.test",
+      host: environment.hostname ?? "spawnpoint.test",
+      hostname: environment.hostname ?? "spawnpoint.test",
       origin: "https://spawnpoint.test",
       pathname: "/game/stable.html",
     },
@@ -191,14 +215,18 @@ function loadBridge(
       }
     }
     windowObject.Image = FakeImage;
-    windowObject.fetch = vi.fn(async () => ({
-      ok: true,
-      json: async () => locatorSnapshot,
-    }));
     windowObject.setInterval = vi.fn((callback: () => void, delay: number) => {
       locatorIntervals.push({ callback, delay });
       return locatorIntervals.length;
     });
+  }
+  if (locatorSnapshot || environment.renderDom) {
+    windowObject.fetch = vi.fn(async (input: unknown) => ({
+      ok: true,
+      json: async () => String(input) === "/api/game/chat"
+        ? { sent: true, command: false }
+        : locatorSnapshot ?? { active: false, targets: [], players: [] },
+    }));
   }
   windowObject.parent = {
     postMessage(message: unknown, targetOrigin: string) {
@@ -246,6 +274,12 @@ function loadBridge(
         element[`on${event.type}`]?.(event);
         elementHandlers.get(event.type)?.forEach((listener) => listener(event));
         return true;
+      },
+      blur() {
+        if (documentObject.activeElement === element) documentObject.activeElement = null;
+      },
+      focus() {
+        documentObject.activeElement = element;
       },
       appendChild(child: Record<string, any>) {
         child.parentNode = element;
@@ -363,6 +397,7 @@ function loadBridge(
     clientTextInput,
     clientTextInputActiveStates,
     clientTextInputEvents,
+    clientTextInputFocusTypes,
     documentObject,
     keyboardZone,
     locatorContexts,
@@ -372,12 +407,32 @@ function loadBridge(
     parentMessages,
     storage,
     triggerMutation: () => mutationObserverCallback?.([{}]),
+    mutationObserverOptions,
     documentPropertyHandlers,
     windowHandlers,
     windowPropertyHandlers,
     windowObject,
+    runWindowTimeouts() {
+      const callbacks = [...windowTimeouts.values()];
+      windowTimeouts.clear();
+      callbacks.forEach((callback) => callback());
+    },
   };
 }
+
+describe("domain site name", () => {
+  it.each([
+    ["xn--o79a769b.xn--hk3b17f.xn--3e0b707e", "예게.서버.한국"],
+    ["xn--9k3b21rt2f.xn--hk3b17f.xn--3e0b707e", "베이컨.서버.한국"],
+    ["spawnpoint.test", "spawnpoint"],
+  ])("uses the name for %s in the game client", (hostname, expected) => {
+    const client = loadBridge(undefined, true, undefined, { hostname });
+    expect(client.options.servers).toEqual([
+      { addr: `wss://${hostname}/gateway?launch=launch-123`, name: expected, hideAddress: true },
+    ]);
+    expect(client.documentObject.title).toBe(`${expected}, mossrunner`);
+  });
+});
 
 function findControl(root: Record<string, any>, action: string): Record<string, any> | undefined {
   if (root["data-sp-control"] === action) return root;
@@ -395,6 +450,7 @@ describe("portal game bridge", () => {
     expect(crypto.createHash("sha1").update(locale).digest("hex")).toBe(
       "502813d62264297168b2fb6cf732fc3ee337d42f",
     );
+    expect(locale.toString("utf8")).toContain("language.code=ko_kr\n");
   });
 
   it("ships the locale-metadata-fixed 1.12.2 client bundle", () => {
@@ -409,7 +465,7 @@ describe("portal game bridge", () => {
   it("keeps the Korean launch hint for clients that support it", () => {
     const { options } = loadBridge();
 
-    expect(options.lang).toBe("ko_KR");
+    expect(options.lang).toBe("ko_kr");
     expect(options.localesURI).toBe("/game/lang-v2");
   });
 
@@ -424,7 +480,7 @@ describe("portal game bridge", () => {
     const encoded = loadBridge().storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_KR\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -432,7 +488,7 @@ describe("portal game bridge", () => {
     const encoded = loadBridge(undefined, false).storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_KR\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -443,7 +499,7 @@ describe("portal game bridge", () => {
     };
 
     expect(Buffer.from(hooks.localStorageLoaded("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary")).toBe(
-      "version:1343\nlang:ko_KR\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\n",
+      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -459,7 +515,7 @@ describe("portal game bridge", () => {
     );
 
     expect(Buffer.from(storage.get("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_KR\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -468,7 +524,7 @@ describe("portal game bridge", () => {
     const encoded = storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "version:1343\nlang:ko_KR\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\n",
+      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -479,7 +535,7 @@ describe("portal game bridge", () => {
     const encoded = storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_KR\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\ntutorialStep:none\n",
+      "lang:ko_kr\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -488,6 +544,14 @@ describe("portal game bridge", () => {
     const encoded = storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toContain("tutorialStep:none\n");
+    expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toContain("lang:ko_kr\n");
+  });
+
+  it("acknowledges the built-in disclaimer for new and existing accounts", () => {
+    const { storage } = loadBridge("lang:ko_kr\nacknowledgeDisclaimer:false\n");
+    const encoded = storage.get("_spawnpoint_mossrunner.g");
+
+    expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toContain("acknowledgeDisclaimer:true\n");
   });
 
   it("turns auto-jump off by default", () => {
@@ -612,38 +676,121 @@ describe("portal game bridge", () => {
     expect(input.setSelectionRange).toHaveBeenCalledWith(1, 1);
   });
 
-  it("opens and configures the hidden text input when desktop chat opens", () => {
-    const { clientTextInput, documentObject, options } = loadBridge();
+  it("opens a visible native text input when desktop chat opens", () => {
+    const { documentObject, locatorElementsById, options } = loadBridge(undefined, true, undefined, { renderDom: true });
     const hooks = options.hooks as {
       screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
     };
 
     hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
 
-    expect(clientTextInput).toMatchObject({
+    const composer = locatorElementsById.get("spawnpoint-mobile-chat")!;
+    const input = composer.children[0];
+    expect(composer).toMatchObject({
+      style: { display: "flex" },
+      "data-sp-platform": "desktop",
+    });
+    expect(input).toMatchObject({
       type: "text",
       lang: "ko-KR",
       inputMode: "text",
+      autocomplete: "off",
       spellcheck: false,
     });
+    expect(documentObject.activeElement).toBe(input);
 
     hooks.screenChanged("", 480, 300, 960, 600, 2);
-    expect(clientTextInput).not.toBe(documentObject.activeElement);
+    expect(composer.style.display).toBe("none");
+    expect(input).not.toBe(documentObject.activeElement);
   });
 
-  it("does not let the runtime cancel macOS or Windows IME keys", () => {
+  it("intercepts T before Minecraft and opens the portal chat input", () => {
+    const {
+      canvas,
+      canvasEvents,
+      documentObject,
+      locatorElementsById,
+      windowHandlers,
+    } = loadBridge(undefined, true, undefined, { renderDom: true });
+    const exitPointerLock = vi.fn();
+    documentObject.pointerLockElement = canvas;
+    documentObject.exitPointerLock = exitPointerLock;
+    const event = {
+      target: canvas,
+      type: "keydown",
+      key: "t",
+      code: "KeyT",
+      repeat: false,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+
+    windowHandlers.get("keydown")?.[2](event);
+
+    const composer = locatorElementsById.get("spawnpoint-mobile-chat")!;
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(composer.style.display).toBe("flex");
+    expect(documentObject.activeElement).toBe(composer.children[0]);
+    expect(documentObject.pointerLockElement).toBe(canvas);
+    expect(exitPointerLock).not.toHaveBeenCalled();
+    expect(canvasEvents).toHaveLength(0);
+  });
+
+  it("does not let observer timing blur the runtime text input", () => {
+    const { clientTextInput, documentObject, keyboardZone, triggerMutation } = loadBridge();
+
+    keyboardZone.style.display = "block";
+    triggerMutation();
+    expect(documentObject.activeElement).toBe(clientTextInput);
+    const blur = vi.spyOn(clientTextInput, "blur");
+
+    keyboardZone.style.display = "none";
+    triggerMutation();
+    expect(documentObject.activeElement).toBe(clientTextInput);
+    expect(blur).not.toHaveBeenCalled();
+  });
+
+  it("repairs a later password type change without closing chat", () => {
     const {
       clientTextInput,
       documentObject,
+      keyboardZone,
+      mutationObserverOptions,
+      triggerMutation,
+    } = loadBridge();
+
+    keyboardZone.style.display = "block";
+    triggerMutation();
+    const blur = vi.spyOn(clientTextInput, "blur");
+    const focus = vi.spyOn(clientTextInput, "focus");
+
+    clientTextInput.type = "password";
+    triggerMutation();
+
+    expect(clientTextInput.type).toBe("text");
+    expect(documentObject.activeElement).toBe(clientTextInput);
+    expect(blur).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+    expect(mutationObserverOptions).toMatchObject({
+      attributeFilter: ["style", "type"],
+    });
+  });
+
+  it("lets the visible desktop input own macOS and Windows text and IME keys", () => {
+    const {
+      documentObject,
+      locatorElementsById,
       options,
       windowHandlers,
       windowObject,
-    } = loadBridge();
+    } = loadBridge(undefined, true, undefined, { renderDom: true });
     const hooks = options.hooks as {
       screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
     };
     hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
-    expect(documentObject.activeElement).toBe(clientTextInput);
+    const chatInput = locatorElementsById.get("spawnpoint-mobile-chat")!.children[0];
+    expect(documentObject.activeElement).toBe(chatInput);
 
     const runtimeListener = vi.fn((event: Record<string, any>) => event.preventDefault());
     windowObject.addEventListener("keydown", runtimeListener);
@@ -654,7 +801,7 @@ describe("portal game bridge", () => {
       { key: "Process", code: "KeyR", keyCode: 229, isComposing: true },
     ].map((key) => ({
       ...key,
-      target: clientTextInput,
+      target: chatInput,
       preventDefault: vi.fn(),
       stopImmediatePropagation: vi.fn(),
     }));
@@ -664,20 +811,20 @@ describe("portal game bridge", () => {
     expect(runtimeListener).not.toHaveBeenCalled();
     imeEvents.forEach((event) => expect(event.preventDefault).not.toHaveBeenCalled());
 
-    const englishEvent = {
-      target: clientTextInput,
+    const textEvent = {
+      target: chatInput,
       key: "r",
       code: "KeyR",
       keyCode: 82,
       preventDefault: vi.fn(),
       stopImmediatePropagation: vi.fn(),
     };
-    wrappedRuntimeListener?.(englishEvent);
-    expect(runtimeListener).toHaveBeenCalledOnce();
-    expect(englishEvent.preventDefault).toHaveBeenCalledOnce();
+    wrappedRuntimeListener?.(textEvent);
+    expect(runtimeListener).not.toHaveBeenCalled();
+    expect(textEvent.preventDefault).not.toHaveBeenCalled();
 
     const navigationEvent = {
-      target: clientTextInput,
+      target: chatInput,
       key: "ArrowLeft",
       code: "ArrowLeft",
       keyCode: 37,
@@ -685,8 +832,8 @@ describe("portal game bridge", () => {
       stopImmediatePropagation: vi.fn(),
     };
     wrappedRuntimeListener?.(navigationEvent);
-    expect(runtimeListener).toHaveBeenCalledTimes(2);
-    expect(navigationEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(runtimeListener).not.toHaveBeenCalled();
+    expect(navigationEvent.preventDefault).not.toHaveBeenCalled();
   });
 
   it("shows online players after /tpa and sends the selected command", async () => {
@@ -694,7 +841,6 @@ describe("portal game bridge", () => {
       canvasEvents,
       clientTextInputEvents,
       locatorElementsById,
-      options,
       windowHandlers,
       windowObject,
     } = loadBridge(undefined, true, {
@@ -702,14 +848,20 @@ describe("portal game bridge", () => {
       targets: [],
       players: [{ gameUsername: "MossRunner", displayName: "이끼 러너" }],
     });
-    const hooks = options.hooks as {
-      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    const openEvent = {
+      target: {},
+      type: "keydown",
+      key: "/",
+      code: "Slash",
+      repeat: false,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
     };
-    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
-    const draftListener = windowHandlers.get("keydown")?.[1];
-    for (const key of ["/", "t", "p", "a"]) {
-      draftListener?.({ type: "keydown", key, target: null });
-    }
+    windowHandlers.get("keydown")?.[2](openEvent);
+    const chatInput = locatorElementsById.get("spawnpoint-mobile-chat")!.children[0];
+    expect(chatInput.value).toBe("/");
+    chatInput.value = "/tpa";
+    chatInput.oninput({ isComposing: false });
 
     await vi.waitFor(() => {
       expect(locatorElementsById.get("spawnpoint-tpa-picker")?.style.display).toBe("flex");
@@ -720,13 +872,13 @@ describe("portal game bridge", () => {
     expect(button).toMatchObject({ textContent: "이끼 러너", title: "/tpa MossRunner" });
     button.onclick({ preventDefault: vi.fn() });
 
-    expect(clientTextInputEvents).toContainEqual(expect.objectContaining({
-      type: "beforeinput",
-      data: " MossRunner",
-      inputType: "insertText",
-    }));
-    expect(canvasEvents.slice(-2).map(({ type }) => type)).toEqual(["keydown", "keyup"]);
-    expect(canvasEvents.at(-2)).toMatchObject({ key: "Enter", keyCode: 13 });
+    await vi.waitFor(() => expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/chat", expect.objectContaining({
+      method: "POST",
+      credentials: "same-origin",
+      body: JSON.stringify({ launchId: "launch-123", message: "/tpa MossRunner" }),
+    })));
+    expect(clientTextInputEvents).toHaveLength(0);
+    expect(canvasEvents).toHaveLength(0);
     expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/players", {
       credentials: "same-origin",
       cache: "no-store",
@@ -778,6 +930,203 @@ describe("portal game bridge", () => {
     expect(mobile.body.children).toContain(root);
   });
 
+  it("lays out the requested pixel controls without outlined button chrome", () => {
+    const { documentObject, locatorElementsById } = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      renderDom: true,
+    });
+    const root = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const move = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-move"))!;
+    const actions = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-actions"))!;
+    const sizeControls = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-size"))!;
+    const style = documentObject.head.children.find(
+      (element: Record<string, unknown>) => element.id === "spawnpoint-mobile-control-style",
+    );
+
+    expect(move.children.map((child: Record<string, any>) => child["data-sp-control"])).toEqual([
+      "menu", "forward", "chat",
+      "left", "sprint", "right",
+      "drop", "back", "inventory",
+    ]);
+    expect(actions.children.map((child: Record<string, any>) => child["data-sp-control"])).toEqual([
+      "jump", "attack", "sneak", "use",
+    ]);
+    expect(sizeControls.children.map((child: Record<string, any>) => child["data-sp-control"])).toEqual([
+      "size-decrease", "size-increase",
+    ]);
+    expect(findControl(root, "hotbar-previous")).toBeUndefined();
+    expect(findControl(root, "hotbar-next")).toBeUndefined();
+    expect(findControl(root, "menu")).toMatchObject({ textContent: "ESC", "aria-label": "게임 메뉴 열기" });
+    expect(findControl(root, "chat")).toMatchObject({ textContent: "T", "aria-label": "채팅 열기" });
+    expect(findControl(root, "drop")).toMatchObject({ textContent: "Q", "aria-label": "아이템 버리기" });
+    expect(findControl(root, "inventory")).toMatchObject({ textContent: "E", "aria-label": "보관함 열기" });
+    ["forward", "back", "left", "right", "sprint", "jump", "attack", "sneak", "use"].forEach((action) => {
+      expect(findControl(root, action)?.innerHTML).toContain('class="sp-mobile-icon sp-mobile-pixel-icon"');
+      expect(findControl(root, action)?.innerHTML).toContain('viewBox="0 0 16 16"');
+      expect(findControl(root, action)?.innerHTML).toContain('shape-rendering="crispEdges"');
+    });
+    expect(findControl(root, "forward")?.innerHTML).toContain('<rect x="7" y="5" width="2" height="1"/>');
+    expect(findControl(root, "forward")?.innerHTML).not.toBe(findControl(root, "right")?.innerHTML);
+    expect(findControl(root, "right")?.innerHTML).not.toBe(findControl(root, "back")?.innerHTML);
+    expect(findControl(root, "back")?.innerHTML).not.toBe(findControl(root, "left")?.innerHTML);
+    expect(findControl(root, "attack")?.innerHTML).toContain('<rect x="12" y="1" width="3" height="1"/>');
+    expect(findControl(root, "use")?.innerHTML).toContain('<rect x="7" y="1" width="2" height="1"/>');
+    expect(style?.textContent).toContain("border:0;border-radius:6px");
+    expect(style?.textContent).toContain("background:rgba(8,12,10,.46)");
+    expect(style?.textContent).toContain("transform:scale(.94)");
+    expect(style?.textContent).toContain("--sp-press-duration:150ms");
+    expect(style?.textContent).toContain("@media (prefers-reduced-motion:reduce)");
+    expect(style?.textContent).toContain("grid-template:repeat(2,var(--sp-touch))/repeat(2,var(--sp-touch))");
+    expect(style?.textContent).toContain("[data-sp-control=jump]{grid-column:1;grid-row:1}");
+    expect(style?.textContent).toContain("[data-sp-control=attack]{grid-column:2;grid-row:1}");
+    expect(style?.textContent).toContain("[data-sp-control=sneak]{grid-column:1;grid-row:2}");
+    expect(style?.textContent).toContain("[data-sp-control=use]{grid-column:2;grid-row:2}");
+    expect(style?.textContent).toContain(".sp-mobile-size{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right))");
+    expect(style?.textContent).toContain(".sp-mobile-size .sp-mobile-button{width:44px;height:44px");
+  });
+
+  it("adjusts and persists the mobile control size between 44px and 64px", () => {
+    const first = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      renderDom: true,
+    });
+    const root = first.locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const decrease = findControl(root, "size-decrease")!;
+    const increase = findControl(root, "size-increase")!;
+    const touchEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+
+    decrease.ontouchstart(touchEvent);
+    decrease.ontouchend(touchEvent);
+    expect(root.style["--sp-touch"]).toBe("49px");
+    decrease.ontouchstart(touchEvent);
+    decrease.ontouchend(touchEvent);
+    expect(root.style["--sp-touch"]).toBe("44px");
+    expect(decrease.disabled).toBe(true);
+
+    for (let index = 0; index < 5; index += 1) {
+      increase.ontouchstart(touchEvent);
+      increase.ontouchend(touchEvent);
+    }
+    expect(root.style["--sp-touch"]).toBe("64px");
+    expect(first.storage.get("spawnpoint_mobile_control_size")).toBe("64");
+    expect(increase.disabled).toBe(true);
+
+    const restored = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      mobileControlSize: 59,
+      renderDom: true,
+    });
+    const restoredRoot = restored.locatorElementsById.get("spawnpoint-mobile-controls")!;
+    expect(restoredRoot.style["--sp-touch"]).toBe("59px");
+    expect(restoredRoot["data-sp-control-size"]).toBe("59");
+  });
+
+  it("toggles sprint and primes held forward movement with two W presses", () => {
+    const { canvas, canvasEvents, locatorElementsById } = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      renderDom: true,
+    });
+    const root = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const sprint = findControl(root, "sprint")!;
+    const forward = findControl(root, "forward")!;
+    const touchEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    canvas.requestPointerLock();
+
+    expect(sprint["aria-pressed"]).toBe("false");
+    sprint.ontouchstart(touchEvent);
+    sprint.ontouchend(touchEvent);
+    expect(sprint["aria-pressed"]).toBe("true");
+    expect(sprint.className).toContain("is-toggled");
+
+    forward.ontouchstart(touchEvent);
+    forward.ontouchend(touchEvent);
+    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keyup", "keydown", "keyup"]);
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ key: "w", code: "KeyW", keyCode: 87 }),
+      expect.objectContaining({ key: "w", code: "KeyW", keyCode: 87 }),
+      expect.objectContaining({ key: "w", code: "KeyW", keyCode: 87 }),
+      expect.objectContaining({ key: "w", code: "KeyW", keyCode: 87 }),
+    ]);
+
+    canvasEvents.length = 0;
+    sprint.ontouchstart(touchEvent);
+    sprint.ontouchend(touchEvent);
+    forward.ontouchstart(touchEvent);
+    forward.ontouchend(touchEvent);
+    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keyup"]);
+  });
+
+  it("maps the drop and right-side action controls to their game inputs", () => {
+    const { canvas, canvasEvents, locatorElementsById } = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      renderDom: true,
+    });
+    const root = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const touchEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    canvas.requestPointerLock();
+
+    findControl(root, "drop")!.ontouchstart(touchEvent);
+    findControl(root, "drop")!.ontouchend(touchEvent);
+    findControl(root, "jump")!.ontouchstart(touchEvent);
+    findControl(root, "jump")!.ontouchend(touchEvent);
+    findControl(root, "sneak")!.ontouchstart(touchEvent);
+    findControl(root, "sneak")!.ontouchend(touchEvent);
+    findControl(root, "attack")!.ontouchstart(touchEvent);
+    findControl(root, "attack")!.ontouchend(touchEvent);
+    findControl(root, "use")!.ontouchstart(touchEvent);
+    findControl(root, "use")!.ontouchend(touchEvent);
+
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ type: "keydown", key: "q", code: "KeyQ", keyCode: 81 }),
+      expect.objectContaining({ type: "keyup", key: "q", code: "KeyQ", keyCode: 81 }),
+      expect.objectContaining({ type: "keydown", key: " ", code: "Space", keyCode: 32 }),
+      expect.objectContaining({ type: "keyup", key: " ", code: "Space", keyCode: 32 }),
+      expect.objectContaining({ type: "keydown", key: "Shift", code: "ShiftLeft", keyCode: 16 }),
+      expect.objectContaining({ type: "keyup", key: "Shift", code: "ShiftLeft", keyCode: 16 }),
+      expect.objectContaining({ type: "mousedown", button: 0, buttons: 1 }),
+      expect.objectContaining({ type: "mouseup", button: 0, buttons: 0 }),
+      expect.objectContaining({ type: "mousedown", button: 2, buttons: 2 }),
+      expect.objectContaining({ type: "mouseup", button: 2, buttons: 0 }),
+    ]);
+  });
+
+  it("selects a hotbar slot when its rendered canvas cell is tapped", () => {
+    const { canvas, canvasEvents, handlers, options } = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      renderDom: true,
+    });
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    canvas.requestPointerLock();
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+
+    const tapSlot = (identifier: number, clientX: number) => {
+      handlers.get("touchstart")?.[0]({
+        target: canvas,
+        changedTouches: [{ identifier, clientX, clientY: 578 }],
+        preventDefault: vi.fn(),
+      });
+      handlers.get("touchend")?.[0]({
+        type: "touchend",
+        target: canvas,
+        changedTouches: [{ identifier, clientX, clientY: 578 }],
+        preventDefault: vi.fn(),
+      });
+    };
+
+    tapSlot(21, 320);
+    tapSlot(22, 640);
+
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ type: "keydown", key: "1", code: "Digit1", keyCode: 49 }),
+      expect.objectContaining({ type: "keyup", key: "1", code: "Digit1", keyCode: 49 }),
+      expect.objectContaining({ type: "keydown", key: "9", code: "Digit9", keyCode: 57 }),
+      expect.objectContaining({ type: "keyup", key: "9", code: "Digit9", keyCode: 57 }),
+    ]);
+    expect(canvasEvents.some(({ type }) => type === "click" || type === "mousedown")).toBe(false);
+  });
+
   it("holds mobile movement keys until the matching touch ends", () => {
     const { canvas, canvasEvents, documentObject, locatorElementsById } = loadBridge(
       undefined,
@@ -810,11 +1159,77 @@ describe("portal game bridge", () => {
     const chat = findControl(root, "chat")!;
     chat.ontouchstart(touchEvent);
     chat.ontouchend(touchEvent);
-    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keyup"]);
-    expect(canvasEvents).toEqual([
-      expect.objectContaining({ key: "t", code: "KeyT", keyCode: 84 }),
-      expect.objectContaining({ key: "t", code: "KeyT", keyCode: 84 }),
-    ]);
+    expect(canvasEvents).toHaveLength(0);
+    expect(locatorElementsById.get("spawnpoint-mobile-chat")?.style.display).toBe("flex");
+  });
+
+  it("keeps a visible mobile composer focused and sends Korean text through the portal API", async () => {
+    const {
+      canvas,
+      canvasEvents,
+      clientTextInputEvents,
+      documentObject,
+      locatorElementsById,
+      windowObject,
+    } = loadBridge(undefined, true, undefined, {
+      renderDom: true,
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148",
+    });
+    canvas.requestPointerLock();
+    const controls = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const chat = findControl(controls, "chat")!;
+    const touchEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+
+    chat.ontouchstart(touchEvent);
+    chat.ontouchend(touchEvent);
+
+    const composer = locatorElementsById.get("spawnpoint-mobile-chat")!;
+    const input = composer.children[0];
+    const send = findControl(composer, "chat-send")!;
+    expect(composer.style.display).toBe("flex");
+    expect(controls.className).toBe("is-chat");
+    expect(findControl(controls, "chat-exit")).toMatchObject({ textContent: "ESC", "aria-label": "채팅 닫기" });
+    expect(send.textContent).toBe("전송");
+    expect(documentObject.activeElement).toBe(input);
+    expect(canvasEvents).toHaveLength(0);
+    expect(input).toMatchObject({
+      type: "text",
+      inputMode: "text",
+      lang: "ko-KR",
+      enterKeyHint: "send",
+      "aria-label": "채팅 입력",
+    });
+
+    input.value = "안녕";
+    input.oncompositionstart();
+    input.oninput({ isComposing: true });
+    input.oncompositionend();
+    expect(clientTextInputEvents).toHaveLength(0);
+    expect(documentObject.activeElement).toBe(input);
+
+    input.value = "안";
+    input.oninput({ isComposing: false });
+    expect(clientTextInputEvents).toHaveLength(0);
+
+    send.ontouchstart(touchEvent);
+    send.ontouchend(touchEvent);
+    await vi.waitFor(() => expect(composer.style.display).toBe("none"));
+    expect(clientTextInputEvents).toHaveLength(0);
+    expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/chat", expect.objectContaining({
+      method: "POST",
+      credentials: "same-origin",
+      body: JSON.stringify({ launchId: "launch-123", message: "안" }),
+    }));
+    expect(canvasEvents).toHaveLength(0);
+
+    const style = documentObject.head.children.find(
+      (element: Record<string, unknown>) => element.id === "spawnpoint-mobile-control-style",
+    );
+    expect(style?.textContent).toContain("#spawnpoint-mobile-chat input");
+    expect(style?.textContent).toContain("font:400 16px");
+    expect(style?.textContent).toContain("/game/fonts/Galmuri11.ttf");
+    expect(style?.textContent).toContain("padding:0;background:transparent;border:0;border-radius:0;box-shadow:none");
+    expect(style?.textContent).toContain("#spawnpoint-mobile-controls.is-chat .sp-mobile-chat-only");
   });
 
   it("uses the client's Exit Chat target for the mobile back action", () => {
@@ -891,6 +1306,61 @@ describe("portal game bridge", () => {
       expect.objectContaining({ clientX: 240, clientY: 180, buttons: 1 }),
       expect.objectContaining({ clientX: 240, clientY: 180, buttons: 0 }),
       expect.objectContaining({ clientX: 240, clientY: 180, buttons: 0 }),
+    ]);
+  });
+
+  it("keeps mobile canvas drags inside the game after the client rewrites its style", () => {
+    const { canvas, triggerMutation } = loadBridge(undefined, true, undefined, {
+      coarsePointer: true,
+      renderDom: true,
+    });
+
+    expect(canvas.style.touchAction).toBe("none");
+
+    canvas.style.touchAction = "pan-x pan-y";
+    triggerMutation();
+
+    expect(canvas.style.touchAction).toBe("none");
+  });
+
+  it("taps to attack and holds the gameplay canvas to keep breaking", () => {
+    const { canvas, canvasEvents, handlers, runWindowTimeouts } = loadBridge(undefined, true, undefined, {
+      coarsePointer: true,
+      renderDom: true,
+    });
+    canvas.requestPointerLock();
+
+    handlers.get("touchstart")?.[0]({
+      target: canvas,
+      changedTouches: [{ identifier: 31, clientX: 240, clientY: 180 }],
+      preventDefault: vi.fn(),
+    });
+    handlers.get("touchend")?.[0]({
+      type: "touchend",
+      target: canvas,
+      changedTouches: [{ identifier: 31, clientX: 240, clientY: 180 }],
+      preventDefault: vi.fn(),
+    });
+    expect(canvasEvents.map(({ type }) => type)).toEqual(["mousedown", "mouseup", "click"]);
+
+    canvasEvents.length = 0;
+    handlers.get("touchstart")?.[0]({
+      target: canvas,
+      changedTouches: [{ identifier: 32, clientX: 240, clientY: 180 }],
+      preventDefault: vi.fn(),
+    });
+    expect(canvasEvents).toHaveLength(0);
+    runWindowTimeouts();
+    expect(canvasEvents).toEqual([expect.objectContaining({ type: "mousedown", button: 0, buttons: 1 })]);
+    handlers.get("touchend")?.[0]({
+      type: "touchend",
+      target: canvas,
+      changedTouches: [{ identifier: 32, clientX: 240, clientY: 180 }],
+      preventDefault: vi.fn(),
+    });
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ type: "mousedown", button: 0, buttons: 1 }),
+      expect.objectContaining({ type: "mouseup", button: 0, buttons: 0 }),
     ]);
   });
 
@@ -1283,59 +1753,13 @@ describe("portal game bridge", () => {
     expect(documentPropertyHandlers.get("onkeyup")).toBeNull();
   });
 
-  it("turns a browser-consumed pointer-lock Escape into one marked back action", () => {
+  it("does not turn a pointer-lock release into a menu key", () => {
     const { canvas, canvasEvents, documentObject, handlers } = loadBridge();
-    const pointerLockChange = handlers.get("pointerlockchange")?.[0];
 
     documentObject.pointerLockElement = canvas;
-    pointerLockChange?.({});
+    handlers.get("pointerlockchange")?.forEach((handler) => handler({}));
     documentObject.pointerLockElement = null;
-    pointerLockChange?.({});
-
-    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keypress", "keyup"]);
-    canvasEvents.forEach((event) => expect(event).toMatchObject({
-      key: "`",
-      code: "Backquote",
-      keyCode: 192,
-      __spawnpointRelayedBackquote: true,
-    }));
-  });
-
-  it("does not duplicate Escape when the browser delivered the native key", () => {
-    const { canvas, canvasEvents, documentObject, handlers, windowHandlers } = loadBridge();
-    const pointerLockChange = handlers.get("pointerlockchange")?.[0];
-
-    documentObject.pointerLockElement = canvas;
-    pointerLockChange?.({});
-    windowHandlers.get("keydown")?.[1]({
-      target: canvas,
-      type: "keydown",
-      key: "Escape",
-      code: "Escape",
-      keyCode: 27,
-      repeat: false,
-      preventDefault: vi.fn(),
-      stopImmediatePropagation: vi.fn(),
-    });
-    documentObject.pointerLockElement = null;
-    pointerLockChange?.({});
-
-    expect(canvasEvents).toHaveLength(3);
-    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keypress", "keyup"]);
-  });
-
-  it("does not turn a GUI-triggered pointer unlock into Escape", () => {
-    const { canvas, canvasEvents, documentObject, handlers, options } = loadBridge();
-    const hooks = options.hooks as {
-      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
-    };
-    const pointerLockChange = handlers.get("pointerlockchange")?.[0];
-
-    documentObject.pointerLockElement = canvas;
-    pointerLockChange?.({});
-    hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
-    documentObject.pointerLockElement = null;
-    pointerLockChange?.({});
+    handlers.get("pointerlockchange")?.forEach((handler) => handler({}));
 
     expect(canvasEvents).toEqual([]);
   });

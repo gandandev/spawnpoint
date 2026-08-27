@@ -25,8 +25,16 @@ function epkRecord(bundle: Buffer, index: number) {
   };
 }
 
+function runtimeRecord(bundle: Buffer) {
+  return {
+    dataOffset: bundle.readUInt32LE(212),
+    compressedLength: bundle.readUInt32LE(216),
+    rawLength: bundle.readUInt32LE(220),
+  };
+}
+
 describe("in-game bitmap font client", () => {
-  it("patches only the base asset package and keeps the Korean locale overlay", () => {
+  it("patches the runtime input and base assets while keeping the Korean locale overlay", () => {
     const base = fs.readFileSync(path.join(clients, "stable-locale-fixed.epw"));
     const patched = fs.readFileSync(path.join(clients, "stable-galmuri.epw"));
 
@@ -39,7 +47,14 @@ describe("in-game bitmap font client", () => {
     const patchedAssets = epkRecord(patched, 0);
     const baseLocale = epkRecord(base, 1);
     const patchedLocale = epkRecord(patched, 1);
-    expect(patchedAssets.dataOffset).toBe(baseAssets.dataOffset);
+    const baseRuntime = runtimeRecord(base);
+    const patchedRuntime = runtimeRecord(patched);
+    expect(patchedRuntime.dataOffset).toBe(baseRuntime.dataOffset);
+    expect(patchedRuntime.rawLength).toBe(baseRuntime.rawLength - "password".length + "text".length);
+    expect(patchedRuntime.compressedLength).not.toBe(baseRuntime.compressedLength);
+    expect(patchedAssets.dataOffset).toBe(
+      baseAssets.dataOffset + patchedRuntime.compressedLength - baseRuntime.compressedLength,
+    );
     expect(patchedAssets.rawLength).not.toBe(baseAssets.rawLength);
     expect(patched.subarray(patchedAssets.dataOffset, patchedAssets.dataOffset + 17)).toEqual(
       base.subarray(baseAssets.dataOffset, baseAssets.dataOffset + 17),

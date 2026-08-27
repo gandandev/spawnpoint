@@ -29,8 +29,12 @@ EPW_MAGIC = b"EAG$WASM"
 EPW_EPK_COUNT_OFFSET = 96
 EPW_EPK_TABLE_OFFSET = 276
 EPW_EPK_RECORD_SIZE = 32
+EPW_RUNTIME_RECORD_OFFSET = 212
 EPK_MAGIC = b"EAGPKG$$"
 EPK_END = b":::YEE:>"
+
+RUNTIME_PASSWORD_INPUT = b'h.type="password"'
+RUNTIME_TEXT_INPUT = b'h.type="text"'
 
 ASCII_TEXTURE = "assets/minecraft/textures/font/ascii.png"
 GLYPH_SIZES = "assets/minecraft/font/glyph_sizes.bin"
@@ -341,6 +345,71 @@ def patch_epw(base_epw: bytes, new_epk: bytes) -> bytes:
     return bytes(output)
 
 
+def epw_slice_offset_fields(epw: bytes) -> list[int]:
+    fields = list(range(24, 88, 8))
+    fields.extend((180, 196, 212, 228, 244, 260))
+    count = struct.unpack_from("<I", epw, EPW_EPK_COUNT_OFFSET)[0]
+    for index in range(count):
+        record = EPW_EPK_TABLE_OFFSET + index * EPW_EPK_RECORD_SIZE
+        fields.extend((record, record + 8, record + 16))
+    return fields
+
+
+def patch_runtime_text_input(epw: bytes) -> bytes:
+    if epw[:8] != EPW_MAGIC:
+        raise ValueError("Input is not an Eaglercraft EPW bundle")
+    stored_length, stored_crc = struct.unpack_from("<II", epw, 8)
+    if stored_length != len(epw):
+        raise ValueError("EPW stored length does not match the bundle size")
+    if stored_crc != zlib.crc32(epw[16:]) & 0xFFFFFFFF:
+        raise ValueError("EPW checksum does not match the bundle contents")
+
+    data_offset, compressed_length, raw_length, reserved = struct.unpack_from(
+        "<IIII", epw, EPW_RUNTIME_RECORD_OFFSET
+    )
+    old_end = data_offset + compressed_length
+    if old_end > len(epw):
+        raise ValueError("EPW runtime extends past the end of the bundle")
+    runtime = lzma.decompress(epw[data_offset:old_end])
+    if len(runtime) != raw_length:
+        raise ValueError("EPW runtime has an unexpected uncompressed length")
+    if runtime.count(RUNTIME_PASSWORD_INPUT) != 1:
+        raise ValueError("EPW runtime does not contain exactly one password input")
+
+    runtime = runtime.replace(RUNTIME_PASSWORD_INPUT, RUNTIME_TEXT_INPUT)
+    compressed = lzma.compress(
+        runtime,
+        format=lzma.FORMAT_XZ,
+        check=lzma.CHECK_CRC32,
+        preset=8 | lzma.PRESET_EXTREME,
+    )
+    delta = len(compressed) - compressed_length
+    output = bytearray(epw[:data_offset])
+    output.extend(compressed)
+    output.extend(epw[old_end:])
+
+    for field in epw_slice_offset_fields(epw):
+        if field == EPW_RUNTIME_RECORD_OFFSET:
+            continue
+        old_offset = struct.unpack_from("<I", epw, field)[0]
+        if old_offset >= old_end:
+            struct.pack_into("<I", output, field, old_offset + delta)
+
+    struct.pack_into(
+        "<IIII",
+        output,
+        EPW_RUNTIME_RECORD_OFFSET,
+        data_offset,
+        len(compressed),
+        len(runtime),
+        reserved,
+    )
+    struct.pack_into("<I", output, 8, len(output))
+    struct.pack_into("<I", output, 12, 0)
+    struct.pack_into("<I", output, 12, zlib.crc32(output[16:]) & 0xFFFFFFFF)
+    return bytes(output)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", type=Path, default=DEFAULT_BASE)
@@ -367,7 +436,7 @@ def main() -> None:
     prefix, compression, entries = parse_epk(base_epk)
     stats = apply_font(entries, args.font, args.license)
     new_epk = build_epk(prefix, compression, entries)
-    output = patch_epw(base_epw, new_epk)
+    output = patch_runtime_text_input(patch_epw(base_epw, new_epk))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(output)
 

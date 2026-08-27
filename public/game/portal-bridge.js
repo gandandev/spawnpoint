@@ -4,13 +4,19 @@
   var account = query.get("account") || "player";
   var launchId = query.get("launch") || "";
   var options = window.eaglercraftXOpts || window.eaglercraftXOptsHints;
+  var hostname = (window.location.hostname || "").toLowerCase().replace(/\.$/, "");
+  var siteName = hostname === "예게.서버.한국" || hostname === "xn--o79a769b.xn--hk3b17f.xn--3e0b707e"
+    ? "예게.서버.한국"
+    : hostname === "베이컨.서버.한국" || hostname === "xn--9k3b21rt2f.xn--hk3b17f.xn--3e0b707e"
+      ? "베이컨.서버.한국"
+      : "spawnpoint";
   var storageNamespace = "_spawnpoint_" + account.toLowerCase();
   var profileDismissTimer = null;
   var autoDismissingProfileEditor = false;
 
   if (!options || !launchId) {
     document.addEventListener("DOMContentLoaded", function () {
-      document.body.innerHTML = "<main style='display:grid;place-items:center;height:100%;background:#111411;color:#d8ddcf;font:14px monospace'>open this client from spawnpoint after logging in</main>";
+      document.body.innerHTML = "<main style='display:grid;place-items:center;height:100%;background:#111411;color:#d8ddcf;font:14px monospace'>open this client from " + siteName + " after logging in</main>";
     });
     return;
   }
@@ -62,18 +68,20 @@
     var gameSettings = encodedGameSettings
       ? (typeof window.atob === "function" ? window.atob(encodedGameSettings) : decodeBase64(encodedGameSettings))
       : "";
-    gameSettings = setGameSetting(gameSettings, "lang", "ko_KR", true);
+    gameSettings = setGameSetting(gameSettings, "lang", "ko_kr", true);
     gameSettings = setGameSetting(gameSettings, "autoJump", "false", false);
     gameSettings = setGameSetting(gameSettings, "fov", "0.5", false);
     gameSettings = setGameSetting(gameSettings, "enableDynamicLights", "true", false);
     gameSettings = setGameSetting(gameSettings, "ao", "2", false);
     gameSettings = setGameSetting(gameSettings, "tutorialStep", "none", true);
+    gameSettings = setGameSetting(gameSettings, "acknowledgeDisclaimer", "true", true);
     return typeof window.btoa === "function" ? window.btoa(gameSettings) : encodeBase64(gameSettings);
   }
 
   // Seed Spawnpoint's per-account defaults in the same GameSettings blob the
   // client writes. Existing user choices stay intact, except for the portal's
-  // Korean-language contract and its disabled vanilla tutorial.
+  // Korean-language contract, disabled vanilla tutorial, and acknowledged
+  // first-run disclaimer.
   try {
     var gameSettingsKey = storageNamespace + ".g";
     var encodedGameSettings = window.localStorage.getItem(gameSettingsKey);
@@ -181,6 +189,7 @@
     if (typeof scaleFactor === "number" && isFinite(scaleFactor) && scaleFactor > 0) {
       locatorGuiScale = scaleFactor;
     }
+    updateMobileScreenMetrics(scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor);
     updateLocatorHudLayout();
     updateLocatorHudVisibility();
     updateTPAPickerLayout();
@@ -189,16 +198,18 @@
       dismissProfileEditor(scaledHeight);
     }
     if (typeof screenName === "string" && /GuiChat$/.test(screenName)) {
+      portalChatActive = false;
       desktopChatInputActive = true;
       chatDraft = Date.now() - lastChatSlashAt < 500 ? "/" : "";
       updateTPAPickerVisibility();
-      setTimeout(function () {
-        if (desktopChatInputActive) enableClientTextInput(true);
-      }, 50);
-    } else if (desktopChatInputActive) {
+      // Keep a native input as a fallback if another client path opens GuiChat.
+      showMobileChatComposer(chatDraft, !mobileTouchCapable);
+      if (!mobileChatComposer) enableClientTextInput(true);
+    } else if (desktopChatInputActive && !portalChatActive) {
       desktopChatInputActive = false;
       chatDraft = "";
       updateTPAPickerVisibility();
+      hideMobileChatComposer();
       releaseDesktopChatInput();
     }
   };
@@ -258,8 +269,6 @@
   var dispatchingIMECommit = false;
   var desktopChatInputActive = false;
   var currentScreenName = "";
-  var pointerLockActive = false;
-  var nativeEscapePending = false;
   var chatEscapeHandledAt = 0;
   var locatorGuiScale = 2;
   var locatorRoot = null;
@@ -278,6 +287,14 @@
   var tpaPickerWasActive = false;
   var mobileTouchCapable = detectMobileTouchCapability();
   var mobileControlsRoot = null;
+  var mobileChatComposer = null;
+  var mobileChatInput = null;
+  var mobileChatStatus = null;
+  var mobileChatSendButton = null;
+  var mobileChatComposing = false;
+  var mobileChatSending = false;
+  var portalChatActive = false;
+  var clientKeyboardZoneObservedOpen = false;
   var mobileSessionStarted = false;
   var mobileFakePointerLockElement = null;
   var mobileLookTouchId = null;
@@ -287,6 +304,24 @@
   var mobileLookPreviousY = 0;
   var mobileLookMoved = false;
   var mobileGuiTouchActive = false;
+  var mobileLookAttackTimer = null;
+  var mobileLookAttackHeld = false;
+  var mobileLookAttackPoint = null;
+  var mobileHotbarTouchId = null;
+  var mobileHotbarSlot = -1;
+  var mobileScreenScaledWidth = 0;
+  var mobileScreenScaledHeight = 0;
+  var mobileScreenRealWidth = 0;
+  var mobileScreenRealHeight = 0;
+  var mobileScreenScaleFactor = 0;
+  var mobileSprintEnabled = false;
+  var mobileControlSizeStorageKey = "spawnpoint_mobile_control_size";
+  var mobileControlSize = readMobileControlSize();
+  var mobileSizeDecreaseButton = null;
+  var mobileSizeIncreaseButton = null;
+  var mobileForwardSequence = 0;
+  var mobileForwardPressed = false;
+  var mobileForwardPrimingDown = false;
   var mobileHeldKeys = Object.create(null);
   var mobileHeldMouseButtons = Object.create(null);
 
@@ -521,6 +556,12 @@
 
   function sendTPAToPlayer(gameUsername) {
     if (!/^[A-Za-z0-9_]{1,32}$/.test(gameUsername)) return;
+    if (mobileChatComposerIsVisible() && mobileChatInput) {
+      mobileChatInput.value = chatDraft + " " + gameUsername;
+      updateMobileChatDraft();
+      submitMobileChat();
+      return;
+    }
     var input = document.querySelector && document.querySelector("._eaglercraftX_text_input_element");
     if (!input) return;
     if (typeof input.focus === "function") input.focus({ preventScroll: true });
@@ -607,6 +648,7 @@
 
   function trackChatDraftKey(event) {
     if (!event || event.type !== "keydown" || event.repeat) return;
+    if (isMobileChatInput(event.target) || event.__spawnpointMobileChatForwarded === true) return;
     var key = typeof event.key === "string" ? event.key : "";
     if (!desktopChatInputActive) {
       if (key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey) lastChatSlashAt = Date.now();
@@ -626,14 +668,26 @@
     return hasClass(element, "_eaglercraftX_text_input_element");
   }
 
+  function isMobileChatInput(element) {
+    return !!mobileChatInput && element === mobileChatInput;
+  }
+
+  function mobileChatComposerIsVisible() {
+    return !!mobileChatComposer && mobileChatComposer.style.display !== "none";
+  }
+
+  function clientKeyboardZoneIsOpen(zone) {
+    return !!zone && !!zone.style && zone.style.display !== "none";
+  }
+
   function configureClientTextInput(input) {
-    if (!input || input.__spawnpointIMEConfigured) return;
-    input.__spawnpointIMEConfigured = true;
-    input.type = "text";
-    input.lang = "ko-KR";
-    input.inputMode = "text";
-    input.autocapitalize = "off";
-    input.spellcheck = false;
+    if (!input) return;
+    if (input.type !== "text") input.type = "text";
+    if (input.lang !== "ko-KR") input.lang = "ko-KR";
+    if (input.inputMode !== "text") input.inputMode = "text";
+    if (input.autocapitalize !== "off") input.autocapitalize = "off";
+    if (input.autocomplete !== "off") input.autocomplete = "off";
+    if (input.spellcheck !== false) input.spellcheck = false;
   }
 
   function findClientTextInput() {
@@ -643,13 +697,21 @@
   function enableClientTextInput(forceOpen) {
     var zone = document.querySelector && document.querySelector("._eaglercraftX_keyboard_open_zone");
     if (!zone) return;
-    var focusRequested = forceOpen === true || desktopChatInputActive;
+    var mobileComposerVisible = mobileChatComposerIsVisible();
+    var keyboardZoneOpen = clientKeyboardZoneIsOpen(zone);
+    if (keyboardZoneOpen) clientKeyboardZoneObservedOpen = true;
+    var focusRequested = !mobileComposerVisible
+      && (forceOpen === true || desktopChatInputActive || keyboardZoneOpen);
     var input = findClientTextInput();
     if (input) {
       configureClientTextInput(input);
+      if (mobileComposerVisible) {
+        if (document.activeElement !== mobileChatInput && typeof mobileChatInput.focus === "function") mobileChatInput.focus();
+        return;
+      }
       if (focusRequested) {
         if (document.activeElement !== input && typeof input.focus === "function") input.focus();
-      } else if (document.activeElement === input && typeof input.blur === "function") {
+      } else if (!clientKeyboardZoneObservedOpen && document.activeElement === input && typeof input.blur === "function") {
         input.blur();
       }
       return;
@@ -661,13 +723,18 @@
     input = findClientTextInput();
     if (input) {
       configureClientTextInput(input);
-      if (focusRequested && document.activeElement !== input && typeof input.focus === "function") input.focus();
+      if (mobileComposerVisible && document.activeElement !== mobileChatInput && typeof mobileChatInput.focus === "function") {
+        mobileChatInput.focus();
+      } else if (focusRequested && document.activeElement !== input && typeof input.focus === "function") {
+        input.focus();
+      }
     }
   }
 
   function releaseDesktopChatInput() {
     var input = findClientTextInput();
     if (input && document.activeElement === input && typeof input.blur === "function") input.blur();
+    clientKeyboardZoneObservedOpen = false;
   }
 
   function dispatchMinecraftKey(key, code, keyCode) {
@@ -708,13 +775,90 @@
   }
 
   function mobileGameplayIsActive() {
-    return mobileSessionStarted && !currentScreenName;
+    return mobileSessionStarted && !currentScreenName && !portalChatActive;
+  }
+
+  function setMobileChatStatus(message, isError) {
+    if (!mobileChatStatus) return;
+    mobileChatStatus.textContent = message || "";
+    mobileChatStatus.style.display = message ? "block" : "none";
+    mobileChatStatus.setAttribute("data-error", isError ? "true" : "false");
+  }
+
+  function setMobileChatSending(sending) {
+    mobileChatSending = sending;
+    if (mobileChatInput) mobileChatInput.readOnly = sending;
+    if (mobileChatSendButton) mobileChatSendButton.disabled = sending;
+  }
+
+  function restorePortalGameFocus() {
+    var canvas = findMinecraftCanvas();
+    if (!canvas) return;
+    if (typeof canvas.focus === "function") canvas.focus();
+    if (document.pointerLockElement === canvas) return;
+    if (typeof canvas.requestPointerLock !== "function") return;
+    try {
+      var request = canvas.requestPointerLock();
+      if (request && typeof request.catch === "function") request.catch(function () {});
+    } catch (_error) {
+      // The canvas still keeps keyboard focus if pointer lock is unavailable.
+    }
+  }
+
+  function closePortalChat(restoreFocus) {
+    portalChatActive = false;
+    desktopChatInputActive = false;
+    chatDraft = "";
+    updateTPAPickerVisibility();
+    hideMobileChatComposer();
+    releaseDesktopChatInput();
+    updateMobileControlsVisibility();
+    if (restoreFocus) restorePortalGameFocus();
+  }
+
+  function openPortalChat(initialValue, focusInput) {
+    if (portalChatActive || mobileChatSending || currentScreenName || !findMinecraftCanvas()) return false;
+    portalChatActive = true;
+    desktopChatInputActive = true;
+    chatDraft = typeof initialValue === "string" ? initialValue : "";
+    updateTPAPickerVisibility();
+    setMobileChatStatus("", false);
+    showMobileChatComposer(chatDraft, focusInput !== false);
+    updateMobileControlsVisibility();
+    return true;
+  }
+
+  function interceptPortalChatOpen(event) {
+    if (!event || event.type !== "keydown" || event.repeat || portalChatActive || currentScreenName) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    var target = event.target;
+    var tagName = target && typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
+    if (isClientTextInput(target) || isMobileChatInput(target) || tagName === "input" || tagName === "textarea" || (target && target.isContentEditable)) return;
+    var key = typeof event.key === "string" ? event.key : "";
+    var code = typeof event.code === "string" ? event.code : "";
+    var initialValue = null;
+    if (code === "KeyT" || key === "t" || key === "T") initialValue = "";
+    else if (code === "Slash" || key === "/") initialValue = "/";
+    if (initialValue === null || !findMinecraftCanvas()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openPortalChat(initialValue, true);
+  }
+
+  function updateMobileScreenMetrics(scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor) {
+    if (typeof scaledWidth === "number" && isFinite(scaledWidth) && scaledWidth > 0) mobileScreenScaledWidth = scaledWidth;
+    if (typeof scaledHeight === "number" && isFinite(scaledHeight) && scaledHeight > 0) mobileScreenScaledHeight = scaledHeight;
+    if (typeof realWidth === "number" && isFinite(realWidth) && realWidth > 0) mobileScreenRealWidth = realWidth;
+    if (typeof realHeight === "number" && isFinite(realHeight) && realHeight > 0) mobileScreenRealHeight = realHeight;
+    if (typeof scaleFactor === "number" && isFinite(scaleFactor) && scaleFactor > 0) mobileScreenScaleFactor = scaleFactor;
   }
 
   function dispatchMobileKeyboardState(key, code, keyCode, pressed) {
     var canvas = findMinecraftCanvas();
     if (!canvas || typeof canvas.dispatchEvent !== "function" || typeof window.KeyboardEvent !== "function") return;
-    if (typeof canvas.focus === "function") canvas.focus();
+    // Keep the real mobile chat field focused while a delayed pulse releases.
+    // Refocusing the canvas on keyup closes the iOS and Android keyboards.
+    if (pressed && typeof canvas.focus === "function") canvas.focus();
     var event = new window.KeyboardEvent(pressed ? "keydown" : "keyup", {
       key: key,
       code: code,
@@ -724,6 +868,11 @@
       bubbles: true,
       cancelable: true,
     });
+    try {
+      Object.defineProperty(event, "__spawnpointMobileControl", { value: true });
+    } catch (_error) {
+      event.__spawnpointMobileControl = true;
+    }
     canvas.dispatchEvent(event);
   }
 
@@ -745,6 +894,52 @@
     dispatchMobileKeyboardState(key, code, keyCode, pressed);
   }
 
+  function cancelMobileForwardPrime() {
+    mobileForwardSequence++;
+    mobileForwardPressed = false;
+    if (!mobileForwardPrimingDown) return;
+    mobileForwardPrimingDown = false;
+    dispatchMobileKeyboardState("w", "KeyW", 87, false);
+  }
+
+  function pressMobileForward() {
+    cancelMobileForwardPrime();
+    mobileForwardPressed = true;
+    if (!mobileSprintEnabled) {
+      setMobileKeyState("w", "KeyW", 87, true);
+      return;
+    }
+    var sequence = ++mobileForwardSequence;
+    mobileForwardPrimingDown = true;
+    dispatchMobileKeyboardState("w", "KeyW", 87, true);
+    // Keep both halves longer than one 50ms game tick so the client samples
+    // a real release between the two W presses, even on a quick tap.
+    setTimeout(function () {
+      if (sequence !== mobileForwardSequence) return;
+      mobileForwardPrimingDown = false;
+      dispatchMobileKeyboardState("w", "KeyW", 87, false);
+      setTimeout(function () {
+        if (sequence !== mobileForwardSequence) return;
+        if (mobileForwardPressed) {
+          setMobileKeyState("w", "KeyW", 87, true);
+          return;
+        }
+        mobileForwardPrimingDown = true;
+        dispatchMobileKeyboardState("w", "KeyW", 87, true);
+        setTimeout(function () {
+          if (sequence !== mobileForwardSequence) return;
+          mobileForwardPrimingDown = false;
+          dispatchMobileKeyboardState("w", "KeyW", 87, false);
+        }, 90);
+      }, 70);
+    }, 70);
+  }
+
+  function releaseMobileForward() {
+    mobileForwardPressed = false;
+    setMobileKeyState("w", "KeyW", 87, false);
+  }
+
   function mobileMousePoint(point) {
     var canvas = findMinecraftCanvas();
     if (!canvas || typeof canvas.getBoundingClientRect !== "function") return null;
@@ -758,14 +953,46 @@
     };
   }
 
+  function mobileHotbarSlotAt(point) {
+    if (!point || !mobileGameplayIsActive()) return -1;
+    var canvas = findMinecraftCanvas();
+    if (!canvas || typeof canvas.getBoundingClientRect !== "function") return -1;
+    var bounds = canvas.getBoundingClientRect();
+    var displayWidth = mobileScreenRealWidth || canvas.width || bounds.width;
+    var displayHeight = mobileScreenRealHeight || canvas.height || bounds.height;
+    var scaleFactor = mobileScreenScaleFactor || locatorGuiScale || 1;
+    var scaledWidth = mobileScreenScaledWidth || Math.ceil(displayWidth / scaleFactor);
+    var scaledHeight = mobileScreenScaledHeight || Math.ceil(displayHeight / scaleFactor);
+    if (!displayWidth || !displayHeight || !bounds.width || !bounds.height) return -1;
+
+    var guiPixelWidth = scaleFactor * bounds.width / displayWidth;
+    var guiPixelHeight = scaleFactor * bounds.height / displayHeight;
+    var hotbarLeft = bounds.left + (Math.floor(scaledWidth / 2) - 91) * guiPixelWidth;
+    var hotbarTop = bounds.top + (scaledHeight - 22) * guiPixelHeight;
+    var hotbarHeight = 22 * guiPixelHeight;
+    var verticalHitSlop = Math.max(0, (44 - hotbarHeight) / 2);
+    var slotLeft = hotbarLeft + guiPixelWidth;
+    var slotWidth = 20 * guiPixelWidth;
+    var slotAreaWidth = slotWidth * 9;
+    if (point.clientX < slotLeft || point.clientX >= slotLeft + slotAreaWidth) return -1;
+    if (point.clientY < hotbarTop - verticalHitSlop || point.clientY >= hotbarTop + hotbarHeight + verticalHitSlop) return -1;
+    return Math.min(8, Math.floor((point.clientX - slotLeft) / slotWidth));
+  }
+
+  function selectMobileHotbarSlot(slot) {
+    if (slot < 0 || slot > 8) return;
+    var number = slot + 1;
+    dispatchMobileKeyPulse(String(number), "Digit" + number, 49 + slot);
+  }
+
   function dispatchMobileMouseState(button, pressed, point) {
     var target = mobileMousePoint(point);
-    if (!target || typeof window.MouseEvent !== "function") return;
+    if (!target || typeof window.MouseEvent !== "function") return false;
     if (pressed) {
-      if (mobileHeldMouseButtons[button]) return;
+      if (mobileHeldMouseButtons[button]) return false;
       mobileHeldMouseButtons[button] = true;
     } else {
-      if (!mobileHeldMouseButtons[button]) return;
+      if (!mobileHeldMouseButtons[button]) return false;
       delete mobileHeldMouseButtons[button];
     }
     var buttonMask = button === 0 ? 1 : button === 1 ? 4 : 2;
@@ -779,6 +1006,32 @@
       screenX: target.screenX,
       screenY: target.screenY,
     }));
+    return true;
+  }
+
+  function clearMobileLookAttack(release, point) {
+    if (mobileLookAttackTimer !== null) {
+      window.clearTimeout(mobileLookAttackTimer);
+      mobileLookAttackTimer = null;
+    }
+    if (release && mobileLookAttackHeld) dispatchMobileMouseState(0, false, point || mobileLookAttackPoint);
+    mobileLookAttackHeld = false;
+    mobileLookAttackPoint = null;
+  }
+
+  function primeMobileLookAttack(touch) {
+    clearMobileLookAttack(true, touch);
+    mobileLookAttackPoint = {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      screenX: touch.screenX,
+      screenY: touch.screenY,
+    };
+    mobileLookAttackTimer = window.setTimeout(function () {
+      mobileLookAttackTimer = null;
+      if (mobileLookTouchId === null || mobileLookMoved || mobileGuiTouchActive || !mobileGameplayIsActive()) return;
+      mobileLookAttackHeld = dispatchMobileMouseState(0, true, mobileLookAttackPoint);
+    }, 180);
   }
 
   function dispatchMobileCanvasClick(point) {
@@ -824,21 +1077,9 @@
     target.canvas.dispatchEvent(moveEvent);
   }
 
-  function dispatchMobileWheel(direction) {
-    var canvas = findMinecraftCanvas();
-    if (!canvas || typeof canvas.dispatchEvent !== "function") return;
-    var WheelEventConstructor = typeof window.WheelEvent === "function" ? window.WheelEvent : window.MouseEvent;
-    if (typeof WheelEventConstructor !== "function") return;
-    canvas.dispatchEvent(new WheelEventConstructor("wheel", {
-      bubbles: true,
-      cancelable: true,
-      deltaMode: 0,
-      deltaY: direction * 100,
-      wheelDeltaY: direction * -120,
-    }));
-  }
-
   function releaseMobileHeldControls() {
+    cancelMobileForwardPrime();
+    clearMobileLookAttack(true, null);
     Object.keys(mobileHeldKeys).forEach(function (code) {
       var held = mobileHeldKeys[code];
       delete mobileHeldKeys[code];
@@ -858,14 +1099,20 @@
         clientY: target.clientY,
       }));
     });
+    mobileHotbarTouchId = null;
+    mobileHotbarSlot = -1;
+    mobileLookTouchId = null;
+    mobileLookMoved = false;
+    mobileGuiTouchActive = false;
   }
 
   function updateMobileControlsVisibility() {
     if (!mobileControlsRoot) return;
     var available = mobileSessionStarted && !!findMinecraftCanvas();
     var gameplay = available && mobileGameplayIsActive();
+    var chatMode = portalChatActive || desktopChatInputActive || /GuiChat$/.test(currentScreenName) || mobileChatComposerIsVisible();
     mobileControlsRoot.style.display = available ? "block" : "none";
-    mobileControlsRoot.className = gameplay ? "is-gameplay" : "is-menu";
+    mobileControlsRoot.className = chatMode ? "is-chat" : gameplay ? "is-gameplay" : "is-menu";
     if (!gameplay) releaseMobileHeldControls();
   }
 
@@ -917,7 +1164,12 @@
   function prepareMobileCanvasPointerLock() {
     if (!mobileTouchCapable) return;
     var canvas = findMinecraftCanvas();
-    if (!canvas || canvas.__spawnpointMobilePointerLock) return;
+    if (!canvas) return;
+    // The client writes `touch-action: pan-x pan-y` while creating its canvas.
+    // Keep canvas drags inside the game so mobile sliders do not turn into a
+    // browser pan and get cancelled halfway through the gesture.
+    if (canvas.style && canvas.style.touchAction !== "none") canvas.style.touchAction = "none";
+    if (canvas.__spawnpointMobilePointerLock) return;
     canvas.__spawnpointMobilePointerLock = true;
     var requestMobilePointerLock = function () { setMobileFakePointerLock(canvas); };
     try {
@@ -940,9 +1192,16 @@
 
   function handleMobileCanvasTouchStart(event) {
     var canvas = findMinecraftCanvas();
-    if (!mobileSessionStarted || !canvas || event.target !== canvas || mobileLookTouchId !== null) return;
+    if (!mobileSessionStarted || !canvas || event.target !== canvas || mobileLookTouchId !== null || mobileHotbarTouchId !== null) return;
     var touch = event.changedTouches && event.changedTouches[0];
     if (!touch) return;
+    var hotbarSlot = mobileHotbarSlotAt(touch);
+    if (hotbarSlot >= 0) {
+      mobileHotbarTouchId = touch.identifier;
+      mobileHotbarSlot = hotbarSlot;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      return;
+    }
     mobileLookTouchId = touch.identifier;
     mobileLookStartX = mobileLookPreviousX = touch.clientX;
     mobileLookStartY = mobileLookPreviousY = touch.clientY;
@@ -950,11 +1209,20 @@
     mobileGuiTouchActive = !mobileGameplayIsActive();
     if (typeof event.preventDefault === "function") event.preventDefault();
     if (mobileGuiTouchActive) dispatchMobileMouseState(0, true, touch);
+    else primeMobileLookAttack(touch);
   }
 
   function handleMobileCanvasTouchMove(event) {
     var canvas = findMinecraftCanvas();
-    if (!canvas || event.target !== canvas || mobileLookTouchId === null) return;
+    if (!canvas || event.target !== canvas) return;
+    if (mobileHotbarTouchId !== null) {
+      var hotbarTouch = mobileTouchWithId(event.targetTouches || event.touches, mobileHotbarTouchId);
+      if (!hotbarTouch) return;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      mobileHotbarSlot = mobileHotbarSlotAt(hotbarTouch);
+      return;
+    }
+    if (mobileLookTouchId === null) return;
     var touch = mobileTouchWithId(event.targetTouches || event.touches, mobileLookTouchId);
     if (!touch) return;
     if (typeof event.preventDefault === "function") event.preventDefault();
@@ -962,6 +1230,7 @@
     var movementY = touch.clientY - mobileLookPreviousY;
     if (Math.abs(touch.clientX - mobileLookStartX) > 4 || Math.abs(touch.clientY - mobileLookStartY) > 4) {
       mobileLookMoved = true;
+      clearMobileLookAttack(true, touch);
     }
     dispatchMobileMouseMove(touch, movementX * 1.35, movementY * 1.35, mobileGuiTouchActive ? 1 : 0);
     mobileLookPreviousX = touch.clientX;
@@ -970,7 +1239,18 @@
 
   function handleMobileCanvasTouchEnd(event) {
     var canvas = findMinecraftCanvas();
-    if (!canvas || event.target !== canvas || mobileLookTouchId === null) return;
+    if (!canvas || event.target !== canvas) return;
+    if (mobileHotbarTouchId !== null) {
+      var hotbarTouch = mobileTouchWithId(event.changedTouches, mobileHotbarTouchId);
+      if (!hotbarTouch) return;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      mobileHotbarSlot = mobileHotbarSlotAt(hotbarTouch);
+      if (event.type !== "touchcancel") selectMobileHotbarSlot(mobileHotbarSlot);
+      mobileHotbarTouchId = null;
+      mobileHotbarSlot = -1;
+      return;
+    }
+    if (mobileLookTouchId === null) return;
     var touch = mobileTouchWithId(event.changedTouches, mobileLookTouchId);
     if (!touch) return;
     if (typeof event.preventDefault === "function") event.preventDefault();
@@ -992,7 +1272,13 @@
         }
       }
     } else if (!mobileLookMoved && event.type !== "touchcancel") {
-      dispatchMobileCanvasClick(touch);
+      if (mobileLookAttackHeld) clearMobileLookAttack(true, touch);
+      else {
+        clearMobileLookAttack(false, touch);
+        dispatchMobileCanvasClick(touch);
+      }
+    } else {
+      clearMobileLookAttack(true, touch);
     }
     mobileLookTouchId = null;
     mobileLookMoved = false;
@@ -1007,15 +1293,225 @@
   function setMobileButtonPressed(button, pressed) {
     if (!button) return;
     if (button.classList && typeof button.classList.toggle === "function") button.classList.toggle("is-pressed", pressed);
-    button.setAttribute("aria-pressed", pressed ? "true" : "false");
+  }
+
+  function setMobileToggleState(button, enabled) {
+    if (!button) return;
+    if (button.classList && typeof button.classList.toggle === "function") button.classList.toggle("is-toggled", enabled);
+    button.setAttribute("aria-pressed", enabled ? "true" : "false");
+  }
+
+  function readMobileControlSize() {
+    try {
+      var savedSize = Number(window.localStorage.getItem(mobileControlSizeStorageKey));
+      return isFinite(savedSize) && savedSize >= 44 && savedSize <= 64 ? savedSize : 0;
+    } catch (_error) {
+      return 0;
+    }
+  }
+
+  function defaultMobileControlSize() {
+    var viewportHeight = window.visualViewport && typeof window.visualViewport.height === "number"
+      ? window.visualViewport.height
+      : window.innerHeight;
+    if (typeof viewportHeight !== "number" || !isFinite(viewportHeight) || viewportHeight <= 0) return 54;
+    return Math.max(44, Math.min(54, Math.round(viewportHeight * 0.13)));
+  }
+
+  function applyMobileControlSize() {
+    if (!mobileControlsRoot) return;
+    var effectiveSize = mobileControlSize || defaultMobileControlSize();
+    if (mobileControlSize && mobileControlsRoot.style && typeof mobileControlsRoot.style.setProperty === "function") {
+      mobileControlsRoot.style.setProperty("--sp-touch", mobileControlSize + "px");
+    }
+    mobileControlsRoot.setAttribute("data-sp-control-size", String(effectiveSize));
+    if (mobileSizeDecreaseButton) mobileSizeDecreaseButton.disabled = effectiveSize <= 44;
+    if (mobileSizeIncreaseButton) mobileSizeIncreaseButton.disabled = effectiveSize >= 64;
+  }
+
+  function changeMobileControlSize(direction) {
+    var currentSize = mobileControlSize || defaultMobileControlSize();
+    var nextSize = Math.max(44, Math.min(64, currentSize + direction * 5));
+    if (nextSize === currentSize) return;
+    mobileControlSize = nextSize;
+    try {
+      window.localStorage.setItem(mobileControlSizeStorageKey, String(nextSize));
+    } catch (_error) {
+      // Size controls still work for this session when storage is blocked.
+    }
+    applyMobileControlSize();
+  }
+
+  var mobileForwardPixelRows = [
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    ".......##.......",
+    "......####......",
+    ".....######.....",
+    "....###..###....",
+    "...###....###...",
+    "...##......##...",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+  ];
+  var mobilePixelRowsByAction = {
+    sprint: [
+      "................",
+      "................",
+      "................",
+      "................",
+      "...##...##......",
+      "...###..###.....",
+      "....###..###....",
+      ".....###..###...",
+      ".....###..###...",
+      "....###..###....",
+      "...###..###.....",
+      "...##...##......",
+      "................",
+      "................",
+      "................",
+      "................",
+    ],
+    jump: [
+      "................",
+      "................",
+      ".......##.......",
+      "......####......",
+      ".....######.....",
+      "....########....",
+      "....##.##.##....",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      "................",
+      "................",
+      "...##########...",
+      "...##########...",
+      "................",
+    ],
+    sneak: [
+      "................",
+      "................",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      "....##.##.##....",
+      "....########....",
+      ".....######.....",
+      "......####......",
+      ".......##.......",
+      "................",
+      "...##########...",
+      "...##########...",
+      "................",
+    ],
+    attack: [
+      "................",
+      "............###.",
+      "...........####.",
+      "..........#####.",
+      ".........#####..",
+      "........#####...",
+      ".......#####....",
+      "..##..#####...#.",
+      "..########...###",
+      "...######.....#.",
+      "....####........",
+      "...#####........",
+      "..###.###.......",
+      ".###...##.......",
+      ".##.............",
+      "................",
+    ],
+    use: [
+      "................",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      "................",
+      ".#####....#####.",
+      ".#####....#####.",
+      "................",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      ".......##.......",
+      "................",
+    ],
+  };
+
+  function rotateMobilePixelRows(rows) {
+    var rotated = [];
+    for (var y = 0; y < 16; ++y) {
+      var row = "";
+      for (var x = 0; x < 16; ++x) row += rows[15 - x].charAt(y);
+      rotated.push(row);
+    }
+    return rotated;
+  }
+
+  function mobileControlPixelRows(actionName) {
+    if (actionName === "forward") return mobileForwardPixelRows;
+    if (actionName === "right") return rotateMobilePixelRows(mobileForwardPixelRows);
+    if (actionName === "back") return rotateMobilePixelRows(rotateMobilePixelRows(mobileForwardPixelRows));
+    if (actionName === "left" || actionName === "menu-back") {
+      return rotateMobilePixelRows(rotateMobilePixelRows(rotateMobilePixelRows(mobileForwardPixelRows)));
+    }
+    return mobilePixelRowsByAction[actionName] || null;
+  }
+
+  function mobilePixelIconBody(rows) {
+    var body = "";
+    for (var y = 0; y < rows.length; ++y) {
+      var x = 0;
+      while (x < rows[y].length) {
+        if (rows[y].charAt(x) !== "#") {
+          ++x;
+          continue;
+        }
+        var start = x;
+        while (x < rows[y].length && rows[y].charAt(x) === "#") ++x;
+        body += '<rect x="' + start + '" y="' + y + '" width="' + (x - start) + '" height="1"/>';
+      }
+    }
+    return body;
+  }
+
+  function mobileControlIconMarkup(actionName) {
+    var rows = mobileControlPixelRows(actionName);
+    if (rows) {
+      return '<svg class="sp-mobile-icon sp-mobile-pixel-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" shape-rendering="crispEdges">' + mobilePixelIconBody(rows) + '</svg>';
+    }
+    if (actionName === "keyboard") {
+      return '<svg class="sp-mobile-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>';
+    }
+    return "";
   }
 
   function createMobileButton(label, accessibleLabel, actionName) {
     var button = document.createElement("button");
     button.type = "button";
-    button.textContent = label;
+    var iconMarkup = mobileControlIconMarkup(actionName);
+    if (iconMarkup) button.innerHTML = iconMarkup;
+    else button.textContent = label;
     button.title = accessibleLabel;
     button.className = "sp-mobile-button";
+    if (actionName === "menu" || actionName === "chat" || actionName === "drop" || actionName === "inventory") {
+      button.className += " sp-mobile-key-label";
+    }
     button.setAttribute("aria-label", accessibleLabel);
     button.setAttribute("data-sp-control", actionName);
     button.oncontextmenu = function (event) { preventMobileControlDefault(event); };
@@ -1066,10 +1562,181 @@
     };
   }
 
+  function updateMobileChatDraft() {
+    if (!mobileChatInput) return;
+    chatDraft = typeof mobileChatInput.value === "string" ? mobileChatInput.value : "";
+    updateTPAPickerVisibility();
+  }
+
+  function updateMobileChatComposerLayout() {
+    if (!mobileChatComposer || !mobileChatComposerIsVisible()) return;
+    var viewport = window.visualViewport;
+    var windowHeight = typeof window.innerHeight === "number" ? window.innerHeight : 0;
+    if (!viewport || !windowHeight || typeof viewport.height !== "number") {
+      mobileChatComposer.style.bottom = "max(8px,env(safe-area-inset-bottom))";
+      return;
+    }
+    var viewportBottom = (typeof viewport.offsetTop === "number" ? viewport.offsetTop : 0) + viewport.height;
+    var keyboardInset = Math.max(0, Math.round(windowHeight - viewportBottom));
+    mobileChatComposer.style.bottom = "calc(" + keyboardInset + "px + max(8px,env(safe-area-inset-bottom)))";
+  }
+
+  function showMobileChatComposer(initialValue, focusInput) {
+    injectMobileControlStyles();
+    installMobileChatComposer();
+    if (!mobileChatComposer || !mobileChatInput) return;
+    mobileChatComposer.setAttribute("data-sp-platform", mobileTouchCapable ? "touch" : "desktop");
+    var wasHidden = !mobileChatComposerIsVisible();
+    mobileChatComposer.style.display = "flex";
+    if (wasHidden) {
+      var value = typeof initialValue === "string" ? initialValue : "";
+      mobileChatInput.value = value;
+      chatDraft = value;
+    }
+    updateMobileChatComposerLayout();
+    if (focusInput && document.activeElement !== mobileChatInput && typeof mobileChatInput.focus === "function") {
+      try {
+        mobileChatInput.focus({ preventScroll: true });
+      } catch (_error) {
+        mobileChatInput.focus();
+      }
+    }
+  }
+
+  function hideMobileChatComposer() {
+    if (!mobileChatComposer || !mobileChatInput) return;
+    mobileChatComposer.style.display = "none";
+    mobileChatComposing = false;
+    if (document.activeElement === mobileChatInput && typeof mobileChatInput.blur === "function") mobileChatInput.blur();
+    updateMobileControlsVisibility();
+  }
+
+  function submitMobileChat() {
+    if (!mobileChatComposerIsVisible() || !mobileChatInput || mobileChatSending || mobileChatComposing) return;
+    var message = typeof mobileChatInput.value === "string" ? mobileChatInput.value.trim() : "";
+    if (!message) {
+      if (portalChatActive) closePortalChat(true);
+      else hideMobileChatComposer();
+      return;
+    }
+    if (message === "/") {
+      setMobileChatStatus("명령어를 입력하세요.", true);
+      return;
+    }
+    if (typeof window.fetch !== "function") {
+      setMobileChatStatus("채팅 연결을 사용할 수 없어요.", true);
+      return;
+    }
+
+    var submittedFromPortal = portalChatActive;
+    setMobileChatStatus("", false);
+    setMobileChatSending(true);
+    // Desktop pointer lock needs the Enter or click gesture. Mobile uses the
+    // local pointer-lock shim, so it can keep its software keyboard open while
+    // the request is pending.
+    if (submittedFromPortal && !mobileTouchCapable) closePortalChat(true);
+
+    window.fetch("/api/game/chat", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ launchId: launchId, message: message }),
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (body) {
+        if (!response.ok || !body || body.sent !== true) {
+          var errorMessage = body && body.error && typeof body.error.message === "string"
+            ? body.error.message
+            : "채팅을 보내지 못했어요.";
+          throw new Error(errorMessage);
+        }
+        return body;
+      });
+    }).then(function () {
+      setMobileChatSending(false);
+      if (submittedFromPortal && portalChatActive) closePortalChat(true);
+      else if (!submittedFromPortal) {
+        chatEscapeHandledAt = Date.now();
+        dismissClientChat();
+        desktopChatInputActive = false;
+        chatDraft = "";
+        updateTPAPickerVisibility();
+        hideMobileChatComposer();
+        restorePortalGameFocus();
+      }
+    }).catch(function (error) {
+      setMobileChatSending(false);
+      if (submittedFromPortal && !portalChatActive) openPortalChat(message, true);
+      else if (mobileChatInput && typeof mobileChatInput.focus === "function") mobileChatInput.focus();
+      setMobileChatStatus(error && typeof error.message === "string" ? error.message : "채팅을 보내지 못했어요.", true);
+    });
+  }
+
+  function installMobileChatComposer() {
+    if (!document.createElement || !document.body) return;
+    if (mobileChatComposer) {
+      if (mobileChatComposer.parentNode !== document.body) document.body.appendChild(mobileChatComposer);
+      return;
+    }
+    mobileChatComposer = document.createElement("div");
+    mobileChatComposer.id = "spawnpoint-mobile-chat";
+    mobileChatComposer.style.display = "none";
+    mobileChatComposer.setAttribute("role", "group");
+    mobileChatComposer.setAttribute("aria-label", "채팅 입력 도구");
+
+    mobileChatInput = document.createElement("input");
+    mobileChatInput.type = "text";
+    mobileChatInput.lang = "ko-KR";
+    mobileChatInput.inputMode = "text";
+    mobileChatInput.autocapitalize = "off";
+    mobileChatInput.autocomplete = "off";
+    mobileChatInput.enterKeyHint = "send";
+    mobileChatInput.spellcheck = false;
+    mobileChatInput.maxLength = 256;
+    mobileChatInput.placeholder = "채팅 입력";
+    mobileChatInput.setAttribute("aria-label", "채팅 입력");
+    mobileChatInput.oncompositionstart = function () { mobileChatComposing = true; };
+    mobileChatInput.oncompositionend = function () {
+      mobileChatComposing = false;
+      updateMobileChatDraft();
+    };
+    mobileChatInput.oninput = function (event) {
+      if (!mobileChatComposing && !(event && event.isComposing)) updateMobileChatDraft();
+    };
+    mobileChatInput.onkeydown = function (event) {
+      if (event && typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+      if (!event || event.key !== "Enter" || mobileChatComposing || event.isComposing || event.keyCode === 229) return;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      submitMobileChat();
+    };
+    mobileChatInput.onkeypress = function (event) {
+      if (event && typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+    };
+    mobileChatInput.onkeyup = mobileChatInput.onkeypress;
+    mobileChatComposer.appendChild(mobileChatInput);
+
+    mobileChatSendButton = createMobileButton("전송", "채팅 전송", "chat-send");
+    bindMobilePulseButton(mobileChatSendButton, submitMobileChat);
+    mobileChatComposer.appendChild(mobileChatSendButton);
+
+    mobileChatStatus = document.createElement("span");
+    mobileChatStatus.className = "sp-chat-status";
+    mobileChatStatus.style.display = "none";
+    mobileChatStatus.setAttribute("role", "status");
+    mobileChatStatus.setAttribute("aria-live", "polite");
+    mobileChatComposer.appendChild(mobileChatStatus);
+    document.body.appendChild(mobileChatComposer);
+  }
+
   function dispatchMobileBackAction() {
+    if (portalChatActive) {
+      closePortalChat(true);
+      return;
+    }
     if (desktopChatInputActive || /GuiChat$/.test(currentScreenName)) {
       chatEscapeHandledAt = Date.now();
       dismissClientChat();
+      hideMobileChatComposer();
       var input = findClientTextInput();
       if (input && document.activeElement === input && typeof input.blur === "function") input.blur();
       return;
@@ -1093,28 +1760,50 @@
     var style = document.createElement("style");
     style.id = "spawnpoint-mobile-control-style";
     style.textContent = [
-      "#spawnpoint-mobile-controls{position:fixed;inset:0;display:none;z-index:2147483200;pointer-events:none;--sp-touch:clamp(44px,13dvh,54px);font:700 12px/1 system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}",
+      "@font-face{font-family:\"Spawnpoint Mark\";src:url(\"/game/fonts/Galmuri11.ttf\") format(\"truetype\");font-display:swap}",
+      "#spawnpoint-mobile-controls{position:fixed;inset:0;display:none;z-index:2147483200;pointer-events:none;--sp-touch:clamp(44px,13dvh,54px);--sp-press-duration:150ms;--sp-press-ease:cubic-bezier(.22,1,.36,1);font:700 12px/1 \"Spawnpoint Mark\",monospace;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}",
       "#spawnpoint-mobile-controls .sp-mobile-gameplay,#spawnpoint-mobile-controls .sp-mobile-menu{pointer-events:none}",
       "#spawnpoint-mobile-controls.is-gameplay .sp-mobile-menu,#spawnpoint-mobile-controls.is-menu .sp-mobile-gameplay{display:none}",
-      "#spawnpoint-mobile-controls .sp-mobile-toolbar{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:flex;gap:6px}",
+      "#spawnpoint-mobile-controls .sp-mobile-chat-only{display:none}",
+      "#spawnpoint-mobile-controls.is-chat .sp-mobile-gameplay,#spawnpoint-mobile-controls.is-chat .sp-mobile-menu{display:none}",
+      "#spawnpoint-mobile-controls.is-chat .sp-mobile-chat-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid;width:56px;height:44px;border:1px solid rgba(255,255,255,.32);border-radius:0;background:rgba(3,6,4,.72);font:400 14px/1 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-controls .sp-mobile-menu{position:absolute;top:max(8px,env(safe-area-inset-top));left:50%;display:flex;gap:6px;transform:translateX(-50%)}",
+      "#spawnpoint-mobile-controls .sp-mobile-size{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));display:flex;gap:5px}",
       "#spawnpoint-mobile-controls .sp-mobile-move{position:absolute;left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(3,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
-      "#spawnpoint-mobile-controls .sp-mobile-actions{position:absolute;right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(2,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
-      "#spawnpoint-mobile-controls .sp-mobile-button{box-sizing:border-box;display:grid;place-items:center;width:var(--sp-touch);height:var(--sp-touch);min-width:44px;min-height:44px;margin:0;padding:4px;pointer-events:auto;touch-action:none;border:1px solid rgba(255,255,255,.72);border-radius:9px;color:#fff;background:rgba(12,17,13,.72);box-shadow:0 2px 0 rgba(0,0,0,.48);font:inherit;text-align:center;text-shadow:0 1px 1px #000;outline:none}",
-      "#spawnpoint-mobile-controls .sp-mobile-toolbar .sp-mobile-button,#spawnpoint-mobile-controls .sp-mobile-menu .sp-mobile-button{width:auto;padding-inline:12px}",
-      "#spawnpoint-mobile-controls .sp-mobile-button.is-pressed,#spawnpoint-mobile-controls .sp-mobile-button:active{background:rgba(73,119,70,.94);border-color:#d7f0ca;box-shadow:none;transform:translateY(2px)}",
+      "#spawnpoint-mobile-controls .sp-mobile-actions{position:absolute;right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(2,var(--sp-touch))/repeat(2,var(--sp-touch));gap:5px}",
+      "#spawnpoint-mobile-controls .sp-mobile-button,#spawnpoint-mobile-chat .sp-mobile-button{box-sizing:border-box;display:grid;place-items:center;width:var(--sp-touch);height:var(--sp-touch);min-width:44px;min-height:44px;margin:0;padding:4px;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;border:0;border-radius:6px;outline:0;color:#fff;background:rgba(8,12,10,.46);box-shadow:none;font:inherit;text-align:center;transform:scale(1);transform-origin:center;transition:transform var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1)),background-color var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1));will-change:transform,background-color}",
+      "#spawnpoint-mobile-controls .sp-mobile-icon,#spawnpoint-mobile-chat .sp-mobile-icon{display:block;width:24px;height:24px;pointer-events:none}",
+      "#spawnpoint-mobile-controls .sp-mobile-pixel-icon{fill:currentColor;stroke:none;image-rendering:pixelated}",
+      "#spawnpoint-mobile-controls .sp-mobile-key-label{font-weight:900;text-shadow:1px 0 0 currentColor}",
+      "#spawnpoint-mobile-controls .sp-mobile-size .sp-mobile-button{width:44px;height:44px;min-width:44px;min-height:44px}",
+      "#spawnpoint-mobile-controls .sp-mobile-size .sp-mobile-icon{width:20px;height:20px}",
+      "#spawnpoint-mobile-controls .sp-mobile-size .sp-mobile-button:disabled{opacity:.34}",
+      "#spawnpoint-mobile-controls .sp-mobile-button.is-toggled{background:rgba(5,9,7,.74)}",
+      "#spawnpoint-mobile-controls .sp-mobile-button.is-pressed,#spawnpoint-mobile-controls .sp-mobile-button:active,#spawnpoint-mobile-chat .sp-mobile-button.is-pressed,#spawnpoint-mobile-chat .sp-mobile-button:active{background:rgba(2,5,3,.82);transform:scale(.94)}",
+      "#spawnpoint-mobile-controls .sp-mobile-button.is-toggled.is-pressed,#spawnpoint-mobile-controls .sp-mobile-button.is-toggled:active{background:rgba(0,3,1,.92)}",
+      "#spawnpoint-mobile-chat{position:fixed;left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));z-index:2147483300;display:none;align-items:stretch;gap:6px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;pointer-events:auto;font:400 16px/1.2 \"Spawnpoint Mark\",monospace}",
+      "#spawnpoint-mobile-chat input{box-sizing:border-box;min-width:0;min-height:44px;flex:1;margin:0;padding:9px 11px;border:1px solid rgba(255,255,255,.32);border-radius:0;outline:none;color:#fff;background:rgba(3,6,4,.72);caret-color:#fff;font:400 16px/1.35 \"Spawnpoint Mark\",monospace;-webkit-user-select:text;user-select:text}",
+      "#spawnpoint-mobile-chat input:focus{border-color:rgba(231,247,222,.78);box-shadow:inset 0 0 0 1px rgba(121,168,111,.38)}",
+      "#spawnpoint-mobile-chat .sp-mobile-button{flex:0 0 auto;width:64px;height:auto;border:1px solid rgba(255,255,255,.32);border-radius:0;background:rgba(3,6,4,.72);font:400 16px/1 \"Spawnpoint Mark\",monospace}",
+      "#spawnpoint-mobile-chat .sp-mobile-button:disabled{opacity:.55;cursor:wait}",
+      "#spawnpoint-mobile-chat .sp-chat-status{position:absolute;left:0;right:0;bottom:calc(100% + 6px);display:none;box-sizing:border-box;padding:7px 9px;color:#eef7e9;background:rgba(28,46,31,.84);border:1px solid rgba(255,255,255,.32);border-radius:0;font:400 13px/1.3 \"Spawnpoint Mark\",monospace}",
+      "#spawnpoint-mobile-chat .sp-chat-status[data-error=true]{color:#fff1ef;background:rgba(104,28,24,.97);border-color:rgba(255,177,169,.72)}",
+      "@media (pointer:fine){#spawnpoint-mobile-chat[data-sp-platform=desktop]{left:12px;right:12px;bottom:12px;gap:7px}#spawnpoint-mobile-chat[data-sp-platform=desktop] input{min-height:40px;padding:7px 10px}#spawnpoint-mobile-chat[data-sp-platform=desktop] .sp-mobile-button{min-width:64px;min-height:40px;cursor:pointer}}",
+      "#spawnpoint-mobile-controls [data-sp-control=menu]{grid-column:1;grid-row:1}",
       "#spawnpoint-mobile-controls [data-sp-control=forward]{grid-column:2;grid-row:1}",
+      "#spawnpoint-mobile-controls [data-sp-control=chat]{grid-column:3;grid-row:1}",
       "#spawnpoint-mobile-controls [data-sp-control=left]{grid-column:1;grid-row:2}",
-      "#spawnpoint-mobile-controls [data-sp-control=sprint]{grid-column:2;grid-row:2;font-size:10px}",
+      "#spawnpoint-mobile-controls [data-sp-control=sprint]{grid-column:2;grid-row:2}",
       "#spawnpoint-mobile-controls [data-sp-control=right]{grid-column:3;grid-row:2}",
+      "#spawnpoint-mobile-controls [data-sp-control=drop]{grid-column:1;grid-row:3}",
       "#spawnpoint-mobile-controls [data-sp-control=back]{grid-column:2;grid-row:3}",
-      "#spawnpoint-mobile-controls [data-sp-control=attack]{grid-column:1;grid-row:1}",
-      "#spawnpoint-mobile-controls [data-sp-control=jump]{grid-column:2;grid-row:1}",
-      "#spawnpoint-mobile-controls [data-sp-control=use]{grid-column:3;grid-row:1}",
-      "#spawnpoint-mobile-controls [data-sp-control=hotbar-previous]{grid-column:1;grid-row:2}",
-      "#spawnpoint-mobile-controls [data-sp-control=sneak]{grid-column:2;grid-row:2;font-size:10px}",
-      "#spawnpoint-mobile-controls [data-sp-control=hotbar-next]{grid-column:3;grid-row:2}",
+      "#spawnpoint-mobile-controls [data-sp-control=inventory]{grid-column:3;grid-row:3}",
+      "#spawnpoint-mobile-controls [data-sp-control=jump]{grid-column:1;grid-row:1}",
+      "#spawnpoint-mobile-controls [data-sp-control=attack]{grid-column:2;grid-row:1}",
+      "#spawnpoint-mobile-controls [data-sp-control=sneak]{grid-column:1;grid-row:2}",
+      "#spawnpoint-mobile-controls [data-sp-control=use]{grid-column:2;grid-row:2}",
       "@media (max-height:360px){#spawnpoint-mobile-controls{--sp-touch:44px;font-size:11px}#spawnpoint-mobile-controls .sp-mobile-move,#spawnpoint-mobile-controls .sp-mobile-actions{gap:4px}}",
+      "@media (prefers-reduced-motion:reduce){#spawnpoint-mobile-controls .sp-mobile-button,#spawnpoint-mobile-chat .sp-mobile-button{transition:none;will-change:auto}#spawnpoint-mobile-controls .sp-mobile-button.is-pressed,#spawnpoint-mobile-controls .sp-mobile-button:active,#spawnpoint-mobile-chat .sp-mobile-button.is-pressed,#spawnpoint-mobile-chat .sp-mobile-button:active{transform:scale(1)}}",
     ].join("");
     document.head.appendChild(style);
   }
@@ -1122,6 +1811,7 @@
   function installMobileControls() {
     if (!mobileTouchCapable || !document.createElement || !document.body) return;
     injectMobileControlStyles();
+    installMobileChatComposer();
     if (mobileControlsRoot) {
       if (mobileControlsRoot.parentNode !== document.body) document.body.appendChild(mobileControlsRoot);
       prepareMobileCanvasPointerLock();
@@ -1131,44 +1821,65 @@
     mobileControlsRoot = document.createElement("div");
     mobileControlsRoot.id = "spawnpoint-mobile-controls";
 
-    var toolbar = document.createElement("div");
-    toolbar.className = "sp-mobile-gameplay sp-mobile-toolbar";
-    var menuButton = createMobileButton("메뉴", "게임 메뉴 열기", "menu");
-    bindMobilePulseButton(menuButton, function () { dispatchRelayedBackquote(null); });
-    toolbar.appendChild(menuButton);
-    var chatButton = createMobileButton("채팅", "채팅 열기", "chat");
-    bindMobilePulseButton(chatButton, function () { dispatchMobileKeyPulse("t", "KeyT", 84); });
-    toolbar.appendChild(chatButton);
-    var inventoryButton = createMobileButton("가방", "보관함 열기", "inventory");
-    bindMobilePulseButton(inventoryButton, function () { dispatchMobileKeyPulse("e", "KeyE", 69); });
-    toolbar.appendChild(inventoryButton);
-    mobileControlsRoot.appendChild(toolbar);
+    var chatExitButton = createMobileButton("ESC", "채팅 닫기", "chat-exit");
+    chatExitButton.className += " sp-mobile-chat-only";
+    bindMobilePulseButton(chatExitButton, dispatchMobileBackAction);
+    mobileControlsRoot.appendChild(chatExitButton);
+
+    var sizeControls = document.createElement("div");
+    sizeControls.className = "sp-mobile-gameplay sp-mobile-size";
+    sizeControls.setAttribute("role", "group");
+    sizeControls.setAttribute("aria-label", "컨트롤 크기");
+    mobileSizeDecreaseButton = createMobileButton("−", "컨트롤 작게", "size-decrease");
+    bindMobilePulseButton(mobileSizeDecreaseButton, function () { changeMobileControlSize(-1); });
+    sizeControls.appendChild(mobileSizeDecreaseButton);
+    mobileSizeIncreaseButton = createMobileButton("+", "컨트롤 크게", "size-increase");
+    bindMobilePulseButton(mobileSizeIncreaseButton, function () { changeMobileControlSize(1); });
+    sizeControls.appendChild(mobileSizeIncreaseButton);
+    mobileControlsRoot.appendChild(sizeControls);
 
     var move = document.createElement("div");
     move.className = "sp-mobile-gameplay sp-mobile-move";
-    appendMobileKeyButton(move, "▲", "앞으로 이동", "forward", "w", "KeyW", 87);
-    appendMobileKeyButton(move, "◀", "왼쪽으로 이동", "left", "a", "KeyA", 65);
-    appendMobileKeyButton(move, "달리기", "달리기", "sprint", "Control", "ControlLeft", 17);
-    appendMobileKeyButton(move, "▶", "오른쪽으로 이동", "right", "d", "KeyD", 68);
-    appendMobileKeyButton(move, "▼", "뒤로 이동", "back", "s", "KeyS", 83);
+    var menuButton = createMobileButton("ESC", "게임 메뉴 열기", "menu");
+    bindMobilePulseButton(menuButton, function () { dispatchRelayedBackquote(null); });
+    move.appendChild(menuButton);
+    var forwardButton = createMobileButton("위", "앞으로 이동", "forward");
+    bindMobileHoldButton(forwardButton, pressMobileForward, releaseMobileForward);
+    move.appendChild(forwardButton);
+    var chatButton = createMobileButton("T", "채팅 열기", "chat");
+    bindMobilePulseButton(chatButton, function () {
+      // iOS only opens its keyboard when focus happens inside this touch turn.
+      openPortalChat("", true);
+    });
+    move.appendChild(chatButton);
+    appendMobileKeyButton(move, "왼쪽", "왼쪽으로 이동", "left", "a", "KeyA", 65);
+    var sprintButton = createMobileButton("달리기", "자동 달리기", "sprint");
+    setMobileToggleState(sprintButton, mobileSprintEnabled);
+    bindMobilePulseButton(sprintButton, function () {
+      mobileSprintEnabled = !mobileSprintEnabled;
+      setMobileToggleState(sprintButton, mobileSprintEnabled);
+    });
+    move.appendChild(sprintButton);
+    appendMobileKeyButton(move, "오른쪽", "오른쪽으로 이동", "right", "d", "KeyD", 68);
+    var dropButton = createMobileButton("Q", "아이템 버리기", "drop");
+    bindMobilePulseButton(dropButton, function () { dispatchMobileKeyPulse("q", "KeyQ", 81); });
+    move.appendChild(dropButton);
+    appendMobileKeyButton(move, "아래", "뒤로 이동", "back", "s", "KeyS", 83);
+    var inventoryButton = createMobileButton("E", "보관함 열기", "inventory");
+    bindMobilePulseButton(inventoryButton, function () { dispatchMobileKeyPulse("e", "KeyE", 69); });
+    move.appendChild(inventoryButton);
     mobileControlsRoot.appendChild(move);
 
     var actions = document.createElement("div");
     actions.className = "sp-mobile-gameplay sp-mobile-actions";
+    appendMobileKeyButton(actions, "점프", "점프", "jump", " ", "Space", 32);
     var attackButton = createMobileButton("부수기", "공격 또는 부수기", "attack");
     bindMobileHoldButton(attackButton, function () { dispatchMobileMouseState(0, true, null); }, function () { dispatchMobileMouseState(0, false, null); });
     actions.appendChild(attackButton);
-    appendMobileKeyButton(actions, "점프", "점프", "jump", " ", "Space", 32);
+    appendMobileKeyButton(actions, "숙이기", "웅크리기", "sneak", "Shift", "ShiftLeft", 16);
     var useButton = createMobileButton("놓기", "놓기 또는 사용", "use");
     bindMobileHoldButton(useButton, function () { dispatchMobileMouseState(2, true, null); }, function () { dispatchMobileMouseState(2, false, null); });
     actions.appendChild(useButton);
-    var previousButton = createMobileButton("이전", "이전 빠른 선택 칸", "hotbar-previous");
-    bindMobilePulseButton(previousButton, function () { dispatchMobileWheel(-1); });
-    actions.appendChild(previousButton);
-    appendMobileKeyButton(actions, "숙이기", "웅크리기", "sneak", "Shift", "ShiftLeft", 16);
-    var nextButton = createMobileButton("다음", "다음 빠른 선택 칸", "hotbar-next");
-    bindMobilePulseButton(nextButton, function () { dispatchMobileWheel(1); });
-    actions.appendChild(nextButton);
     mobileControlsRoot.appendChild(actions);
 
     var menu = document.createElement("div");
@@ -1177,11 +1888,20 @@
     bindMobilePulseButton(backButton, dispatchMobileBackAction);
     menu.appendChild(backButton);
     var keyboardButton = createMobileButton("키보드", "화면 키보드 열기", "keyboard");
-    bindMobilePulseButton(keyboardButton, function () { enableClientTextInput(true); });
+    bindMobilePulseButton(keyboardButton, function () {
+      if (/GuiChat$/.test(currentScreenName) || desktopChatInputActive || mobileChatComposerIsVisible()) {
+        showMobileChatComposer(chatDraft, true);
+      } else if (!currentScreenName) {
+        openPortalChat("", true);
+      } else {
+        enableClientTextInput(true);
+      }
+    });
     menu.appendChild(keyboardButton);
     mobileControlsRoot.appendChild(menu);
 
     document.body.appendChild(mobileControlsRoot);
+    applyMobileControlSize();
     prepareMobileCanvasPointerLock();
     updateMobileControlsVisibility();
   }
@@ -1224,10 +1944,16 @@
 
   function isClientTextKeyboardEvent(event) {
     if (!event) return false;
+    if (event.__spawnpointMobileChatForwarded === true || event.__spawnpointMobileControl === true) return false;
+    if (isMobileChatInput(event.target) || isMobileChatInput(document.activeElement)) return true;
     if (!isClientTextInput(event.target) && !isClientTextInput(document.activeElement)) return false;
     if (event.isComposing || composingInput || event.keyCode === 229 || event.which === 229) return true;
 
     var key = typeof event.key === "string" ? event.key : "";
+    // A native IME can emit the first printable key before compositionstart or
+    // keyCode 229. Let the focused input receive it, otherwise the runtime's
+    // preventDefault() stops Korean composition before it begins.
+    if (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) return true;
     if (key === "`") return true;
     switch (key) {
     case "Alt":
@@ -1312,11 +2038,15 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.type !== "keydown" || event.repeat) return;
-    if (document.pointerLockElement) nativeEscapePending = true;
+    if (portalChatActive) {
+      closePortalChat(true);
+      return;
+    }
     var sourceTarget = event.target;
     if (isClientTextInput(sourceTarget) || desktopChatInputActive) {
       chatEscapeHandledAt = Date.now();
       dismissClientChat();
+      hideMobileChatComposer();
       if (isClientTextInput(sourceTarget) && document.activeElement === sourceTarget && typeof sourceTarget.blur === "function") {
         sourceTarget.blur();
       }
@@ -1328,7 +2058,7 @@
 
   function blockClientBackquote(event) {
     if (isRelayedBackquote(event)) return;
-    if (isClientTextInput(event.target)) return;
+    if (isClientTextInput(event.target) || isMobileChatInput(event.target)) return;
     if (!isBackquoteEvent(event)) return;
     // The vendored client listens on window capture before document receives
     // the key. Spawnpoint installs this first and keeps the document listener
@@ -1479,27 +2209,7 @@
       window.addEventListener(eventName, blockClientBackquote, true);
       window.addEventListener(eventName, relayNativeEscape, true);
     });
-  }
-
-  function handlePointerLockChange() {
-    var locked = !!document.pointerLockElement;
-    if (locked) {
-      pointerLockActive = true;
-      nativeEscapePending = false;
-      return;
-    }
-    if (!pointerLockActive) return;
-    pointerLockActive = false;
-    var nativeEscapeWasDelivered = nativeEscapePending;
-    nativeEscapePending = false;
-    setTimeout(function () {
-      var documentStillFocused = typeof document.hasFocus !== "function" || document.hasFocus();
-      if (!nativeEscapeWasDelivered && documentStillFocused && !currentScreenName && !desktopChatInputActive) {
-        // While pointer lock is active, browsers may consume Escape completely.
-        // Relay the client's real back action once after the pointer is released.
-        dispatchRelayedBackquote(null);
-      }
-    }, 0);
+    window.addEventListener("keydown", interceptPortalChatOpen, true);
   }
 
   function clearRecentIMECommit() {
@@ -1579,7 +2289,6 @@
     backquoteEventNames.forEach(function (eventName) {
       document.addEventListener(eventName, blockClientBackquote, true);
     });
-    document.addEventListener("pointerlockchange", handlePointerLockChange, true);
     document.addEventListener("pointerup", function (event) {
       if (hasClass(event.target, "_eaglercraftX_keyboard_open_zone")) enableClientTextInput();
     }, true);
@@ -1596,7 +2305,7 @@
     });
     imeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["style"],
+      attributeFilter: ["style", "type"],
       childList: true,
       subtree: true,
     });
@@ -1622,19 +2331,24 @@
     updateTPAPickerLayout();
     prepareMobileCanvasPointerLock();
     updateMobileControlsVisibility();
+    updateMobileChatComposerLayout();
   });
+  if (mobileTouchCapable && window.visualViewport && typeof window.visualViewport.addEventListener === "function") {
+    window.visualViewport.addEventListener("resize", updateMobileChatComposerLayout);
+    window.visualViewport.addEventListener("scroll", updateMobileChatComposerLayout);
+  }
 
-  options.servers = [{ addr: gateway, name: "spawnpoint", hideAddress: true }];
+  options.servers = [{ addr: gateway, name: siteName, hideAddress: true }];
   options.joinServer = gateway;
   options.relays = [];
   options.checkRelaysForUpdates = false;
   options.localesURI = "/game/lang-v2";
-  options.lang = "ko_KR";
+  options.lang = "ko_kr";
   options.autoJump = false;
   options.localStorageNamespace = storageNamespace;
   options.enableDownloadOfflineButton = false;
   options.openDebugConsoleOnLaunch = false;
   options.allowUpdateSvc = false;
-  document.title = "spawnpoint, " + account;
+  document.title = siteName + ", " + account;
   history.replaceState(null, "", window.location.pathname);
 })();

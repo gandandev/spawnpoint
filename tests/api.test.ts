@@ -64,6 +64,7 @@ async function createHarness(options: { bridgeOrigin?: string; adminUsernames?: 
   const admin = database.createUser("adminuser", adminPassword.hash, adminPassword.salt);
   const user = database.createUser("normaluser", userPassword.hash, userPassword.salt);
   const session = createSessionToken(admin, secret, 1);
+  const gameConnections = new GameConnectionTracker();
   const app = express();
   app.use("/api", createApiRouter({
     database,
@@ -75,7 +76,7 @@ async function createHarness(options: { bridgeOrigin?: string; adminUsernames?: 
     sessionDays: 1,
     gameTicketMinutes: 2,
     eulaAccepted: true,
-    gameConnections: new GameConnectionTracker(),
+    gameConnections,
     adminUserIds: [admin.id],
     adminUsernames: options.adminUsernames,
     adminPassword: "G4ndan",
@@ -87,7 +88,7 @@ async function createHarness(options: { bridgeOrigin?: string; adminUsernames?: 
     Cookie: `spawnpoint_session=${session.token}`,
     "x-spawnpoint-csrf": session.csrf,
   };
-  return { admin, adminHeaders, database, origin, user };
+  return { admin, adminHeaders, database, gameConnections, origin, user };
 }
 
 describe("hidden administrator unlock", () => {
@@ -273,6 +274,61 @@ describe("player locator API", () => {
         skinUrl: skinPathForUser(harness.user),
       }],
     });
+  });
+});
+
+describe("game chat API", () => {
+  it("sends chat through the loopback bridge for the signed-in active launch", async () => {
+    let bridgeRequest: { method?: string; path?: string; authorization?: string; body?: unknown } = {};
+    const bridgeOrigin = await listen(http.createServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        bridgeRequest = {
+          method: request.method,
+          path: request.url,
+          authorization: request.headers.authorization,
+          body: JSON.parse(body),
+        };
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({ sent: true, command: false }));
+      });
+    }));
+    const harness = await createHarness({ bridgeOrigin });
+    const launchId = crypto.randomUUID();
+    harness.gameConnections.create(launchId, harness.admin.id);
+    expect(harness.gameConnections.begin(launchId, harness.admin.id)).toBe(true);
+
+    const response = await fetch(`${harness.origin}/api/game/chat`, {
+      method: "POST",
+      headers: {
+        Cookie: harness.adminHeaders.Cookie,
+        Origin: harness.origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ launchId, message: "한글 채팅" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ sent: true, command: false });
+    expect(bridgeRequest).toEqual({
+      method: "POST",
+      path: `/v1/chat/${harness.admin.id}`,
+      authorization: `Bearer ${secret}`,
+      body: { message: "한글 채팅" },
+    });
+
+    const inactive = await fetch(`${harness.origin}/api/game/chat`, {
+      method: "POST",
+      headers: {
+        Cookie: harness.adminHeaders.Cookie,
+        Origin: harness.origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ launchId: crypto.randomUUID(), message: "보내면 안 됨" }),
+    });
+    expect(inactive.status).toBe(409);
   });
 });
 

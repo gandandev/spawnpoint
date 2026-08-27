@@ -1,11 +1,9 @@
-import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
+import { currentSiteName } from "@/lib/site-name";
 import { AuthScreen } from "@/screens/AuthScreen";
 import { Dashboard } from "@/screens/Dashboard";
 import { GameScreen, type GameSession } from "@/screens/GameScreen";
@@ -13,39 +11,18 @@ import type { BootstrapData, ClientChoice, PublicUser, ServerStatus } from "@/ty
 
 const AdminPanel = lazy(() => import("@/features/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 
-interface StandaloneAdminAccess {
-  user: PublicUser;
-  csrf: string;
-  adminExpiresAt: number;
-}
-
 export function App() {
+  const siteName = currentSiteName();
   const [data, setData] = useState<BootstrapData | null>(null);
   const [game, setGame] = useState<GameSession | null>(null);
   const [showSkinAfterSignup, setShowSkinAfterSignup] = useState(false);
-  const [adminPasswordOpen, setAdminPasswordOpen] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
-  const [adminPassword, setAdminPassword] = useState("");
-  const [adminUnlocking, setAdminUnlocking] = useState(false);
-  const [standaloneAdmin, setStandaloneAdmin] = useState<StandaloneAdminAccess | null>(null);
   const notice = useCallback((message: string) => toast(message, { duration: 4_500 }), []);
   const reload = useCallback(async () => setData(await api<BootstrapData>("/bootstrap")), []);
-  const revealAdminPassword = useCallback(() => {
-    if (standaloneAdmin && standaloneAdmin.adminExpiresAt > Date.now()) {
-      setAdminPanelOpen(true);
-      return;
-    }
-    if (data?.user?.isAdmin && data.adminExpiresAt && data.adminExpiresAt > Date.now()) {
-      setAdminPanelOpen(true);
-      return;
-    }
-    setAdminPassword("");
-    setAdminPasswordOpen(true);
-  }, [data?.adminExpiresAt, data?.user?.isAdmin, standaloneAdmin]);
 
   useEffect(() => {
-    void reload().catch(() => notice("spawnpoint에 연결할 수 없어요"));
-  }, [reload, notice]);
+    void reload().catch(() => notice(`${siteName}에 연결할 수 없어요`));
+  }, [reload, notice, siteName]);
 
   useEffect(() => {
     const events = new EventSource("/api/server/events");
@@ -59,35 +36,6 @@ export function App() {
     };
     return () => events.close();
   }, []);
-
-  useEffect(() => {
-    let buffer = "";
-    let resetTimer: number | null = null;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (game || (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))) {
-        buffer = "";
-        return;
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const physicalLetter = /^Key[A-Z]$/.test(event.code) ? event.code.slice(3).toLowerCase() : "";
-      const letter = physicalLetter || (!event.isComposing && event.key.length === 1 ? event.key.toLowerCase() : "");
-      if (!/^[a-z]$/.test(letter)) return;
-      buffer = `${buffer}${letter}`.slice(-5);
-      if (resetTimer !== null) window.clearTimeout(resetTimer);
-      resetTimer = window.setTimeout(() => { buffer = ""; }, 1_500);
-      if (buffer !== "admin") return;
-      buffer = "";
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      revealAdminPassword();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      if (resetTimer !== null) window.clearTimeout(resetTimer);
-    };
-  }, [game, revealAdminPassword]);
 
   const startServer = useCallback(async () => {
     const result = await api<{ server: ServerStatus }>("/server/start", {
@@ -107,58 +55,9 @@ export function App() {
     setData((current) => current ? { ...current, user: result.user, csrf: result.csrf } : current);
   };
 
-  const unlockAdmin = async (event: FormEvent) => {
-    event.preventDefault();
-    setAdminUnlocking(true);
-    try {
-      const result = await api<StandaloneAdminAccess & { standalone: boolean }>("/auth/admin-unlock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: adminPassword }),
-      });
-      if (result.standalone) {
-        setStandaloneAdmin(result);
-      } else {
-        setData((current) => current ? { ...current, user: result.user, csrf: result.csrf, adminExpiresAt: result.adminExpiresAt } : current);
-      }
-      setAdminPasswordOpen(false);
-      setAdminPassword("");
-      setAdminPanelOpen(true);
-    } catch (error) {
-      notice(error instanceof Error ? error.message : "관리자 인증에 실패했어요.");
-    } finally {
-      setAdminUnlocking(false);
-    }
-  };
-
   const updateSession = useCallback((user: PublicUser, csrf: string) => {
-    setData((current) => current ? {
-      ...current,
-      user: current.adminExpiresAt && current.adminExpiresAt > Date.now() ? { ...user, isAdmin: true } : user,
-      csrf,
-    } : current);
+    setData((current) => current ? { ...current, user, csrf } : current);
   }, []);
-
-  const expireAdmin = useCallback(() => {
-    setAdminPanelOpen(false);
-    setStandaloneAdmin(null);
-    setData((current) => current ? { ...current, adminExpiresAt: null } : current);
-  }, []);
-
-  const revokeAdmin = useCallback(async () => {
-    if (!data?.csrf) return;
-    try {
-      const result = await api<{ user: PublicUser; csrf: string; adminExpiresAt: null }>("/auth/admin-lock", {
-        method: "POST",
-        headers: { "x-spawnpoint-csrf": data.csrf },
-      });
-      setAdminPanelOpen(false);
-      setData((current) => current ? { ...current, ...result } : current);
-    } catch (error) {
-      notice(error instanceof Error ? error.message : "관리자 바로가기를 지우지 못했어요.");
-      throw error;
-    }
-  }, [data?.csrf, notice]);
 
   const logout = async () => {
     await api<void>("/auth/logout", { method: "POST", headers: { "x-spawnpoint-csrf": data!.csrf! } });
@@ -179,46 +78,19 @@ export function App() {
   };
 
   const gameUrl = useMemo(() => game
-    ? `/game/${game.client}.html?v=20260825-tutorial-off-v29&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
+    ? `/game/${game.client}.html?v=20260827-pixel-controls-v58&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
     : "", [game]);
 
-  const standaloneAdminData = standaloneAdmin && standaloneAdmin.adminExpiresAt > Date.now() && data ? {
-    ...data,
-    user: standaloneAdmin.user,
-    csrf: standaloneAdmin.csrf,
-    adminExpiresAt: standaloneAdmin.adminExpiresAt,
-  } : null;
-  const adminData = standaloneAdminData ?? (data?.user?.isAdmin && data.adminExpiresAt && data.adminExpiresAt > Date.now() ? data : null);
+  const adminData = data?.user?.isAdmin ? data : null;
 
   if (!data) return <main className="flex min-h-dvh items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />월드 상태 불러오는 중</main>;
   return <>
     {game
-      ? <GameScreen game={game} gameUrl={gameUrl} onClose={() => setGame(null)} />
+      ? <GameScreen game={game} gameUrl={gameUrl} />
       : data.user
-        ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={() => setAdminPanelOpen(true)} onRevokeAdmin={revokeAdmin} onAdminExpired={expireAdmin} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
+        ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={() => setAdminPanelOpen(true)} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
         : <AuthScreen data={data} onAuth={auth} notice={notice} />}
-    <Dialog open={adminPasswordOpen} onOpenChange={(open) => {
-      setAdminPasswordOpen(open);
-      if (!open) setAdminPassword("");
-    }}>
-      <DialogContent className="w-[calc(100%-2rem)] ring-0 sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>관리자 인증</DialogTitle>
-          <DialogDescription className="sr-only">관리자 비밀번호를 입력하세요.</DialogDescription>
-        </DialogHeader>
-        <form className="flex flex-col gap-3" onSubmit={unlockAdmin}>
-          <Input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="비밀번호" autoFocus autoComplete="current-password" aria-label="관리자 비밀번호" />
-          <Button type="submit" disabled={adminUnlocking || !adminPassword}>{adminUnlocking ? <Spinner /> : null}확인</Button>
-        </form>
-      </DialogContent>
-    </Dialog>
-    {adminData ? <Suspense fallback={null}><AdminPanel data={adminData} onSession={(user, csrf) => {
-      if (standaloneAdminData) {
-        setStandaloneAdmin((current) => current ? { ...current, user, csrf } : current);
-      } else {
-        updateSession(user, csrf);
-      }
-    }} notice={notice} open={adminPanelOpen} onOpenChange={setAdminPanelOpen} showTrigger={false} /></Suspense> : null}
+    {adminData ? <Suspense fallback={null}><AdminPanel data={adminData} onSession={updateSession} notice={notice} open={adminPanelOpen} onOpenChange={setAdminPanelOpen} showTrigger={false} /></Suspense> : null}
     <Toaster position="bottom-right" />
   </>;
 }

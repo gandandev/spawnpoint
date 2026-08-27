@@ -3,11 +3,18 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+@font-face {
+  font-family: "Spawnpoint Mark";
+  src: url("../vendor/fonts/galmuri/Galmuri11.ttf") format("truetype");
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-sans: "Geist Variable", sans-serif;
   --font-heading: var(--font-sans);
+  --font-mark: "Spawnpoint Mark", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -147,12 +154,6 @@
     @apply absolute bottom-5 right-5 z-10;
   }
 
-  .game-close-button {
-    @apply absolute;
-    right: max(1rem, env(safe-area-inset-right));
-    top: max(1rem, env(safe-area-inset-top));
-  }
-
   .admin-split-panel {
     @apply grid min-h-0 gap-3;
     grid-template-columns: minmax(10rem, 0.7fr) minmax(0, 1.6fr);
@@ -163,7 +164,7 @@
   }
 
   .admin-list-button {
-    @apply flex min-w-0 touch-manipulation cursor-pointer flex-col rounded-md px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply flex min-w-0 touch-manipulation cursor-pointer flex-col rounded-md px-2.5 py-2 text-left transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-muted active:scale-[var(--scale-large)] active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100;
   }
 
   .admin-list-button.is-selected {

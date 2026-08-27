@@ -23,10 +23,15 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
-<script src="/game/portal-bridge.js?v=20260826-mobile-touch-v39"></script>
+<script src="/game/portal-bridge.js?v=20260827-mobile-slider-v59"></script>
 `;
 
 await fs.mkdir(path.join(root, "public/game"), { recursive: true });
+await fs.mkdir(path.join(root, "public/game/fonts"), { recursive: true });
+await fs.copyFile(
+  path.join(root, "vendor/fonts/galmuri/Galmuri11.ttf"),
+  path.join(root, "public/game/fonts/Galmuri11.ttf"),
+);
 const patchedEpw = await fs.readFile(path.join(root, "vendor/clients/stable-galmuri.epw"));
 const patchedEpwDataUri = `data:application/octet-stream;base64,${patchedEpw.toString("base64")}`;
 

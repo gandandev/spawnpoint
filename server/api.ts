@@ -221,6 +221,16 @@ function validateConsoleCommand(input: unknown): string {
   return command;
 }
 
+function validateGameChatMessage(input: unknown): string {
+  if (typeof input !== "string") throw new Error("채팅 내용을 입력하세요.");
+  const message = input.trim();
+  if (!message || message.length > 256 || /[\r\n\0]/.test(message)) {
+    throw new Error("채팅은 줄바꿈 없이 1~256자로 입력하세요.");
+  }
+  if (message === "/") throw new Error("명령어를 입력하세요.");
+  return message;
+}
+
 async function bridgeRequest(context: ApiContext, pathname: string, init?: RequestInit, timeoutMs = 2_000): Promise<globalThis.Response> {
   if (!context.bridgeOrigin || !context.bridgeSecret) throw new Error("브리지 인증이 설정되지 않았어요.");
   let origin: URL;
@@ -303,6 +313,7 @@ export function createApiRouter(context: ApiContext): express.Router {
   const startLimiter = new MemoryRateLimiter(5, 10 * 60_000);
   const skinLimiter = new MemoryRateLimiter(20, 10 * 60_000);
   const accountLimiter = new MemoryRateLimiter(20, 10 * 60_000);
+  const gameChatLimiter = new MemoryRateLimiter(8, 5_000);
   // Three tabs polling every two seconds use 900 requests per ten-minute window.
   const adminReadLimiter = new MemoryRateLimiter(ADMIN_OVERVIEW_RATE_LIMIT, ADMIN_OVERVIEW_RATE_WINDOW_MS);
   const adminLimiter = new MemoryRateLimiter(60, 10 * 60_000);
@@ -414,6 +425,44 @@ export function createApiRouter(context: ApiContext): express.Router {
       return [{ gameUsername, displayName: playerUser?.displayName ?? gameUsername }];
     });
     response.json({ players });
+  });
+
+  router.post("/game/chat", async (request, response) => {
+    if (!requireSameOrigin(request, response)) return;
+    const user = requireUser(request, response, context);
+    if (!user) return;
+    const launchId = request.body?.launchId;
+    if (!isLaunchId(launchId)) {
+      fail(response, 400, "클라이언트 실행 ID가 올바르지 않아요.", "BAD_LAUNCH_ID");
+      return;
+    }
+    const connectionState = context.gameConnections.status(launchId, user.id);
+    if (connectionState !== "connecting" && connectionState !== "connected") {
+      fail(response, 409, "게임에 접속한 뒤 채팅을 보내세요.", "GAME_NOT_CONNECTED");
+      return;
+    }
+    let message: string;
+    try {
+      message = validateGameChatMessage(request.body?.message);
+    } catch (error) {
+      fail(response, 400, error instanceof Error ? error.message : "채팅 내용을 확인하세요.", "INVALID_CHAT");
+      return;
+    }
+    if (!gameChatLimiter.take(user.id)) {
+      fail(response, 429, "채팅을 너무 빠르게 보내고 있어요.", "RATE_LIMITED");
+      return;
+    }
+    try {
+      const bridgeResponse = await bridgeRequest(context, `/v1/chat/${encodeURIComponent(user.id)}`, {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      });
+      const result = await bridgeResponse.json() as { sent?: boolean; command?: boolean };
+      if (result.sent !== true || typeof result.command !== "boolean") throw new Error("브리지의 채팅 응답이 올바르지 않아요.");
+      response.json({ sent: true, command: result.command });
+    } catch (error) {
+      fail(response, 503, error instanceof Error ? error.message : "채팅을 보내지 못했어요.", "BRIDGE_UNAVAILABLE");
+    }
   });
 
   router.get("/server/events", (request, response) => {

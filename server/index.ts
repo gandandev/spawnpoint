@@ -108,7 +108,9 @@ app.get("/game/stable.html", (request, response, next) => {
   response.setHeader("Content-Encoding", encoding);
   response.setHeader("Content-Type", "text/html; charset=utf-8");
   response.setHeader("Vary", "Accept-Encoding");
-  response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  // The HTML embeds the current EPW bundle. The query value is a release label,
+  // not a content hash, so immutable caching can pin an older runtime for a year.
+  response.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
   response.sendFile(precompressed, (error) => {
     if (error) next(error);
   });

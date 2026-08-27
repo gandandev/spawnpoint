@@ -1,5 +1,6 @@
 package dev.spawnpoint;
 
+import com.mojang.authlib.GameProfile;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -10,6 +11,9 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -40,19 +44,27 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import net.lax1dude.eaglercraft.backend.server.api.event.IEaglercraftAuthCheckRequiredEvent.EnumAuthResponse;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftAuthCheckRequiredEvent;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftLoginEvent;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftRegisterSkinEvent;
+import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.PlayerLoginPostEvent;
 import net.lax1dude.eaglercraft.backend.server.api.skins.EnumSkinModel;
 import net.lax1dude.eaglercraft.backend.server.api.skins.IEaglerPlayerSkin;
+import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
+import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
+import net.md_5.bungee.api.chat.TranslatableComponent;
+import net.md_5.bungee.chat.ComponentSerializer;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.advancement.Advancement;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -63,6 +75,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -82,10 +95,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private static final long TPA_REQUEST_MILLIS = 60_000L;
     private static final long TPA_REQUEST_TICKS = 60L * 20L;
     private static final long TPA_COOLDOWN_MILLIS = 3_000L;
+    private static final int IDENTITY_RESOLVE_ATTEMPTS = 40;
+    private static final Pattern TECHNICAL_GAME_USERNAME = Pattern.compile("(?i)sp_[a-f0-9]{13}");
 
     private byte[] secret;
     private String portalOrigin;
-    private boolean awaitingFirstPlayer;
     private HttpServer bridgeServer;
     private ExecutorService bridgeExecutor;
     private BukkitTask locatorSnapshotTask;
@@ -96,6 +110,9 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private final Map<UUID, TeleportRequest> teleportRequests = new HashMap<>();
     private final Map<UUID, BukkitTask> teleportExpiryTasks = new HashMap<>();
     private final Map<UUID, Long> teleportRequestCooldowns = new HashMap<>();
+    private final Map<UUID, String> advancementRuleRestores = new HashMap<>();
+    private boolean advancementReflectionWarningLogged;
+    private boolean packetReflectionWarningLogged;
 
     @Override
     public void onEnable() {
@@ -118,17 +135,31 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         registerCommand("tpaccept");
         registerCommand("tpdeny");
         this.portalOrigin = env("PORTAL_INTERNAL_ORIGIN", "http://127.0.0.1:3000").replaceAll("/+$", "");
-        this.awaitingFirstPlayer = true;
         getServer().getPluginManager().registerEvents(this, this);
+        enableKeepInventory();
         startBridgeServer();
         if (!isEnabled()) return;
         this.locatorSnapshotTask = getServer().getScheduler().runTaskTimer(this, this::refreshLocatorSnapshots, 1L, 2L);
-        getLogger().info("Site-ticket authentication and the loopback admin bridge are active.");
+        getLogger().info("Site-ticket authentication and the loopback server bridge are active.");
+    }
+
+    private void enableKeepInventory() {
+        int enabledWorlds = 0;
+        for (World world : getServer().getWorlds()) {
+            if (world.setGameRuleValue("keepInventory", "true")) {
+                enabledWorlds++;
+            } else {
+                getLogger().warning("Could not enable keepInventory in world " + world.getName() + ".");
+            }
+        }
+        getLogger().info("Enabled keepInventory in " + enabledWorlds + " loaded worlds.");
     }
 
     @Override
     public void onDisable() {
         if (locatorSnapshotTask != null) locatorSnapshotTask.cancel();
+        restoreAdvancementAnnouncementRules();
+        getServer().getOnlinePlayers().forEach(this::removeDisplayNamePacketHandler);
         locatorSnapshots = Map.of();
         pendingIdentities.clear();
         activeIdentities.clear();
@@ -141,7 +172,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             bridgeExecutor.shutdownNow();
             try {
                 if (!bridgeExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
-                    getLogger().warning("The admin bridge worker did not stop cleanly.");
+                    getLogger().warning("The server bridge worker did not stop cleanly.");
                 }
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
@@ -184,13 +215,16 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             sender.sendMessage(enabled ? "TPA를 켰어요." : "TPA를 껐어요.");
             return true;
         }
-        if (args.length == 0) return false;
         if (!(sender instanceof Player requester)) {
             sender.sendMessage("플레이어만 TPA 요청을 보낼 수 있어요.");
             return true;
         }
         if (!tpaEnabled) {
             requester.sendMessage("TPA가 꺼져 있어요.");
+            return true;
+        }
+        if (args.length == 0) {
+            sendTpaPlayerList(requester);
             return true;
         }
         String targetName = String.join(" ", args);
@@ -239,68 +273,139 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         return true;
     }
 
-    private static void sendTeleportRequestMessage(Player target, Player requester) {
-        target.sendMessage(playerLabel(requester) + "님이 순간이동을 요청했어요.");
+    private void sendTpaPlayerList(Player requester) {
+        List<? extends Player> targets = getServer().getOnlinePlayers().stream()
+            .filter(candidate -> !candidate.getUniqueId().equals(requester.getUniqueId()))
+            .filter(requester::canSee)
+            .sorted(Comparator.comparing(SpawnpointBridgePlugin::playerLabel, String.CASE_INSENSITIVE_ORDER))
+            .toList();
+        if (targets.isEmpty()) {
+            requester.sendMessage("온라인인 다른 플레이어가 없어요.");
+            return;
+        }
 
-        TextComponent accept = new TextComponent("[수락]");
+        TextComponent marker = new TextComponent("» ");
+        marker.setBold(true);
+        marker.setColor(net.md_5.bungee.api.ChatColor.GOLD);
+
+        TextComponent prompt = new TextComponent("순간이동할 플레이어를 선택하세요");
+        prompt.setColor(net.md_5.bungee.api.ChatColor.GRAY);
+        requester.spigot().sendMessage(marker, prompt);
+
+        for (Player target : targets) {
+            String name = playerLabel(target);
+            TextComponent indent = new TextComponent("  ");
+            TextComponent bullet = new TextComponent("• ");
+            bullet.setColor(net.md_5.bungee.api.ChatColor.DARK_GRAY);
+
+            TextComponent playerButton = new TextComponent(name);
+            playerButton.setBold(true);
+            playerButton.setColor(net.md_5.bungee.api.ChatColor.GREEN);
+            playerButton.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpa " + target.getName()));
+            playerButton.setHoverEvent(hoverText("클릭해서 " + name + "님에게 요청"));
+            requester.spigot().sendMessage(indent, bullet, playerButton);
+        }
+    }
+
+    private static void sendTeleportRequestMessage(Player target, Player requester) {
+        TextComponent marker = new TextComponent("» ");
+        marker.setBold(true);
+        marker.setColor(net.md_5.bungee.api.ChatColor.GOLD);
+
+        TextComponent requesterName = new TextComponent(playerLabel(requester));
+        requesterName.setBold(true);
+        requesterName.setColor(net.md_5.bungee.api.ChatColor.YELLOW);
+
+        TextComponent request = new TextComponent("님이 순간이동을 요청했어요!");
+        request.setColor(net.md_5.bungee.api.ChatColor.GRAY);
+
+        target.spigot().sendMessage(marker, requesterName, request);
+
+        TextComponent indent = new TextComponent("        ");
+
+        TextComponent accept = new TextComponent("수락");
         accept.setBold(true);
         accept.setColor(net.md_5.bungee.api.ChatColor.GREEN);
-        accept.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpaccept"));
+        accept.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpaccept __spawnpoint_chat"));
+        accept.setHoverEvent(hoverText("클릭해서 수락"));
 
-        TextComponent spacing = new TextComponent("  ");
+        TextComponent spacing = new TextComponent("      ");
 
-        TextComponent deny = new TextComponent("[거절]");
+        TextComponent deny = new TextComponent("거절");
         deny.setBold(true);
         deny.setColor(net.md_5.bungee.api.ChatColor.RED);
-        deny.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpdeny"));
+        deny.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpdeny __spawnpoint_chat"));
+        deny.setHoverEvent(hoverText("클릭해서 거절"));
 
-        target.spigot().sendMessage(accept, spacing, deny);
+        target.spigot().sendMessage(indent, accept, spacing, deny);
+    }
+
+    private static HoverEvent hoverText(String text) {
+        return new HoverEvent(HoverEvent.Action.SHOW_TEXT, TextComponent.fromLegacyText(text));
     }
 
     private boolean handleTpaResponse(CommandSender sender, String[] args, boolean accept) {
-        if (args.length != 0) return false;
+        boolean chatButton = args.length == 1 && "__spawnpoint_chat".equals(args[0]);
+        if (!chatButton && args.length != 0) return false;
         if (!(sender instanceof Player target)) {
             sender.sendMessage("플레이어만 사용할 수 있어요.");
             return true;
         }
-        if (!tpaEnabled) {
-            target.sendMessage("TPA가 꺼져 있어요.");
-            return true;
-        }
-        UUID targetId = target.getUniqueId();
-        TeleportRequest request = teleportRequests.get(targetId);
-        if (request == null) {
-            target.sendMessage("받은 TPA 요청이 없어요.");
-            return true;
-        }
-        if (expireTeleportRequest(targetId, request)) return true;
-        teleportRequests.remove(targetId, request);
-        cancelTeleportExpiration(targetId);
+        try {
+            if (!tpaEnabled) {
+                target.sendMessage("TPA가 꺼져 있어요.");
+                return true;
+            }
+            UUID targetId = target.getUniqueId();
+            TeleportRequest request = teleportRequests.get(targetId);
+            if (request == null) {
+                target.sendMessage("받은 TPA 요청이 없어요.");
+                return true;
+            }
+            if (expireTeleportRequest(targetId, request)) return true;
+            teleportRequests.remove(targetId, request);
+            cancelTeleportExpiration(targetId);
 
-        Player requester = getServer().getPlayer(request.requesterId);
-        if (requester == null) {
-            target.sendMessage("요청한 플레이어가 접속 중이 아니에요.");
+            Player requester = getServer().getPlayer(request.requesterId);
+            if (requester == null) {
+                target.sendMessage("요청한 플레이어가 접속 중이 아니에요.");
+                return true;
+            }
+            if (!accept) {
+                sendTeleportResponse(target, "거절했습니다");
+                requester.sendMessage(playerLabel(target) + "님이 TPA 요청을 거절했어요.");
+                return true;
+            }
+            if (!requester.teleport(target)) {
+                target.sendMessage("지금은 순간이동할 수 없어요.");
+                requester.sendMessage("지금은 순간이동할 수 없어요.");
+                return true;
+            }
+            sendTeleportResponse(target, "수락했습니다");
+            requester.sendMessage(playerLabel(target) + "님에게 순간이동했어요.");
             return true;
+        } finally {
+            if (chatButton) closeChat(target);
         }
-        if (!accept) {
-            target.sendMessage("TPA 요청을 거절했어요.");
-            requester.sendMessage(playerLabel(target) + "님이 TPA 요청을 거절했어요.");
-            return true;
-        }
-        if (!requester.teleport(target)) {
-            target.sendMessage("지금은 순간이동할 수 없어요.");
-            requester.sendMessage("지금은 순간이동할 수 없어요.");
-            return true;
-        }
-        target.sendMessage(playerLabel(requester) + "님의 TPA 요청을 수락했어요.");
-        requester.sendMessage(playerLabel(target) + "님에게 순간이동했어요.");
-        return true;
+    }
+
+    private static void sendTeleportResponse(Player target, String text) {
+        TextComponent indent = new TextComponent("        ");
+        TextComponent response = new TextComponent(text);
+        response.setColor(net.md_5.bungee.api.ChatColor.GRAY);
+        response.setItalic(true);
+        target.spigot().sendMessage(indent, response);
+    }
+
+    private void closeChat(Player player) {
+        getServer().getScheduler().runTask(this, () -> {
+            if (player.isOnline()) player.closeInventory();
+        });
     }
 
     private static String playerLabel(Player player) {
-        String username = player.getName();
-        String displayName = player.getDisplayName();
-        return username.equals(displayName) ? username : displayName + " (" + username + ")";
+        String displayName = resolvedPlayerName(player);
+        return displayName == null ? "플레이어" : displayName;
     }
 
     private PlayerLookup findOnlinePlayer(Player requester, String name) {
@@ -419,7 +524,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             bridgeServer.start();
             getLogger().info("Admin bridge listening on 127.0.0.1:" + port + ".");
         } catch (IOException | RuntimeException exception) {
-            getLogger().severe("Could not start the loopback admin bridge; site-ticket authentication remains active: " + exception.getMessage());
+            getLogger().severe("Could not start the loopback server bridge; site-ticket authentication remains active: " + exception.getMessage());
             if (bridgeServer != null) bridgeServer.stop(0);
             bridgeServer = null;
             if (bridgeExecutor != null) bridgeExecutor.shutdownNow();
@@ -476,6 +581,36 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 }
                 boolean enabled = request.get("enabled").getAsBoolean();
                 sendJson(exchange, 200, onMainThread(() -> setTpaEnabled(enabled)));
+                return;
+            }
+            String chatPrefix = "/v1/chat/";
+            if ("POST".equals(method) && path.startsWith(chatPrefix)) {
+                String encodedAccountId = path.substring(chatPrefix.length());
+                if (encodedAccountId.isEmpty() || encodedAccountId.contains("/")) {
+                    sendError(exchange, 400, "invalid_account");
+                    return;
+                }
+                String accountId = URLDecoder.decode(encodedAccountId, StandardCharsets.UTF_8);
+                UUID.fromString(accountId);
+                JsonObject request = parseRequestObject(exchange);
+                if (request == null || request.entrySet().size() != 1 || !request.has("message")
+                    || !request.get("message").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("message").isString()) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                String message = request.get("message").getAsString().trim();
+                if (message.isEmpty() || message.length() > 256 || message.indexOf('\r') >= 0
+                    || message.indexOf('\n') >= 0 || message.indexOf('\0') >= 0 || "/".equals(message)) {
+                    sendError(exchange, 400, "invalid_message");
+                    return;
+                }
+                JsonObject result = onMainThread(() -> sendPlayerChat(accountId, message));
+                if (result == null) {
+                    sendError(exchange, 404, "player_not_found");
+                    return;
+                }
+                sendJson(exchange, 200, result);
                 return;
             }
             String prefix = "/v1/players/";
@@ -715,6 +850,21 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         return result;
     }
 
+    private JsonObject sendPlayerChat(String accountId, String message) {
+        Player player = resolvePlayer(accountId);
+        if (player == null || !player.isOnline()) return null;
+        boolean command = message.startsWith("/");
+        if (command) {
+            player.performCommand(message.substring(1));
+        } else {
+            player.chat(message);
+        }
+        JsonObject result = playerIdentity(player);
+        result.addProperty("sent", true);
+        result.addProperty("command", command);
+        return result;
+    }
+
     private Player resolvePlayer(String playerKey) {
         Player player;
         try {
@@ -765,33 +915,24 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
-    public void onFirstPlayerJoin(PlayerJoinEvent event) {
-        if (!awaitingFirstPlayer) return;
-        awaitingFirstPlayer = false;
-        getServer().getWorlds().forEach(world -> world.setTime(1_000L));
-        getLogger().info("Set all loaded worlds to morning for the first player.");
+    public void onEmptyServerJoin(PlayerJoinEvent event) {
+        if (getServer().getOnlinePlayers().size() != 1) return;
+        getServer().getWorlds().forEach(world -> world.setTime(0L));
+        getLogger().info("Set all loaded worlds to 6 AM after the empty server received a player.");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        PlayerIdentity identity = pendingIdentities.remove(player.getName().toLowerCase(Locale.ROOT));
-        if (identity != null) activeIdentities.put(player.getUniqueId(), identity);
-        String displayName = identity == null ? player.getName() : identity.displayName;
-        player.setDisplayName(displayName);
-        try {
-            player.setPlayerListName(displayName);
-        } catch (IllegalArgumentException exception) {
-            player.setPlayerListName(player.getName());
-            getLogger().warning("Could not apply the display name to the player list for " + player.getName() + ".");
-        }
-        event.setJoinMessage(ChatColor.YELLOW + displayName + "님이 게임에 참여했습니다.");
+        installDisplayNamePacketHandler(player);
+        applyPendingIdentity(player);
+        event.setJoinMessage(null);
+        announcePlayerJoin(player, IDENTITY_RESOLVE_ATTEMPTS);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
-        // The first format argument is Player#getDisplayName, set from the signed ticket on join.
-        event.setFormat("<%1$s> %2$s");
+        event.setFormat("<" + playerLabel(event.getPlayer()) + "> %2$s");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -803,14 +944,253 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             event.getEntity().sendMessage("사망 좌표: " + coordinates);
             return;
         }
-        event.setDeathMessage(deathMessage + ChatColor.GRAY + " [좌표: " + coordinates + "]");
+        event.setDeathMessage(replaceTechnicalPlayerNames(deathMessage) + ChatColor.GRAY + " [좌표: " + coordinates + "]");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerAdvancement(PlayerAdvancementDoneEvent event) {
+        AdvancementAnnouncement announcement = advancementAnnouncement(event.getAdvancement());
+        if (announcement == null || !disableDefaultAdvancementAnnouncement(event.getPlayer().getWorld())) return;
+        TranslatableComponent message = new TranslatableComponent(
+            "chat.type.advancement." + announcement.frame,
+            new TextComponent(playerLabel(event.getPlayer())),
+            announcement.title
+        );
+        getServer().spigot().broadcast(message);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        event.setQuitMessage(ChatColor.YELLOW + event.getPlayer().getDisplayName() + "님이 게임에서 나갔습니다.");
+        String displayName = resolvedPlayerName(event.getPlayer());
+        event.setQuitMessage(displayName == null
+            ? null
+            : ChatColor.YELLOW + displayName + "님이 게임에서 나갔습니다.");
         removeTeleportRequestsFor(event.getPlayer());
         activeIdentities.remove(event.getPlayer().getUniqueId());
+    }
+
+    private void announcePlayerJoin(Player player, int attemptsRemaining) {
+        if (!player.isOnline()) return;
+        applyPendingIdentity(player);
+        String displayName = resolvedPlayerName(player);
+        if (displayName == null) {
+            if (attemptsRemaining > 0) {
+                getServer().getScheduler().runTaskLater(
+                    this,
+                    () -> announcePlayerJoin(player, attemptsRemaining - 1),
+                    1L
+                );
+            } else {
+                getLogger().warning("Suppressed a join message because no display name resolved for " + player.getName() + ".");
+            }
+            return;
+        }
+        getServer().broadcastMessage(ChatColor.YELLOW + displayName + "님이 게임에 참여했습니다.");
+    }
+
+    private PlayerIdentity applyPendingIdentity(Player player) {
+        PlayerIdentity identity = activeIdentities.get(player.getUniqueId());
+        if (identity == null) {
+            identity = pendingIdentities.remove(player.getName().toLowerCase(Locale.ROOT));
+            if (identity != null) activeIdentities.put(player.getUniqueId(), identity);
+        }
+        if (identity == null) return null;
+        player.setDisplayName(identity.displayName);
+        try {
+            player.setPlayerListName(identity.displayName);
+        } catch (IllegalArgumentException exception) {
+            player.setPlayerListName("플레이어");
+            getLogger().warning("Could not apply the display name to the player list for " + player.getName() + ".");
+        }
+        return identity;
+    }
+
+    private static String resolvedPlayerName(Player player) {
+        String displayName = player.getDisplayName();
+        if (displayName == null || displayName.isBlank() || isTechnicalGameUsername(displayName)) return null;
+        return displayName;
+    }
+
+    private String replaceTechnicalPlayerNames(String message) {
+        String visible = message;
+        for (Player player : getServer().getOnlinePlayers()) {
+            if (!player.getName().equals(player.getDisplayName())) {
+                visible = visible.replace(player.getName(), playerLabel(player));
+            }
+        }
+        return TECHNICAL_GAME_USERNAME.matcher(visible).replaceAll("플레이어");
+    }
+
+    private static boolean isTechnicalGameUsername(String value) {
+        return TECHNICAL_GAME_USERNAME.matcher(value).matches();
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerLoginPost(PlayerLoginPostEvent event) {
+        try {
+            Object netty = PlayerLoginPostEvent.class.getMethod("netty").invoke(event);
+            Class<?> nettyUnsafeType = Class.forName(
+                "net.lax1dude.eaglercraft.backend.server.api.bukkit.event.PlayerLoginPostEvent$NettyUnsafe"
+            );
+            Object channel = nettyUnsafeType.getMethod("getChannel").invoke(netty);
+            installDisplayNamePacketHandler(channel);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
+            warnDisplayNameBridgeFailure(exception);
+        }
+    }
+
+    private void installDisplayNamePacketHandler(Player player) {
+        try {
+            installDisplayNamePacketHandler(playerNetworkChannel(player));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
+            warnDisplayNameBridgeFailure(exception);
+        }
+    }
+
+    private void installDisplayNamePacketHandler(Object channel) {
+        try {
+            if (channel == null) throw new IllegalStateException("The player network channel is not ready.");
+            Class<?> channelType = Class.forName("io.netty.channel.Channel");
+            Class<?> pipelineType = Class.forName("io.netty.channel.ChannelPipeline");
+            Class<?> handlerType = Class.forName("io.netty.channel.ChannelHandler");
+            Class<?> outboundHandlerType = Class.forName("io.netty.channel.ChannelOutboundHandler");
+            Object pipeline = channelType.getMethod("pipeline").invoke(channel);
+            if (pipelineType.getMethod("get", String.class).invoke(pipeline, "spawnpoint_display_names") != null) return;
+            Object handler = Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] { outboundHandlerType },
+                (proxy, method, arguments) -> forwardPacketHandlerCall(proxy, method, arguments)
+            );
+            pipelineType
+                .getMethod("addBefore", String.class, String.class, handlerType)
+                .invoke(pipeline, "packet_handler", "spawnpoint_display_names", handler);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
+            warnDisplayNameBridgeFailure(exception);
+        }
+    }
+
+    private void warnDisplayNameBridgeFailure(Throwable exception) {
+        if (packetReflectionWarningLogged) return;
+        packetReflectionWarningLogged = true;
+        getLogger().warning("Could not install the in-game display-name bridge: " + exception.getMessage());
+    }
+
+    private Object forwardPacketHandlerCall(Object proxy, Method method, Object[] arguments) throws Throwable {
+        if (method.getDeclaringClass() == Object.class) {
+            return switch (method.getName()) {
+                case "toString" -> "SpawnpointDisplayNamePacketHandler";
+                case "hashCode" -> System.identityHashCode(proxy);
+                case "equals" -> proxy == arguments[0];
+                default -> null;
+            };
+        }
+        String methodName = method.getName();
+        Object context = arguments[0];
+        if ("write".equals(methodName)) rewritePlayerInfoPacket(arguments[1]);
+        if ("handlerAdded".equals(methodName) || "handlerRemoved".equals(methodName)) return null;
+        Class<?> contextType = Class.forName("io.netty.channel.ChannelHandlerContext");
+        if ("exceptionCaught".equals(methodName)) {
+            return contextType.getMethod("fireExceptionCaught", Throwable.class).invoke(context, arguments[1]);
+        }
+        Class<?>[] forwardedTypes = new Class<?>[method.getParameterCount() - 1];
+        System.arraycopy(method.getParameterTypes(), 1, forwardedTypes, 0, forwardedTypes.length);
+        Object[] forwardedArguments = new Object[arguments.length - 1];
+        System.arraycopy(arguments, 1, forwardedArguments, 0, forwardedArguments.length);
+        return contextType.getMethod(methodName, forwardedTypes).invoke(context, forwardedArguments);
+    }
+
+    private void rewritePlayerInfoPacket(Object packet) {
+        if (packet == null || !"PacketPlayOutPlayerInfo".equals(packet.getClass().getSimpleName())) return;
+        try {
+            Field entriesField = packet.getClass().getDeclaredField("b");
+            entriesField.setAccessible(true);
+            List<?> entries = (List<?>) entriesField.get(packet);
+            for (Object playerInfo : entries) {
+                GameProfile originalProfile = (GameProfile) playerInfo.getClass().getMethod("a").invoke(playerInfo);
+                PlayerIdentity identity = activeIdentities.get(originalProfile.getId());
+                if (identity == null) {
+                    identity = pendingIdentities.get(originalProfile.getName().toLowerCase(Locale.ROOT));
+                }
+                if (identity == null || originalProfile.getName().equals(identity.displayName)) continue;
+                GameProfile displayProfile = new GameProfile(originalProfile.getId(), identity.displayName);
+                displayProfile.getProperties().putAll(originalProfile.getProperties());
+                Field profileField = playerInfo.getClass().getDeclaredField("d");
+                profileField.setAccessible(true);
+                profileField.set(playerInfo, displayProfile);
+            }
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            if (!packetReflectionWarningLogged) {
+                packetReflectionWarningLogged = true;
+                getLogger().warning("Could not replace an in-game player ID: " + exception.getMessage());
+            }
+        }
+    }
+
+    private void removeDisplayNamePacketHandler(Player player) {
+        try {
+            Object channel = playerNetworkChannel(player);
+            Class<?> channelType = Class.forName("io.netty.channel.Channel");
+            Class<?> pipelineType = Class.forName("io.netty.channel.ChannelPipeline");
+            Object pipeline = channelType.getMethod("pipeline").invoke(channel);
+            if (pipelineType.getMethod("get", String.class).invoke(pipeline, "spawnpoint_display_names") != null) {
+                pipelineType.getMethod("remove", String.class).invoke(pipeline, "spawnpoint_display_names");
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            // The connection can already be closed while the plugin is shutting down.
+        }
+    }
+
+    private static Object playerNetworkChannel(Player player) throws ReflectiveOperationException {
+        Object handle = player.getClass().getMethod("getHandle").invoke(player);
+        Object connection = handle.getClass().getField("playerConnection").get(handle);
+        Object networkManager = connection.getClass().getField("networkManager").get(connection);
+        return networkManager.getClass().getField("channel").get(networkManager);
+    }
+
+    private boolean disableDefaultAdvancementAnnouncement(World world) {
+        UUID worldId = world.getUID();
+        if (advancementRuleRestores.containsKey(worldId)) return true;
+        String current = world.getGameRuleValue("announceAdvancements");
+        if (!"true".equalsIgnoreCase(current)) return false;
+        if (!world.setGameRuleValue("announceAdvancements", "false")) return false;
+        advancementRuleRestores.put(worldId, current);
+        getServer().getScheduler().runTaskLater(this, () -> restoreAdvancementAnnouncementRule(world), 1L);
+        return true;
+    }
+
+    private void restoreAdvancementAnnouncementRule(World world) {
+        String original = advancementRuleRestores.remove(world.getUID());
+        if (original != null) world.setGameRuleValue("announceAdvancements", original);
+    }
+
+    private void restoreAdvancementAnnouncementRules() {
+        for (World world : getServer().getWorlds()) restoreAdvancementAnnouncementRule(world);
+        advancementRuleRestores.clear();
+    }
+
+    private AdvancementAnnouncement advancementAnnouncement(Advancement advancement) {
+        try {
+            Object handle = advancement.getClass().getMethod("getHandle").invoke(advancement);
+            Object display = handle.getClass().getMethod("c").invoke(handle);
+            if (display == null || !((Boolean) display.getClass().getMethod("i").invoke(display))) return null;
+            Object frame = display.getClass().getMethod("e").invoke(display);
+            String frameName = (String) frame.getClass().getMethod("a").invoke(frame);
+            Object title = handle.getClass().getMethod("j").invoke(handle);
+            String craftPackage = getServer().getClass().getPackage().getName();
+            String version = craftPackage.substring(craftPackage.lastIndexOf('.') + 1);
+            Class<?> componentType = Class.forName("net.minecraft.server." + version + ".IChatBaseComponent");
+            Class<?> serializer = Class.forName("net.minecraft.server." + version + ".IChatBaseComponent$ChatSerializer");
+            String titleJson = (String) serializer.getMethod("a", componentType).invoke(null, title);
+            BaseComponent[] titleParts = ComponentSerializer.parse(titleJson);
+            BaseComponent titleComponent = titleParts.length == 1 ? titleParts[0] : new TextComponent(titleParts);
+            return new AdvancementAnnouncement(frameName, titleComponent);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
+            if (!advancementReflectionWarningLogged) {
+                advancementReflectionWarningLogged = true;
+                getLogger().warning("Could not replace advancement player IDs with display names: " + exception.getMessage());
+            }
+            return null;
+        }
     }
 
     private static double relativeYaw(Location origin, Location destination) {
@@ -880,6 +1260,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             ticket.username.toLowerCase(Locale.ROOT),
             new PlayerIdentity(ticket.accountId, ticket.displayName, ticket.skinPath)
         );
+        getServer().getScheduler().runTask(this, () -> {
+            Player player = getServer().getPlayerExact(ticket.username);
+            if (player != null) applyPendingIdentity(player);
+        });
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -973,6 +1357,8 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private record PlayerLookup(Player player, boolean duplicateDisplayName) {}
 
     private record TeleportRequest(UUID requesterId, UUID targetId, long expiresAt) {}
+
+    private record AdvancementAnnouncement(String frame, BaseComponent title) {}
 
     private static final class BridgeThreadFactory implements ThreadFactory {
         private int number;
