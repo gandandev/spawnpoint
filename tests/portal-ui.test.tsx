@@ -384,8 +384,10 @@ describe("skin change flow", () => {
     expect(document.body.textContent).not.toContain("유명 스킨을 고르거나");
     const skinButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "스킨 변경");
     const serverButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "서버 시작");
-    expect(skinButton?.className).toContain("max-sm:min-h-8");
-    expect(serverButton?.className).toContain("max-sm:min-h-7");
+    expect(skinButton?.className).toContain("h-8");
+    expect(serverButton?.className).toContain("h-7");
+    expect(skinButton?.className).not.toContain("max-sm:min-h-");
+    expect(serverButton?.className).not.toContain("max-sm:min-h-");
     await act(async () => root.unmount());
   });
 
@@ -404,7 +406,7 @@ describe("skin change flow", () => {
     expect(container.textContent).toContain("업로드");
     expect(container.textContent).not.toContain("spawnpoint");
     expect(container.querySelector("form")?.className).toContain("overflow-y-auto");
-    expect([...container.querySelectorAll('[data-slot="toggle-group-item"]')].every((item) => item.className.includes("min-w-0") && item.className.includes("whitespace-normal") && item.className.includes("active:scale-[var(--scale-large)]"))).toBe(true);
+    expect([...container.querySelectorAll('[data-slot="toggle-group-item"]')].every((item) => item.className.includes("min-w-0") && item.className.includes("whitespace-normal") && !item.className.includes("active:scale-"))).toBe(true);
     const preview = container.querySelector('[data-testid="catalog-skin-3d"]');
     expect(preview?.getAttribute("data-src")).toBe("/api/skin/catalog/spawnpoint.png?v=texture-v1");
     expect(preview?.closest("button")?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
@@ -501,13 +503,15 @@ describe("mobile portal controls", () => {
     expect(container.querySelector(".dashboard-actions")?.className).toContain("dashboard-actions");
     const accountTrigger = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("가나다라"));
     expect(accountTrigger?.className).toContain("min-w-11");
-    expect(accountTrigger?.className).toContain("[@media(max-height:480px)]:min-h-11");
+    expect(accountTrigger?.className).not.toContain("max-sm:min-h-");
+    expect(accountTrigger?.className).not.toContain("[@media(pointer:coarse)]:min-h-");
     expect(accountTrigger?.className).toContain("active:scale-[var(--scale-large)]");
     expect(accountTrigger?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
     expect(accountTrigger?.querySelector("span")?.className).toContain("truncate");
     const logout = container.querySelector('[aria-label="로그아웃"]');
-    expect(logout?.className).toContain("max-sm:min-w-11");
-    expect(logout?.className).toContain("[@media(pointer:coarse)]:min-w-11");
+    expect(logout?.className).toContain("size-7");
+    expect(logout?.className).not.toContain("max-sm:min-");
+    expect(logout?.className).not.toContain("[@media(pointer:coarse)]:min-");
     expect(logout?.className).toContain("active:scale-[var(--scale-large)]");
     expect(logout?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
     await act(async () => root.unmount());

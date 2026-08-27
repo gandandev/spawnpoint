@@ -113,7 +113,26 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes skin-studio-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--distance-base)) scale(var(--scale-large));
+    filter: blur(var(--blur-medium));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
 @layer components {
+  .skin-studio-content {
+    animation: skin-studio-content-in var(--duration-fast) var(--ease-smooth-out);
+    transform-origin: top center;
+    will-change: opacity, transform, filter;
+  }
+
   .auth-shell {
     @apply mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4 py-8;
     padding-top: max(2rem, env(safe-area-inset-top));
@@ -245,7 +264,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .password-field-error,
-  .auth-label-in {
+  .auth-label-in,
+  .skin-studio-content {
     animation: none;
   }
 }

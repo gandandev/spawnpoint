@@ -5,7 +5,7 @@ import { Toggle as TogglePrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const toggleVariants = cva(
-  "group/toggle inline-flex touch-manipulation items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] outline-none max-sm:min-h-11 [@media(max-height:480px)]:min-h-11 [@media(pointer:coarse)]:min-h-11 hover:bg-muted hover:text-foreground active:scale-[var(--scale-large)] active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-muted data-[state=on]:bg-muted motion-reduce:transition-none motion-reduce:active:scale-100 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex touch-manipulation items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] outline-none hover:bg-muted hover:text-foreground active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-muted data-[state=on]:bg-muted motion-reduce:transition-none dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

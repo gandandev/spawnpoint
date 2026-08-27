@@ -76,7 +76,7 @@ function StartButton({ status, setupReady, onStart }: { status: ServerStatus; se
   const active = ["preparing", "starting", "stopping"].includes(status.phase);
   const online = status.phase === "online";
   const label = online ? "서버 준비 완료" : active ? statusCopy(status).title : "서버 시작";
-  return <Button size="sm" className="pr-[7px] max-sm:min-h-7 [@media(max-height:480px)]:min-h-7 [@media(pointer:coarse)]:min-h-7" disabled={busy || active || online || !setupReady} onClick={async () => { setBusy(true); try { await onStart(); } finally { setBusy(false); } }}>
+  return <Button size="sm" className="pr-[7px]" disabled={busy || active || online || !setupReady} onClick={async () => { setBusy(true); try { await onStart(); } finally { setBusy(false); } }}>
     {busy || active ? <Spinner data-icon="inline-start" /> : online ? <Check data-icon="inline-start" /> : <Play data-icon="inline-start" fill="currentColor" />}{setupReady ? label : "서버 시작"}
   </Button>;
 }

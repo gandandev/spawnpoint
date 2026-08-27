@@ -94,7 +94,7 @@ export function SkinStudio({ data, onUser, onChanged, notice }: SkinStudioProps)
       <ToggleGroupItem value="upload" className="h-auto min-h-10 min-w-0 w-full cursor-pointer whitespace-normal px-1 text-xs leading-tight sm:h-10 sm:px-2 sm:text-sm">업로드</ToggleGroupItem>
     </ToggleGroup>
     <AnimatedHeight>
-      <div className="flex flex-col gap-4">
+      <div key={mode} className="skin-studio-content flex flex-col gap-4">
         {mode === "catalog" ? <div className="grid max-h-[min(34rem,calc(100dvh-10rem))] grid-cols-3 gap-2 overflow-y-auto overscroll-contain pr-1" aria-label="유명 스킨">
           {!famous && !catalogError && <div className="col-span-3 flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />카탈로그 불러오는 중</div>}
           {catalogError && <div className="col-span-3 flex min-h-40 items-center justify-center text-sm text-muted-foreground">카탈로그를 불러오지 못했어요.</div>}
