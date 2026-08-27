@@ -89,8 +89,8 @@ export function validateCredentials(username: unknown, password: unknown): { use
 }
 
 export function validatePassword(password: unknown): string {
-  if (typeof password !== "string" || password.length < 8 || password.length > 128) {
-    throw new Error("비밀번호는 8~128자로 입력하세요.");
+  if (typeof password !== "string" || password.length < 1 || password.length > 128) {
+    throw new Error("비밀번호는 1~128자로 입력하세요.");
   }
   return password;
 }

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { ArrowBigUpDash, ArrowRight, Shield } from "lucide-react";
 import { ApiError, api } from "@/lib/api";
 import type { BootstrapData } from "@/types";
@@ -14,12 +14,22 @@ const passwordFieldErrorClass = "password-field-error border-red-500 bg-red-50 t
 
 interface AuthScreenProps {
   data: BootstrapData;
-  onAuth: (username: string, password: string, serverPassword: string) => Promise<void>;
+  mode: "login" | "register";
+  onAuth: (action: "login" | "register" | "reset", username: string, password: string, serverPassword: string) => Promise<void>;
+  onModeChange: (mode: "login" | "register") => void;
   onOpenAdmin: () => void;
   notice: (message: string) => void;
 }
 
-export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProps) {
+function AuthModePanel({ children, mode }: { children: ReactNode; mode: "login" | "register" }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => setOpen(true), []);
+
+  return <div className="t-panel-slide auth-mode-panel" data-direction={mode === "register" ? "up" : "down"} data-open={open}>{children}</div>;
+}
+
+export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, notice }: AuthScreenProps) {
   const [username, setUsername] = useState("");
   const [availability, setAvailability] = useState<{ available: boolean; resetRequired: boolean } | null>(null);
   const [password, setPassword] = useState("");
@@ -31,6 +41,7 @@ export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProp
 
   useEffect(() => {
     setAvailability(null);
+    if (mode === "register") return;
     if (!/^[\p{L}\p{N}_]{1,16}$/u.test(username.normalize("NFC").trim())) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
@@ -44,10 +55,10 @@ export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProp
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [username]);
+  }, [mode, username]);
 
   const resetRequired = availability?.resetRequired === true;
-  const authLabel = resetRequired ? "비밀번호 변경" : availability?.available ? "가입" : "로그인";
+  const authLabel = resetRequired ? "비밀번호 변경" : mode === "register" ? "가입" : "로그인";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -55,7 +66,7 @@ export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProp
     setServerPasswordError(false);
     setBusy(true);
     try {
-      await onAuth(username, password, serverPassword);
+      await onAuth(resetRequired ? "reset" : mode, username, password, serverPassword);
     } catch (error) {
       if (error instanceof ApiError && error.code === "INVALID_LOGIN") {
         if (resetRequired) setServerPasswordError(true);
@@ -75,14 +86,15 @@ export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProp
         <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={onOpenAdmin} aria-label="관리자 패널" title="관리자 패널"><Shield /></Button>
       </header>
       <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} compact />
-      <Card className="overflow-visible border-0 p-0 shadow-none ring-0">
-        <CardContent className="px-0">
-          <form onSubmit={submit}>
+      <AuthModePanel key={mode} mode={mode}>
+        <Card className="overflow-visible border-0 p-0 shadow-none ring-0">
+          <CardContent className="px-0">
+            <form onSubmit={submit}>
             <FieldGroup>
               <div className="flex flex-col gap-2">
                 <Field>
                   <FieldLabel className="sr-only" htmlFor="username">플레이어 이름</FieldLabel>
-                  <Input className="h-11 rounded-full px-4 shadow-none" id="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="플레이어 이름" minLength={1} maxLength={16} required />
+                  <Input className="h-11 rounded-full px-4 shadow-none" id="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder={mode === "register" ? "플레이어 이름 (한글 지원)" : "플레이어 이름"} minLength={1} maxLength={16} required />
                 </Field>
                 <Field>
                   <FieldLabel className="sr-only" htmlFor="password">{resetRequired ? "새 비밀번호" : "비밀번호"}</FieldLabel>
@@ -99,8 +111,7 @@ export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProp
                       onBlur={() => setCapsLockOn(false)}
                       onAnimationEnd={() => setPasswordError(false)}
                       aria-invalid={passwordError}
-                      placeholder={resetRequired ? "새 비밀번호 (8글자 이상)" : "비밀번호 (8글자 이상)"}
-                      minLength={8}
+                      placeholder={resetRequired ? "새 비밀번호" : "비밀번호"}
                       maxLength={128}
                       required
                     />
@@ -113,8 +124,8 @@ export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProp
                   </div>
                   {resetRequired && <FieldDescription className="px-2">관리자가 초기화했어요. 새 비밀번호와 전달받은 6자리 코드를 입력하면 바로 로그인합니다.</FieldDescription>}
                 </Field>
-                <Field>
-                  <FieldLabel className="sr-only" htmlFor="server-password">{resetRequired ? "초기화 코드" : "서버 비밀번호"}</FieldLabel>
+                {(mode === "register" || resetRequired) && <Field>
+                  <FieldLabel className="sr-only" htmlFor="server-password">{resetRequired ? "초기화 코드" : "가입 질문 답"}</FieldLabel>
                   <Input
                     className={cn("h-11 rounded-full px-4 shadow-none transition-colors", serverPasswordError && passwordFieldErrorClass)}
                     id="server-password"
@@ -125,21 +136,28 @@ export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProp
                     onChange={(event) => { setServerPassword(event.target.value); setServerPasswordError(false); }}
                     onAnimationEnd={() => setServerPasswordError(false)}
                     aria-invalid={serverPasswordError}
-                    placeholder={resetRequired ? "초기화 코드 6자리" : "서버 비밀번호"}
+                    placeholder={resetRequired ? "초기화 코드 6자리" : "도덕 시간에 쓰는 건?"}
                     pattern={resetRequired ? "[0-9]{6}" : undefined}
                     maxLength={resetRequired ? 6 : 128}
                     required
                   />
-                </Field>
+                </Field>}
               </div>
               <Button size="lg" className="h-11 w-full rounded-full px-4" disabled={busy}>
                 {busy ? <Spinner data-icon="inline-end" /> : <ArrowRight data-icon="inline-end" />}
                 <span key={authLabel} className="auth-label-in" aria-live="polite">{authLabel}</span>
               </Button>
+              <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
+                <span>{mode === "login" ? "계정이 없나요?" : "계정이 있나요?"}</span>
+                <Button type="button" variant="link" size="sm" className="h-auto p-0 font-semibold" disabled={busy} onClick={() => onModeChange(mode === "login" ? "register" : "login")}>
+                  {mode === "login" ? "가입" : "로그인"}
+                </Button>
+              </div>
             </FieldGroup>
-          </form>
-        </CardContent>
-      </Card>
+            </form>
+          </CardContent>
+        </Card>
+      </AuthModePanel>
     </main>
   );
 }

@@ -14,7 +14,7 @@ import { SkinService, skinPathForUser } from "../server/skins.js";
 import type { ServerStatus } from "../server/types.js";
 
 const secret = "api-test-secret-that-is-longer-than-thirty-two-characters";
-const sharedServerPassword = "shared-server-password";
+const sharedServerPassword = "명심보감";
 const cleanups: Array<() => void | Promise<void>> = [];
 
 const serverStatus: ServerStatus = {
@@ -335,6 +335,26 @@ describe("game chat API", () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+describe("separate login and registration", () => {
+  it("requires the shared answer only for signup and accepts a one-character password", async () => {
+    const harness = await createHarness();
+    const registerResponse = await fetch(`${harness.origin}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: harness.origin },
+      body: JSON.stringify({ username: "짧은비번", password: "한", serverPassword: sharedServerPassword }),
+    });
+    expect(registerResponse.status).toBe(201);
+
+    const loginResponse = await fetch(`${harness.origin}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: harness.origin },
+      body: JSON.stringify({ username: "짧은비번", password: "한" }),
+    });
+    expect(loginResponse.status).toBe(200);
+    expect(await loginResponse.json()).toMatchObject({ created: false });
+  });
 });
 
 describe("secure administrator password resets", () => {

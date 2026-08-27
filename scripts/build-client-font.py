@@ -59,8 +59,9 @@ MAIN_MENU_PATCH_RANGES = (
     ("secondary version line", 0x389058, 0x389076, "0e6eb40af7b59efab32c5d80ca516963290b3f61bcbf4d9d25cb3c50d303f81f"),
     ("bottom-right credits", 0x389076, 0x389098, "2f0c4a04f9674d9f34bca94df342d34fa422766bddd57967812330245a1aeaf8"),
 )
+BASE_MAIN_WASM_SHA256 = "d3a20d5f95932bc10ef244debb4058e3716e703329adda3204e9491637348b48"
 OLD_VERSION_STRING = b"\x10Minecraft 1.12.2\x05 Demo"
-SPAWNPOINT_VERSION_STRING = b"\x1dMinecraft 1.12.2 (spawnpoint)\x05 Demo"
+SPAWNPOINT_VERSION_STRING = b"\x10spawnpoint v1.12\x05 Demo"
 
 FONT_SIZE = 12
 CELL_SIZE = 16
@@ -502,6 +503,8 @@ def patch_wasm_data_string(wasm: bytes) -> bytes:
             segment_data = payload[data_offset:]
             if len(segment_data) != data_length:
                 raise ValueError("WASM data segment has an unexpected length")
+            if len(SPAWNPOINT_VERSION_STRING) != len(OLD_VERSION_STRING):
+                raise ValueError("Replacement version string must preserve the WASM data layout")
             if segment_data.count(OLD_VERSION_STRING) != 1:
                 raise ValueError("WASM data segment does not contain the expected version string")
             segment_data = segment_data.replace(OLD_VERSION_STRING, SPAWNPOINT_VERSION_STRING)
@@ -528,6 +531,8 @@ def patch_main_menu(epw: bytes) -> bytes:
     wasm = bytearray(lzma.decompress(epw[data_offset:old_end]))
     if len(wasm) != raw_length:
         raise ValueError("EPW main program has an unexpected uncompressed length")
+    if hashlib.sha256(wasm).hexdigest() != BASE_MAIN_WASM_SHA256:
+        raise ValueError("EPW main program does not match the known-good base client")
 
     for name, start, end, expected_hash in MAIN_MENU_PATCH_RANGES:
         current = bytes(wasm[start:end])

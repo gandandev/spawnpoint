@@ -22,6 +22,7 @@ interface StandaloneAdminAccess {
 
 export function App() {
   const siteName = currentSiteName();
+  const [authMode, setAuthMode] = useState<"login" | "register">(() => window.location.pathname === "/signup" ? "register" : "login");
   const [data, setData] = useState<BootstrapData | null>(null);
   const [game, setGame] = useState<GameSession | null>(null);
   const [showSkinAfterSignup, setShowSkinAfterSignup] = useState(false);
@@ -36,6 +37,12 @@ export function App() {
   useEffect(() => {
     void reload().catch(() => notice(`${siteName}에 연결할 수 없어요`));
   }, [reload, notice, siteName]);
+
+  useEffect(() => {
+    const syncAuthMode = () => setAuthMode(window.location.pathname === "/signup" ? "register" : "login");
+    window.addEventListener("popstate", syncAuthMode);
+    return () => window.removeEventListener("popstate", syncAuthMode);
+  }, []);
 
   useEffect(() => {
     const events = new EventSource("/api/server/events");
@@ -58,13 +65,21 @@ export function App() {
     setData((current) => current ? { ...current, server: result.server } : current);
   }, [data?.csrf]);
 
-  const auth = async (username: string, password: string, serverPassword: string) => {
-    const result = await api<{ user: PublicUser; csrf: string; created: boolean }>("/auth/continue", {
+  const changeAuthMode = useCallback((mode: "login" | "register") => {
+    window.history.pushState(null, "", mode === "register" ? "/signup" : "/");
+    setAuthMode(mode);
+  }, []);
+
+  const auth = async (action: "login" | "register" | "reset", username: string, password: string, serverPassword: string) => {
+    const endpoint = action === "reset" ? "/auth/continue" : action === "register" ? "/auth/register" : "/auth/login";
+    const result = await api<{ user: PublicUser; csrf: string; created: boolean }>(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, serverPassword }),
+      body: JSON.stringify(action === "login" ? { username, password } : { username, password, serverPassword }),
     });
     setShowSkinAfterSignup(result.created);
+    window.history.replaceState(null, "", "/");
+    setAuthMode("login");
     setStandaloneAdmin(null);
     setAdminPanelOpen(false);
     setData((current) => current ? { ...current, user: result.user, csrf: result.csrf } : current);
@@ -147,7 +162,7 @@ export function App() {
       ? <GameScreen game={game} gameUrl={gameUrl} onExit={() => setGame(null)} />
       : data.user
         ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={openAdmin} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
-        : <AuthScreen data={data} onAuth={auth} onOpenAdmin={openAdmin} notice={notice} />}
+        : <AuthScreen data={data} mode={authMode} onAuth={auth} onModeChange={changeAuthMode} onOpenAdmin={openAdmin} notice={notice} />}
     <Dialog open={adminPasswordOpen} onOpenChange={(open) => {
       setAdminPasswordOpen(open);
       if (!open) setAdminPassword("");

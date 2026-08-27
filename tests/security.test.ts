@@ -62,12 +62,13 @@ describe("gateway sessions", () => {
 });
 
 describe("credentials", () => {
-  it("accepts Korean account names while enforcing safe characters and useful passwords", () => {
+  it("accepts Korean account names and non-empty passwords while enforcing safe name characters", () => {
     expect(validateCredentials("player_01", "password123").username).toBe("player_01");
     expect(validateCredentials(" 텔레그램 ", "password123").username).toBe("텔레그램");
     expect(validateCredentials("민수", "password123").username).toBe("민수");
     expect(() => validateCredentials("two words", "password123")).toThrow();
-    expect(() => validateCredentials("player", "short")).toThrow();
+    expect(validateCredentials("player", "짧음").password).toBe("짧음");
+    expect(() => validateCredentials("player", "")).toThrow();
   });
 
   it("accepts Korean display names without Minecraft formatting characters", () => {

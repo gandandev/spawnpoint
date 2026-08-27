@@ -47,6 +47,9 @@ describe("in-game bitmap font client", () => {
     const base = fs.readFileSync(path.join(clients, "stable-locale-fixed.epw"));
     const patched = fs.readFileSync(path.join(clients, "stable-galmuri.epw"));
 
+    expect(crypto.createHash("sha256").update(base).digest("hex")).toBe(
+      "6c4e3a34bb72307898f2eeea407a4da84f3ff1161503bf4f1517a6fb9ed290f0",
+    );
     expect(patched.subarray(0, 8).toString("ascii")).toBe("EAG$WASM");
     expect(patched.readUInt32LE(8)).toBe(patched.length);
     expect(patched.readUInt32LE(12)).toBe(crc32(patched.subarray(16)));
@@ -69,7 +72,7 @@ describe("in-game bitmap font client", () => {
         + "ib||navigator.userActivation&&navigator.userActivation.hasBeenActive".length,
     );
     expect(patchedRuntime.compressedLength).not.toBe(baseRuntime.compressedLength);
-    expect(patchedMainProgram.rawLength).toBe(baseMainProgram.rawLength + 13);
+    expect(patchedMainProgram.rawLength).toBe(baseMainProgram.rawLength);
     expect(patchedMainProgram.compressedLength).not.toBe(baseMainProgram.compressedLength);
     expect(patchedAssets.dataOffset).toBe(
       baseAssets.dataOffset
@@ -107,7 +110,7 @@ assets = lzma.decompress(b[asset_offset:asset_offset + asset_compressed])
 ranges = [(0x38895C, 0x388A03), (0x388A2D, 0x388A86), (0x388AE1, 0x388B3D), (0x389058, 0x389076), (0x389076, 0x389098)]
 print(json.dumps({
   "menu_ranges_are_nops": all(set(wasm[start:end]) == {1} for start, end in ranges),
-  "version_count": wasm.count(b"Minecraft 1.12.2 (spawnpoint)"),
+  "version_count": wasm.count(b"spawnpoint v1.12"),
   "verbose_fps_count": wasm.count(b"fps | C: "),
   "fps_only_count": wasm.count(b"fps\\xc2\\xa7r\\xc2\\xa7r"),
   "old_edit_profile_count": assets.count(b"eaglercraft.menu.editProfile=Edit Profile"),
@@ -118,8 +121,8 @@ print(json.dumps({
     expect(inspection).toEqual({
       menu_ranges_are_nops: true,
       version_count: 1,
-      verbose_fps_count: 0,
-      fps_only_count: 1,
+      verbose_fps_count: 1,
+      fps_only_count: 0,
       old_edit_profile_count: 0,
       menu_label_count: 1,
       splash_count: 1,

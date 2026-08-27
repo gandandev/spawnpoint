@@ -98,9 +98,9 @@ export function AccountDialog({ data, onSession, notice }: AccountDialogProps) {
       <form className="flex flex-col gap-4" onSubmit={changePassword}>
         <div className="flex items-center gap-2 font-medium"><KeyRound className="size-4" />비밀번호 변경</div>
         <FieldGroup className="gap-2">
-          <Field><FieldLabel className="sr-only" htmlFor="current-password">현재 비밀번호</FieldLabel><Input id="current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="현재 비밀번호" autoComplete="current-password" minLength={8} maxLength={128} required /></Field>
-          <Field><FieldLabel className="sr-only" htmlFor="new-password">새 비밀번호</FieldLabel><Input id="new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="새 비밀번호 (8글자 이상)" autoComplete="new-password" minLength={8} maxLength={128} required /></Field>
-          <Field><FieldLabel className="sr-only" htmlFor="confirm-password">새 비밀번호 확인</FieldLabel><Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="새 비밀번호 확인" autoComplete="new-password" minLength={8} maxLength={128} required /></Field>
+          <Field><FieldLabel className="sr-only" htmlFor="current-password">현재 비밀번호</FieldLabel><Input id="current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="현재 비밀번호" autoComplete="current-password" maxLength={128} required /></Field>
+          <Field><FieldLabel className="sr-only" htmlFor="new-password">새 비밀번호</FieldLabel><Input id="new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="새 비밀번호" autoComplete="new-password" maxLength={128} required /></Field>
+          <Field><FieldLabel className="sr-only" htmlFor="confirm-password">새 비밀번호 확인</FieldLabel><Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="새 비밀번호 확인" autoComplete="new-password" maxLength={128} required /></Field>
         </FieldGroup>
         <Button type="submit" variant="outline" className="h-10 w-full" disabled={passwordBusy}>{passwordBusy ? <Spinner /> : <KeyRound />}비밀번호 변경</Button>
       </form>

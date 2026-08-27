@@ -23,7 +23,7 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
-<script src="/game/portal-bridge.js?v=20260827-portal-menu-v64"></script>
+<script src="/game/portal-bridge.js?v=20260827-mobile-editor-v66"></script>
 `;
 
 await fs.mkdir(path.join(root, "public/game"), { recursive: true });

@@ -10,9 +10,12 @@ type BridgeEnvironment = {
   coarsePointer?: boolean;
   hostname?: string;
   maxTouchPoints?: number;
-  mobileControlSize?: number;
+  mobileControlLayout?: string;
+  mobileLookSensitivity?: number;
   renderDom?: boolean;
   userAgent?: string;
+  viewportHeight?: number;
+  viewportWidth?: number;
 };
 
 function loadBridge(
@@ -44,9 +47,8 @@ function loadBridge(
   if (gameSettings !== undefined) {
     storage.set("_spawnpoint_mossrunner.g", Buffer.from(gameSettings, "binary").toString("base64"));
   }
-  if (environment.mobileControlSize !== undefined) {
-    storage.set("spawnpoint_mobile_control_size", String(environment.mobileControlSize));
-  }
+  if (environment.mobileControlLayout !== undefined) storage.set("spawnpoint_mobile_control_layout_v1", environment.mobileControlLayout);
+  if (environment.mobileLookSensitivity !== undefined) storage.set("spawnpoint_mobile_look_sensitivity", String(environment.mobileLookSensitivity));
   const canvas = {
     width: 960,
     height: 600,
@@ -187,6 +189,8 @@ function loadBridge(
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key),
     },
+    innerHeight: environment.viewportHeight ?? 844,
+    innerWidth: environment.viewportWidth ?? 390,
     location: {
       search: "?account=mossrunner&launch=launch-123",
       protocol: "https:",
@@ -280,6 +284,17 @@ function loadBridge(
       },
       focus() {
         documentObject.activeElement = element;
+      },
+      getBoundingClientRect() {
+        if (element.style.position === "fixed") {
+          const left = Number.parseFloat(element.style.left) || 0;
+          const top = Number.parseFloat(element.style.top) || 0;
+          const width = Number.parseFloat(element.style.width) || 44;
+          const height = Number.parseFloat(element.style.height) || 44;
+          return { left, top, right: left + width, bottom: top + height, width, height };
+        }
+        if (element.mockRect) return element.mockRect;
+        return { left: 0, top: 0, right: 44, bottom: 44, width: 44, height: 44 };
       },
       appendChild(child: Record<string, any>) {
         child.parentNode = element;
@@ -458,7 +473,7 @@ describe("portal game bridge", () => {
 
     expect(bundle.subarray(0, 8).toString("ascii")).toBe("EAG$WASM");
     expect(crypto.createHash("sha256").update(bundle).digest("hex")).toBe(
-      "92b8dd5f26693434c635706b46d3df8d177e02a2fa6903b7f0d18887d695fd09",
+      "6c4e3a34bb72307898f2eeea407a4da84f3ff1161503bf4f1517a6fb9ed290f0",
     );
   });
 
@@ -953,7 +968,8 @@ describe("portal game bridge", () => {
     const root = locatorElementsById.get("spawnpoint-mobile-controls")!;
     const move = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-move"))!;
     const actions = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-actions"))!;
-    const sizeControls = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-size"))!;
+    const tools = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-tools"))!;
+    const editor = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-editor"))!;
     const style = documentObject.head.children.find(
       (element: Record<string, unknown>) => element.id === "spawnpoint-mobile-control-style",
     );
@@ -964,11 +980,13 @@ describe("portal game bridge", () => {
       "drop", "back", "inventory",
     ]);
     expect(actions.children.map((child: Record<string, any>) => child["data-sp-control"])).toEqual([
-      "jump", "attack", "sneak", "use",
+      "attack", "use", "jump", "sneak",
     ]);
-    expect(sizeControls.children.map((child: Record<string, any>) => child["data-sp-control"])).toEqual([
-      "size-decrease", "size-increase",
+    expect(tools.children.map((child: Record<string, any>) => child["data-sp-control"])).toEqual([
+      "edit-controls", "hide-controls",
     ]);
+    expect(editor.children[0].children[0].textContent).toBe("마우스 감도");
+    expect(editor.children[1].textContent).toBe("배치 초기화");
     expect(findControl(root, "hotbar-previous")).toBeUndefined();
     expect(findControl(root, "hotbar-next")).toBeUndefined();
     expect(findControl(root, "menu")).toMatchObject({ textContent: "ESC", "aria-label": "게임 메뉴 열기" });
@@ -986,54 +1004,121 @@ describe("portal game bridge", () => {
     expect(findControl(root, "back")?.innerHTML).not.toBe(findControl(root, "left")?.innerHTML);
     expect(findControl(root, "attack")?.innerHTML).toContain('<rect x="12" y="1" width="3" height="1"/>');
     expect(findControl(root, "use")?.innerHTML).toContain('<rect x="7" y="1" width="2" height="1"/>');
+    expect(findControl(root, "edit-controls")?.innerHTML).toContain('viewBox="0 0 24 24"');
+    expect(findControl(root, "hide-controls")?.innerHTML).toContain('viewBox="0 0 24 24"');
+    expect(findControl(root, "attack")?.children.some((child: Record<string, any>) => child.className === "sp-mobile-resize-handle")).toBe(true);
     expect(style?.textContent).toContain("border:0;border-radius:6px");
     expect(style?.textContent).toContain("background:rgba(8,12,10,.46)");
     expect(style?.textContent).toContain("transform:scale(.94)");
     expect(style?.textContent).toContain("--sp-press-duration:150ms");
     expect(style?.textContent).toContain("@media (prefers-reduced-motion:reduce)");
-    expect(style?.textContent).toContain("grid-template:repeat(2,var(--sp-touch))/repeat(2,var(--sp-touch))");
-    expect(style?.textContent).toContain("[data-sp-control=jump]{grid-column:1;grid-row:1}");
-    expect(style?.textContent).toContain("[data-sp-control=attack]{grid-column:2;grid-row:1}");
-    expect(style?.textContent).toContain("[data-sp-control=sneak]{grid-column:1;grid-row:2}");
-    expect(style?.textContent).toContain("[data-sp-control=use]{grid-column:2;grid-row:2}");
-    expect(style?.textContent).toContain(".sp-mobile-size{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right))");
-    expect(style?.textContent).toContain(".sp-mobile-size .sp-mobile-button{width:44px;height:44px");
+    expect(style?.textContent).toContain("grid-template:repeat(2,var(--sp-touch))/repeat(3,var(--sp-touch))");
+    expect(style?.textContent).toContain("[data-sp-control=attack]{grid-column:1;grid-row:1/3;height:calc(var(--sp-touch)*2 + 5px)}");
+    expect(style?.textContent).toContain("[data-sp-control=use]{grid-column:2;grid-row:1/3;height:calc(var(--sp-touch)*2 + 5px)}");
+    expect(style?.textContent).toContain("[data-sp-control=jump]{grid-column:3;grid-row:1}");
+    expect(style?.textContent).toContain("[data-sp-control=sneak]{grid-column:3;grid-row:2}");
+    expect(style?.textContent).toContain(".sp-mobile-tools{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right))");
+    expect(style?.textContent).toContain(".sp-mobile-resize-handle{position:absolute;right:1px;bottom:1px;display:none");
   });
 
-  it("adjusts and persists the mobile control size between 44px and 64px", () => {
-    const first = loadBridge(undefined, true, undefined, {
+  it("moves, resizes, resets, hides, and tunes the mobile controls in edit mode", () => {
+    const client = loadBridge(undefined, true, undefined, {
       maxTouchPoints: 5,
       renderDom: true,
     });
-    const root = first.locatorElementsById.get("spawnpoint-mobile-controls")!;
-    const decrease = findControl(root, "size-decrease")!;
-    const increase = findControl(root, "size-increase")!;
+    const root = client.locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const edit = findControl(root, "edit-controls")!;
+    const hide = findControl(root, "hide-controls")!;
+    const attack = findControl(root, "attack")!;
+    const handle = attack.children.find((child: Record<string, any>) => child.className === "sp-mobile-resize-handle")!;
+    const editor = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-editor"))!;
+    const sensitivity = editor.children[0].children[2];
+    const sensitivityValue = editor.children[0].children[1];
+    const reset = editor.children[1];
     const touchEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
-
-    decrease.ontouchstart(touchEvent);
-    decrease.ontouchend(touchEvent);
-    expect(root.style["--sp-touch"]).toBe("49px");
-    decrease.ontouchstart(touchEvent);
-    decrease.ontouchend(touchEvent);
-    expect(root.style["--sp-touch"]).toBe("44px");
-    expect(decrease.disabled).toBe(true);
-
-    for (let index = 0; index < 5; index += 1) {
-      increase.ontouchstart(touchEvent);
-      increase.ontouchend(touchEvent);
-    }
-    expect(root.style["--sp-touch"]).toBe("64px");
-    expect(first.storage.get("spawnpoint_mobile_control_size")).toBe("64");
-    expect(increase.disabled).toBe(true);
-
-    const restored = loadBridge(undefined, true, undefined, {
-      maxTouchPoints: 5,
-      mobileControlSize: 59,
-      renderDom: true,
+    const gestureEvent = (type: string, target: Record<string, any>, identifier: number, clientX: number, clientY: number) => ({
+      type,
+      target,
+      changedTouches: [{ identifier, clientX, clientY }],
+      touches: type === "touchmove" ? [{ identifier, clientX, clientY }] : undefined,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
     });
-    const restoredRoot = restored.locatorElementsById.get("spawnpoint-mobile-controls")!;
-    expect(restoredRoot.style["--sp-touch"]).toBe("59px");
-    expect(restoredRoot["data-sp-control-size"]).toBe("59");
+    const tap = (button: Record<string, any>) => {
+      button.ontouchstart(touchEvent);
+      button.ontouchend(touchEvent);
+    };
+
+    attack.mockRect = { left: 240, top: 640, right: 294, bottom: 753, width: 54, height: 113 };
+    client.canvas.requestPointerLock();
+    tap(edit);
+    expect(root.className).toContain("is-editing");
+    expect(edit["aria-pressed"]).toBe("true");
+    expect(attack.style.position).toBe("fixed");
+
+    attack.dispatchEvent(gestureEvent("touchstart", attack, 7, 260, 680));
+    client.documentObject.dispatchEvent(gestureEvent("touchmove", attack, 7, 220, 610));
+    client.documentObject.dispatchEvent(gestureEvent("touchend", attack, 7, 220, 610));
+    expect(attack.style.left).toBe("200px");
+    expect(attack.style.top).toBe("570px");
+    expect(client.canvasEvents).toEqual([]);
+
+    attack.dispatchEvent(gestureEvent("touchstart", handle, 8, 254, 683));
+    client.documentObject.dispatchEvent(gestureEvent("touchmove", handle, 8, 284, 703));
+    client.documentObject.dispatchEvent(gestureEvent("touchend", handle, 8, 284, 703));
+    expect(attack.style.left).toBe("200px");
+    expect(attack.style.top).toBe("570px");
+    expect(attack.style.width).toBe("84px");
+    expect(attack.style.height).toBe("133px");
+    expect(JSON.parse(client.storage.get("spawnpoint_mobile_control_layout_v1")!).controls.attack).toMatchObject({
+      width: 84,
+      height: 133,
+    });
+
+    sensitivity.value = "2";
+    sensitivity.oninput();
+    expect(sensitivityValue.textContent).toBe("148%");
+    expect(client.storage.get("spawnpoint_mobile_look_sensitivity")).toBe("2");
+
+    tap(hide);
+    expect(root.className).toContain("are-controls-hidden");
+    expect(root.className).not.toContain("is-editing");
+    expect(hide["aria-label"]).toBe("컨트롤 보이기");
+    tap(hide);
+    expect(root.className).not.toContain("are-controls-hidden");
+
+    tap(edit);
+    tap(reset);
+    expect(client.storage.has("spawnpoint_mobile_control_layout_v1")).toBe(false);
+    tap(edit);
+    expect(attack.style.position).toBe("");
+  });
+
+  it("restores a saved mobile control layout", () => {
+    const client = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      mobileControlLayout: JSON.stringify({
+        version: 1,
+        controls: {
+          attack: { x: 0.5, y: 0.25, width: 80, height: 120 },
+        },
+      }),
+      renderDom: true,
+      viewportHeight: 844,
+      viewportWidth: 390,
+    });
+    const root = client.locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const attack = findControl(root, "attack")!;
+
+    expect(attack.style).toMatchObject({
+      position: "fixed",
+      left: "155px",
+      top: "181px",
+      width: "80px",
+      height: "120px",
+    });
+    expect(attack["data-sp-custom-position"]).toBe("true");
   });
 
   it("toggles sprint and primes held forward movement with two W presses", () => {
@@ -1323,6 +1408,30 @@ describe("portal game bridge", () => {
       expect.objectContaining({ clientX: 240, clientY: 180, buttons: 0 }),
       expect.objectContaining({ clientX: 240, clientY: 180, buttons: 0 }),
     ]);
+  });
+
+  it("restores the saved mobile look sensitivity", () => {
+    const { canvas, canvasEvents, handlers } = loadBridge(undefined, true, undefined, {
+      coarsePointer: true,
+      mobileLookSensitivity: 2,
+      renderDom: true,
+    });
+    canvas.requestPointerLock();
+    handlers.get("touchstart")?.[0]({
+      target: canvas,
+      changedTouches: [{ identifier: 17, clientX: 100, clientY: 120 }],
+      preventDefault: vi.fn(),
+    });
+    handlers.get("touchmove")?.[0]({
+      target: canvas,
+      targetTouches: [{ identifier: 17, clientX: 110, clientY: 115 }],
+      preventDefault: vi.fn(),
+    });
+
+    expect(canvasEvents.find(({ type }) => type === "mousemove")).toMatchObject({
+      movementX: 20,
+      movementY: -10,
+    });
   });
 
   it("keeps mobile canvas drags inside the game after the client rewrites its style", () => {

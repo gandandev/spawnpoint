@@ -39,7 +39,7 @@ describe("account skin storage", () => {
     expect(SKIN_CATALOG).toHaveLength(1);
     expect(SKIN_CATALOG[0].label).toBe("유명");
     expect(SKIN_CATALOG[0].skins).toHaveLength(26);
-    expect(SKIN_CATALOG[0].skins[0].id).toBe("spawnpoint");
+    expect(SKIN_CATALOG[0].skins[0].id).toBe("famous-1");
     expect(SKIN_CATALOG[0].skins.at(-1)?.id).toBe("saved-16");
     expect(new Set(SKIN_CATALOG[0].skins.map((skin) => skin.id)).size).toBe(26);
     expect(SKIN_CATALOG[0].skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);

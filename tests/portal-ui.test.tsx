@@ -168,7 +168,7 @@ describe("administrator access", () => {
         standalone: true,
       }));
       if (path === "/api/admin/overview") return Promise.resolve(jsonResponse(adminOverview(false)));
-      if (path === "/api/auth/continue") return Promise.resolve(jsonResponse({ user: player, csrf: "player-csrf", created: false }));
+      if (path === "/api/auth/login") return Promise.resolve(jsonResponse({ user: player, csrf: "player-csrf", created: false }));
       if (path.startsWith("/api/auth/username-availability")) return Promise.resolve(jsonResponse({ available: false, resetRequired: false }));
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     }));
@@ -196,7 +196,7 @@ describe("administrator access", () => {
     });
 
     await act(async () => {
-      for (const [selector, value] of [["#username", "player"], ["#password", "password123"], ["#server-password", "server-password"]] as const) {
+      for (const [selector, value] of [["#username", "player"], ["#password", "password123"]] as const) {
         const input = container.querySelector(selector) as HTMLInputElement;
         input.value = value;
         input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -283,7 +283,7 @@ describe("server password input", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<AuthScreen data={{ ...adminData, user: null }} onAuth={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="login" onAuth={vi.fn()} onModeChange={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
     });
 
     const input = container.querySelector("#password") as HTMLInputElement;
@@ -303,14 +303,16 @@ describe("server password input", () => {
     await act(async () => root.unmount());
   });
 
-  it("keeps the normal server password as a text field for Korean input", async () => {
+  it("shows the Korean signup question only on the signup screen", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
       root.render(<AuthScreen
         data={{ ...adminData, user: null }}
+        mode="register"
         onAuth={vi.fn()}
+        onModeChange={vi.fn()}
         onOpenAdmin={vi.fn()}
         notice={vi.fn()}
       />);
@@ -320,19 +322,33 @@ describe("server password input", () => {
     expect(input.type).toBe("text");
     expect(input.autocomplete).toBe("off");
     expect(input.inputMode).toBe("");
+    expect(input.placeholder).toBe("도덕 시간에 쓰는 건?");
+    expect((container.querySelector("#username") as HTMLInputElement).placeholder).toBe("플레이어 이름 (한글 지원)");
     await act(async () => root.unmount());
   });
 
-  it("accepts a Korean player name and checks whether it can be registered", async () => {
+  it("keeps login to two fields and links to signup below the full-width button", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async () => jsonResponse({ available: true, resetRequired: false }));
     vi.stubGlobal("fetch", fetchMock);
+    const onModeChange = vi.fn();
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<AuthScreen data={{ ...adminData, user: null }} onAuth={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="login" onAuth={vi.fn()} onModeChange={onModeChange} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
     });
+
+    const initialButtons = [...container.querySelectorAll("form button")];
+    expect(initialButtons[0]?.textContent).toContain("로그인");
+    expect(initialButtons[0]?.className).toContain("w-full");
+    expect(initialButtons[1]?.textContent).toContain("가입");
+    expect(container.textContent).toContain("계정이 없나요?");
+    expect(container.querySelector("#server-password")).toBeNull();
+    expect((container.querySelector("#password") as HTMLInputElement).placeholder).toBe("비밀번호");
+    expect(container.querySelector("#password")?.getAttribute("minlength")).toBeNull();
+    await act(async () => initialButtons[1]?.click());
+    expect(onModeChange).toHaveBeenCalledWith("register");
 
     const input = container.querySelector("#username") as HTMLInputElement;
     await act(async () => {
@@ -347,7 +363,37 @@ describe("server password input", () => {
       "/api/auth/username-availability?username=%ED%85%94%EB%A0%88%EA%B7%B8%EB%9E%A8",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(container.querySelector("form button")?.textContent).toContain("가입");
+    const buttons = [...container.querySelectorAll("form button")];
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.textContent).toContain("로그인");
+    expect(buttons[0]?.className).toContain("w-full");
+    expect(buttons[1]?.textContent).toContain("가입");
+    await act(async () => root.unmount());
+  });
+
+  it("submits signup only from the separate signup screen", async () => {
+    const onAuth = vi.fn(async () => undefined);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="register" onAuth={onAuth} onModeChange={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+    });
+    expect(container.querySelector(".auth-mode-panel")?.getAttribute("data-direction")).toBe("up");
+    expect(container.textContent).toContain("계정이 있나요?");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      for (const [selector, value] of [["#username", "텔레그램"], ["#password", "password123"], ["#server-password", "server-password"]] as const) {
+        const input = container.querySelector(selector) as HTMLInputElement;
+        setter.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    await act(async () => {
+      (container.querySelector("form") as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(onAuth).toHaveBeenCalledWith("register", "텔레그램", "password123", "server-password");
     await act(async () => root.unmount());
   });
 });

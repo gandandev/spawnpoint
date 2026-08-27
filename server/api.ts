@@ -541,7 +541,6 @@ export function createApiRouter(context: ApiContext): express.Router {
       fail(response, 429, "시도 횟수가 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
-    if (!requireServerPassword(request, response, context)) return;
     try {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
       const user = context.database.getUserByUsername(credentials.username);
