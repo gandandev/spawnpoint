@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ArrowBigUpDash, ArrowRight, Shield } from "lucide-react";
 import { ApiError, api } from "@/lib/api";
 import type { BootstrapData } from "@/types";
@@ -27,6 +27,32 @@ function AuthModePanel({ children, mode }: { children: ReactNode; mode: "login" 
   useEffect(() => setOpen(true), []);
 
   return <div className="t-panel-slide auth-mode-panel" data-direction={mode === "register" ? "up" : "down"} data-open={open}>{children}</div>;
+}
+
+function AuthModeContainer({ children, mode }: { children: ReactNode; mode: "login" | "register" }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+
+    const updateHeight = () => setHeight(content.offsetHeight);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [mode]);
+
+  return (
+    <div className="auth-mode-slot">
+      <div className="t-resize auth-mode-container" style={height === undefined ? undefined : { height }}>
+        <div ref={contentRef}>
+          <AuthModePanel key={mode} mode={mode}>{children}</AuthModePanel>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, notice }: AuthScreenProps) {
@@ -86,7 +112,7 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
         <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={onOpenAdmin} aria-label="관리자 패널" title="관리자 패널"><Shield /></Button>
       </header>
       <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} compact />
-      <AuthModePanel key={mode} mode={mode}>
+      <AuthModeContainer mode={mode}>
         <Card className="overflow-visible border-0 p-0 shadow-none ring-0">
           <CardContent className="px-0">
             <form onSubmit={submit}>
@@ -157,7 +183,7 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
             </form>
           </CardContent>
         </Card>
-      </AuthModePanel>
+      </AuthModeContainer>
     </main>
   );
 }

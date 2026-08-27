@@ -117,6 +117,25 @@
     filter    var(--panel-open-dur) var(--panel-ease);
 }
 
+:root {
+  --resize-dur: 300ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+.t-resize {
+  transition:
+    width  var(--resize-dur) var(--resize-ease),
+    height var(--resize-dur) var(--resize-ease);
+  will-change: width, height;
+}
+
+.auth-mode-slot {
+  height: 12.5rem;
+}
+
+.auth-mode-container {
+  overflow: visible;
+}
+
 .auth-mode-panel {
   --panel-translate-y: 30px;
 }
@@ -127,6 +146,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .t-panel-slide { transition: none !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-resize { transition: none !important; }
 }
 
 @layer base {

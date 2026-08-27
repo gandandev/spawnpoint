@@ -343,6 +343,8 @@ describe("server password input", () => {
     expect(initialButtons[0]?.textContent).toContain("로그인");
     expect(initialButtons[0]?.className).toContain("w-full");
     expect(initialButtons[1]?.textContent).toContain("가입");
+    expect(container.querySelector(".auth-mode-slot")).not.toBeNull();
+    expect(container.querySelector(".auth-mode-container")?.className).toContain("t-resize");
     expect(container.textContent).toContain("계정이 없나요?");
     expect(container.querySelector("#server-password")).toBeNull();
     expect((container.querySelector("#password") as HTMLInputElement).placeholder).toBe("비밀번호");
