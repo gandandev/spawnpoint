@@ -1228,11 +1228,11 @@
     if (typeof event.preventDefault === "function") event.preventDefault();
     var movementX = touch.clientX - mobileLookPreviousX;
     var movementY = touch.clientY - mobileLookPreviousY;
-    if (Math.abs(touch.clientX - mobileLookStartX) > 4 || Math.abs(touch.clientY - mobileLookStartY) > 4) {
+    if (Math.abs(touch.clientX - mobileLookStartX) > 12 || Math.abs(touch.clientY - mobileLookStartY) > 12) {
       mobileLookMoved = true;
-      clearMobileLookAttack(true, touch);
+      if (!mobileLookAttackHeld) clearMobileLookAttack(false, touch);
     }
-    dispatchMobileMouseMove(touch, movementX * 1.35, movementY * 1.35, mobileGuiTouchActive ? 1 : 0);
+    dispatchMobileMouseMove(touch, movementX * 1.35, movementY * 1.35, mobileGuiTouchActive || mobileLookAttackHeld ? 1 : 0);
     mobileLookPreviousX = touch.clientX;
     mobileLookPreviousY = touch.clientY;
   }

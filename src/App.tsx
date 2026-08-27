@@ -78,7 +78,7 @@ export function App() {
   };
 
   const gameUrl = useMemo(() => game
-    ? `/game/${game.client}.html?v=20260827-pixel-controls-v58&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
+    ? `/game/${game.client}.html?v=20260827-mobile-slider-hold-v60&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
     : "", [game]);
 
   const adminData = data?.user?.isAdmin ? data : null;

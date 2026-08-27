@@ -23,7 +23,7 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
-<script src="/game/portal-bridge.js?v=20260827-mobile-slider-v59"></script>
+<script src="/game/portal-bridge.js?v=20260827-mobile-slider-hold-v60"></script>
 `;
 
 await fs.mkdir(path.join(root, "public/game"), { recursive: true });

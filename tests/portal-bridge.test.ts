@@ -1352,14 +1352,24 @@ describe("portal game bridge", () => {
     expect(canvasEvents).toHaveLength(0);
     runWindowTimeouts();
     expect(canvasEvents).toEqual([expect.objectContaining({ type: "mousedown", button: 0, buttons: 1 })]);
-    handlers.get("touchend")?.[0]({
-      type: "touchend",
+    handlers.get("touchmove")?.[0]({
       target: canvas,
-      changedTouches: [{ identifier: 32, clientX: 240, clientY: 180 }],
+      targetTouches: [{ identifier: 32, clientX: 260, clientY: 180 }],
       preventDefault: vi.fn(),
     });
     expect(canvasEvents).toEqual([
       expect.objectContaining({ type: "mousedown", button: 0, buttons: 1 }),
+      expect.objectContaining({ type: "mousemove", buttons: 1 }),
+    ]);
+    handlers.get("touchend")?.[0]({
+      type: "touchend",
+      target: canvas,
+      changedTouches: [{ identifier: 32, clientX: 260, clientY: 180 }],
+      preventDefault: vi.fn(),
+    });
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ type: "mousedown", button: 0, buttons: 1 }),
+      expect.objectContaining({ type: "mousemove", buttons: 1 }),
       expect.objectContaining({ type: "mouseup", button: 0, buttons: 0 }),
     ]);
   });
