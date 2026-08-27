@@ -1,5 +1,5 @@
-import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Box, Check, Copy, CornerDownLeft, KeyRound, MapPin, RefreshCw, Shield, ShieldCheck, Terminal, Users } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Box, Check, Copy, CornerDownLeft, KeyRound, RefreshCw, Shield, ShieldCheck, Terminal, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -12,7 +12,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AdminOverview, AdminUser, BootstrapData, InventoryItem, PlayerDetails, PublicUser } from "@/types";
 
-type AdminTab = "players" | "users" | "console";
+type AdminTab = "players" | "console";
 
 interface AdminPanelProps {
   data: BootstrapData;
@@ -118,7 +118,7 @@ function UserEditor({ user, currentUserId, busy, resetConfirming, resetCode, onS
     <div className="flex items-center gap-2"><div className="min-w-0"><div className="truncate font-medium">{user.displayName}</div><div className="truncate text-xs text-muted-foreground">게임 기술 ID: {user.gameUsername}</div></div>{user.isAdmin && <Badge variant="secondary" className="ml-auto"><ShieldCheck />관리자</Badge>}</div>
     <form className="flex flex-col gap-3" onSubmit={submit}>
       <FieldGroup>
-        <Field><FieldLabel htmlFor={`admin-name-${user.id}`}>플레이어 이름</FieldLabel><Input id={`admin-name-${user.id}`} value={playerName} onChange={(event) => setPlayerName(event.target.value)} minLength={1} maxLength={16} required /><FieldDescription>로그인과 게임에 같은 이름이 표시되고, 월드 데이터 연결은 그대로 유지돼요.</FieldDescription></Field>
+        <Field><FieldLabel htmlFor={`admin-name-${user.id}`}>플레이어 이름</FieldLabel><Input id={`admin-name-${user.id}`} value={playerName} onChange={(event) => setPlayerName(event.target.value)} minLength={1} maxLength={16} required /></Field>
       </FieldGroup>
       <Button type="submit" disabled={busy || (playerName === user.username && playerName === user.displayName)}>{busy ? <Spinner /> : <Check />}이름 변경</Button>
     </form>
@@ -139,7 +139,6 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
   const [tab, setTab] = useState<AdminTab>("players");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedPlayerKey, setSelectedPlayerKey] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [busyKeys, setBusyKeys] = useState<Set<string>>(() => new Set());
   const [resetConfirming, setResetConfirming] = useState<string | null>(null);
@@ -166,7 +165,6 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
     if (generation !== overviewRequestGenerationRef.current) return null;
     setOverview(result);
     setLoadError(null);
-    setSelectedPlayerKey((current) => current && result.players.some((player) => (player.accountId ?? player.uuid) === current) ? current : (result.players[0]?.accountId ?? result.players[0]?.uuid ?? null));
     setSelectedUserId((current) => current && result.users.some((user) => user.id === current) ? current : (result.users[0]?.id ?? null));
     setResetCode((current) => current && result.users.some((user) => user.id === current.userId && user.resetRequired) ? current : null);
     return result;
@@ -229,8 +227,9 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
     }
   };
 
-  const selectedPlayer = overview?.players.find((player) => (player.accountId ?? player.uuid) === selectedPlayerKey) ?? null;
   const selectedUser = overview?.users.find((user) => user.id === selectedUserId) ?? null;
+  const onlinePlayersByAccount = useMemo(() => new Map(overview?.players.flatMap((player) => player.accountId ? [[player.accountId, player] as const] : []) ?? []), [overview?.players]);
+  const selectedPlayer = selectedUser ? onlinePlayersByAccount.get(selectedUser.id) ?? null : null;
 
   return <Dialog open={open} onOpenChange={(nextOpen) => {
     setInternalOpen(nextOpen);
@@ -244,11 +243,10 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
     <DialogContent className="max-h-[calc(100dvh-1rem)] min-h-[min(42rem,calc(100dvh-1rem))] w-[calc(100%-1rem)] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden p-4 ring-0 sm:max-w-4xl">
       <DialogHeader>
         <div className="flex items-center gap-2"><DialogTitle>관리자 패널</DialogTitle>{overview && <Badge variant="secondary" className={cn("ml-1", overview.server.phase === "online" && "bg-[#96ce4d]/15 text-[#65952c]")}>{overview.server.phase === "online" ? "서버 온라인" : "서버 오프라인"}</Badge>}</div>
-        <DialogDescription>플레이어 상태, 계정, 서버 콘솔을 실시간으로 확인하세요.</DialogDescription>
+        <DialogDescription>플레이어와 서버 콘솔을 실시간으로 확인하세요.</DialogDescription>
       </DialogHeader>
-      <ToggleGroup type="single" value={tab} onValueChange={(value) => { if (value === "players" || value === "users" || value === "console") setTab(value); }} variant="outline" spacing={0} className="grid w-full grid-cols-3 p-1">
-        <ToggleGroupItem value="players" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><MapPin />플레이어 {overview?.players.length ?? 0}</ToggleGroupItem>
-        <ToggleGroupItem value="users" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><Users />계정 {overview?.users.length ?? 0}</ToggleGroupItem>
+      <ToggleGroup type="single" value={tab} onValueChange={(value) => { if (value === "players" || value === "console") setTab(value); }} variant="outline" spacing={0} className="grid w-full grid-cols-2 p-1">
+        <ToggleGroupItem value="players" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><Users />플레이어 {overview?.users.length ?? 0}</ToggleGroupItem>
         <ToggleGroupItem value="console" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><Terminal />콘솔</ToggleGroupItem>
       </ToggleGroup>
       <div className="min-h-0 overflow-y-auto overscroll-contain pr-1">
@@ -267,24 +265,22 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
               });
             }}
           />
-          {overview.players.length ? <div className="admin-split-panel">
+          {overview.users.length ? <div className="admin-split-panel">
           <div className="admin-list-panel">
-            {overview.players.map((player) => {
-              const key = player.accountId ?? player.uuid;
-              return <button key={key} type="button" className={cn("admin-list-button", key === selectedPlayerKey && "is-selected")} onClick={() => setSelectedPlayerKey(key)}><span className="truncate font-medium">{player.displayName}</span><span className="truncate text-xs text-muted-foreground">{player.world} · {player.username}</span></button>;
+            {overview.users.map((user) => {
+              const onlinePlayer = onlinePlayersByAccount.get(user.id);
+              return <button key={user.id} type="button" className={cn("admin-list-button", user.id === selectedUserId && "is-selected")} onClick={() => { setSelectedUserId(user.id); setResetConfirming(null); }}>
+                <span className="flex min-w-0 items-center gap-2"><span className={cn("size-2 shrink-0 rounded-full bg-muted-foreground/35", onlinePlayer && "bg-[#96ce4d]")} aria-label={onlinePlayer ? "온라인" : "오프라인"} /><span className={cn("truncate font-mark text-sm", onlinePlayer && "text-[#65952c]")}>{user.displayName}</span>{user.resetRequired && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}</span>
+                <span className="truncate pl-4 text-xs text-muted-foreground">{onlinePlayer ? `${onlinePlayer.world} · ${user.gameUsername}` : user.gameUsername}</span>
+              </button>;
             })}
           </div>
-          <div className="min-w-0 rounded-lg border p-4">{selectedPlayer ? <PlayerPanel player={selectedPlayer} busy={busyKeys.has(`op:${selectedPlayerKey}`)} onOperator={async (player) => {
-            const target = player.accountId ?? player.uuid;
-            await mutate(`op:${target}`, `/admin/players/${encodeURIComponent(target)}/operator`, { method: "PUT", body: JSON.stringify({ operator: !player.operator }), headers: { "Content-Type": "application/json" } });
-          }} /> : <div className="flex min-h-44 items-center justify-center text-sm text-muted-foreground">플레이어를 선택하세요.</div>}</div>
-        </div> : <div className="flex min-h-64 items-center justify-center rounded-lg border text-sm text-muted-foreground">{overview.bridgeAvailable ? "현재 접속 중인 플레이어가 없어요." : "게임 서버가 켜지면 상세 정보가 표시돼요."}</div>}
-        </div>}
-        {overview && tab === "users" && <div className="admin-split-panel">
-          <div className="admin-list-panel">
-            {overview.users.map((user) => <button key={user.id} type="button" className={cn("admin-list-button", user.id === selectedUserId && "is-selected")} onClick={() => { setSelectedUserId(user.id); setResetConfirming(null); }}><span className="flex min-w-0 items-center gap-1.5"><span className="truncate font-medium">{user.displayName}</span>{user.resetRequired && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}</span><span className="truncate text-xs text-muted-foreground">{user.username}</span></button>)}
-          </div>
-          <div className="min-w-0 rounded-lg border p-4">{selectedUser ? <UserEditor
+          <div className="flex min-w-0 flex-col gap-4 rounded-lg border p-4">{selectedUser ? <>
+            {selectedPlayer && <PlayerPanel player={selectedPlayer} busy={busyKeys.has(`op:${selectedPlayer.accountId}`)} onOperator={async (player) => {
+              const target = player.accountId ?? player.uuid;
+              await mutate(`op:${target}`, `/admin/players/${encodeURIComponent(target)}/operator`, { method: "PUT", body: JSON.stringify({ operator: !player.operator }), headers: { "Content-Type": "application/json" } });
+            }} />}
+            <UserEditor
             user={selectedUser}
             currentUserId={data.user!.id}
             busy={busyKeys.has(`user:${selectedUser.id}`)}
@@ -309,7 +305,9 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
                 notice("1회용 코드를 사용자에게 전달하세요.");
               }
             }}
-          /> : <div className="flex min-h-44 items-center justify-center text-sm text-muted-foreground">계정을 선택하세요.</div>}</div>
+            />
+          </> : <div className="flex min-h-44 items-center justify-center text-sm text-muted-foreground">플레이어를 선택하세요.</div>}</div>
+        </div> : <div className="flex min-h-64 items-center justify-center rounded-lg border text-sm text-muted-foreground">등록된 플레이어가 없어요.</div>}
         </div>}
         {overview && tab === "console" && <div className="flex min-h-0 flex-col gap-2">
           <pre ref={logsRef} className="admin-log-view" aria-label="서버 콘솔 출력">{overview.logs.length ? overview.logs.join("\n") : "아직 콘솔 출력이 없어요."}</pre>

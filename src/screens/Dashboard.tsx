@@ -50,7 +50,7 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
     <header className="dashboard-header">
       <Logo />
       <div className="dashboard-actions">
-        {data.user?.isAdmin ? <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={onOpenAdmin} aria-label="관리자 패널" title="관리자 패널"><Shield /></Button> : null}
+        <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={onOpenAdmin} aria-label="관리자 패널" title="관리자 패널"><Shield /></Button>
         <AccountDialog data={data} onSession={onSession} notice={notice} />
         <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={() => void onLogout()} aria-label="로그아웃" title="로그아웃"><LogOut /></Button>
       </div>
@@ -63,7 +63,7 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
         setSkinDialogOpen(open);
         if (!open) onInitialSkinDialogHandled();
       }}>
-        <DialogTrigger asChild><Button variant="outline" className="character-change max-sm:min-h-8 [@media(max-height:480px)]:min-h-8 [@media(pointer:coarse)]:min-h-8">스킨 변경</Button></DialogTrigger>
+        <DialogTrigger asChild><Button variant="outline" className="character-change">스킨 변경</Button></DialogTrigger>
         <DialogContent className="max-h-[min(46rem,calc(100dvh-1rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden ring-0 sm:max-w-md">
           <DialogHeader><DialogTitle>스킨 변경</DialogTitle><DialogDescription className="sr-only">스킨을 고르거나 가져오고 업로드합니다.</DialogDescription></DialogHeader>
           <Suspense fallback={<div className="flex min-h-52 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />카탈로그 불러오는 중</div>}>

@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { ArrowBigUpDash, ArrowRight } from "lucide-react";
+import { ArrowBigUpDash, ArrowRight, Shield } from "lucide-react";
 import { ApiError, api } from "@/lib/api";
 import type { BootstrapData } from "@/types";
 import { Logo, ServerCard } from "@/components/portal";
@@ -15,10 +15,11 @@ const passwordFieldErrorClass = "password-field-error border-red-500 bg-red-50 t
 interface AuthScreenProps {
   data: BootstrapData;
   onAuth: (username: string, password: string, serverPassword: string) => Promise<void>;
+  onOpenAdmin: () => void;
   notice: (message: string) => void;
 }
 
-export function AuthScreen({ data, onAuth, notice }: AuthScreenProps) {
+export function AuthScreen({ data, onAuth, onOpenAdmin, notice }: AuthScreenProps) {
   const [username, setUsername] = useState("");
   const [availability, setAvailability] = useState<{ available: boolean; resetRequired: boolean } | null>(null);
   const [password, setPassword] = useState("");
@@ -69,7 +70,10 @@ export function AuthScreen({ data, onAuth, notice }: AuthScreenProps) {
 
   return (
     <main className="auth-shell">
-      <Logo />
+      <header className="dashboard-header">
+        <Logo />
+        <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={onOpenAdmin} aria-label="관리자 패널" title="관리자 패널"><Shield /></Button>
+      </header>
       <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} compact />
       <Card className="overflow-visible border-0 p-0 shadow-none ring-0">
         <CardContent className="px-0">

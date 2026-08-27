@@ -146,6 +146,70 @@ describe("administrator access", () => {
     expect(document.body.querySelector('[aria-label="관리자 비밀번호"]')).toBeNull();
     expect(container.querySelector("#username")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalledWith("/api/auth/admin-unlock", expect.anything());
+
+    const adminButton = container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement;
+    expect(adminButton).toBeTruthy();
+    expect(adminButton.parentElement?.querySelector('[aria-label="spawnpoint"]')).toBeTruthy();
+    await act(async () => adminButton.click());
+    expect(document.body.querySelector('[aria-label="관리자 비밀번호"]')).toBeTruthy();
+    await act(async () => root.unmount());
+  });
+
+  it("drops logged-out administrator credentials after a player signs in", async () => {
+    const signedOutData = { ...adminData, user: null, csrf: null };
+    const player = { ...adminData.user!, id: "player-account", username: "player", displayName: "플레이어", isAdmin: false };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/bootstrap") return Promise.resolve(jsonResponse(signedOutData));
+      if (path === "/api/auth/admin-unlock") return Promise.resolve(jsonResponse({
+        user: adminData.user,
+        csrf: "standalone-csrf",
+        adminExpiresAt: Date.now() + 10 * 60_000,
+        standalone: true,
+      }));
+      if (path === "/api/admin/overview") return Promise.resolve(jsonResponse(adminOverview(false)));
+      if (path === "/api/auth/continue") return Promise.resolve(jsonResponse({ user: player, csrf: "player-csrf", created: false }));
+      if (path.startsWith("/api/auth/username-availability")) return Promise.resolve(jsonResponse({ available: false, resetRequired: false }));
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    }));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      const input = document.body.querySelector('[aria-label="관리자 비밀번호"]') as HTMLInputElement;
+      input.value = "admin-password";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      (document.body.querySelector('[aria-label="관리자 비밀번호"]') as HTMLInputElement).form?.requestSubmit();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      for (const [selector, value] of [["#username", "player"], ["#password", "password123"], ["#server-password", "server-password"]] as const) {
+        const input = container.querySelector(selector) as HTMLInputElement;
+        input.value = value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      (container.querySelector("main form") as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement).click();
+    });
+
+    expect(document.body.querySelector('[aria-label="관리자 비밀번호"]')).toBeTruthy();
     await act(async () => root.unmount());
   });
 });
@@ -219,7 +283,7 @@ describe("server password input", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<AuthScreen data={{ ...adminData, user: null }} onAuth={vi.fn()} notice={vi.fn()} />);
+      root.render(<AuthScreen data={{ ...adminData, user: null }} onAuth={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
     });
 
     const input = container.querySelector("#password") as HTMLInputElement;
@@ -247,6 +311,7 @@ describe("server password input", () => {
       root.render(<AuthScreen
         data={{ ...adminData, user: null }}
         onAuth={vi.fn()}
+        onOpenAdmin={vi.fn()}
         notice={vi.fn()}
       />);
     });
@@ -266,7 +331,7 @@ describe("server password input", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<AuthScreen data={{ ...adminData, user: null }} onAuth={vi.fn()} notice={vi.fn()} />);
+      root.render(<AuthScreen data={{ ...adminData, user: null }} onAuth={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
     });
 
     const input = container.querySelector("#username") as HTMLInputElement;
@@ -282,7 +347,7 @@ describe("server password input", () => {
       "/api/auth/username-availability?username=%ED%85%94%EB%A0%88%EA%B7%B8%EB%9E%A8",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(container.querySelector("button")?.textContent).toContain("가입");
+    expect(container.querySelector("form button")?.textContent).toContain("가입");
     await act(async () => root.unmount());
   });
 });
@@ -592,10 +657,21 @@ describe("administrator TPA setting", () => {
     const tpaUpdate = deferred<Response>();
     const operatorUpdate = deferred<Response>();
     let tpaEnabled = true;
+    const overview = adminOverview(tpaEnabled, [{ ...testPlayer, accountId: "admin-account" }]);
+    overview.users = [{
+      id: "admin-account",
+      username: "qaadmin",
+      gameUsername: "qaadmin",
+      displayName: "관리자",
+      createdAt: Date.now(),
+      passwordResetExpiresAt: null,
+      resetRequired: false,
+      isAdmin: true,
+    }];
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/admin/overview") {
-        return Promise.resolve(jsonResponse(adminOverview(tpaEnabled, [testPlayer])));
+        return Promise.resolve(jsonResponse({ ...overview, tpaEnabled }));
       }
       if (path === "/api/admin/settings/tpa" && options?.method === "PUT") return tpaUpdate.promise;
       if (path.includes("/api/admin/players/") && path.endsWith("/operator") && options?.method === "PUT") {
@@ -618,6 +694,12 @@ describe("administrator TPA setting", () => {
     const tpaControl = document.body.querySelector('[role="switch"]') as HTMLButtonElement;
     const operatorControl = [...document.body.querySelectorAll("button")]
       .find((button) => button.textContent?.includes("OP 부여")) as HTMLButtonElement;
+    const onlineIndicator = document.body.querySelector('[aria-label="온라인"]') as HTMLSpanElement;
+    const playerName = onlineIndicator.nextElementSibling as HTMLSpanElement;
+
+    expect(onlineIndicator.className).toContain("bg-[#96ce4d]");
+    expect(playerName.className).toContain("font-mark");
+    expect(playerName.className).toContain("text-[#65952c]");
 
     await act(async () => {
       tpaControl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -763,12 +845,12 @@ describe("administrator console and account actions", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const usersTab = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "계정 1") as HTMLButtonElement;
-    await act(async () => usersTab.click());
     const changeButton = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "이름 변경");
 
     expect(changeButton).toBeTruthy();
     expect(changeButton?.querySelector("svg")).toBeTruthy();
+    expect(document.body.textContent).toContain("플레이어 1");
+    expect(document.body.textContent).not.toContain("계정 1");
     expect(document.body.textContent).not.toContain("변경 저장");
     await act(async () => root.unmount());
   });
