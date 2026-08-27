@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import lzma
 import struct
@@ -30,17 +31,36 @@ EPW_EPK_COUNT_OFFSET = 96
 EPW_EPK_TABLE_OFFSET = 276
 EPW_EPK_RECORD_SIZE = 32
 EPW_RUNTIME_RECORD_OFFSET = 212
+EPW_MAIN_WASM_RECORD_OFFSET = 228
 EPK_MAGIC = b"EAGPKG$$"
 EPK_END = b":::YEE:>"
 
 RUNTIME_PASSWORD_INPUT = b'h.type="password"'
 RUNTIME_TEXT_INPUT = b'h.type="text"'
+RUNTIME_MOBILE_GATE = (
+    b"!ib&&navigator.userActivation&&navigator.userActivation.hasBeenActive"
+)
+RUNTIME_SKIP_MOBILE_GATE = (
+    b"ib||navigator.userActivation&&navigator.userActivation.hasBeenActive"
+)
 
 ASCII_TEXTURE = "assets/minecraft/textures/font/ascii.png"
 GLYPH_SIZES = "assets/minecraft/font/glyph_sizes.bin"
 CREDITS = "assets/eagler/credits.txt"
 FONT_LICENSE = "assets/spawnpoint/fonts/OFL-Galmuri.txt"
+EN_US_LANG = "assets/minecraft/lang/en_us.lang"
+SPLASHES = "assets/minecraft/texts/splashes.txt"
 UNICODE_PAGE = "assets/minecraft/textures/font/unicode_page_{page:02x}.png"
+
+MAIN_MENU_PATCH_RANGES = (
+    ("holiday splash override", 0x38895C, 0x388A03, "1b2109a60b7c23a91ff97eb07acfe211a2a07e641260137cbf7b267779adcc3e"),
+    ("singleplayer button", 0x388A2D, 0x388A86, "33c9d28520973c13f0f0d58f16f7e131e86166275307b9cf0d1a0bf004f220b0"),
+    ("credits button", 0x388AE1, 0x388B3D, "43ae64a236d04254ba1ea2a8bc481c87246d6c384dd0ce237f41b808ea63a959"),
+    ("secondary version line", 0x389058, 0x389076, "0e6eb40af7b59efab32c5d80ca516963290b3f61bcbf4d9d25cb3c50d303f81f"),
+    ("bottom-right credits", 0x389076, 0x389098, "2f0c4a04f9674d9f34bca94df342d34fa422766bddd57967812330245a1aeaf8"),
+)
+OLD_VERSION_STRING = b"\x10Minecraft 1.12.2\x05 Demo"
+SPAWNPOINT_VERSION_STRING = b"\x1dMinecraft 1.12.2 (spawnpoint)\x05 Demo"
 
 FONT_SIZE = 12
 CELL_SIZE = 16
@@ -208,9 +228,18 @@ def render_glyph(
 
 def apply_font(entries: list[EpkEntry], font_path: Path, license_path: Path) -> dict[str, int]:
     by_name = {entry.name: index for index, entry in enumerate(entries)}
-    for required in (ASCII_TEXTURE, GLYPH_SIZES, CREDITS):
+    for required in (ASCII_TEXTURE, GLYPH_SIZES, CREDITS, EN_US_LANG, SPLASHES):
         if required not in by_name:
             raise ValueError(f"Base client is missing required asset: {required}")
+
+    language = entries[by_name[EN_US_LANG]].data.decode("utf-8", errors="strict")
+    edit_profile = "eaglercraft.menu.editProfile=Edit Profile"
+    if language.count(edit_profile) != 1:
+        raise ValueError("Base client does not contain exactly one Edit Profile label")
+    entries[by_name[EN_US_LANG]].data = language.replace(
+        edit_profile, "eaglercraft.menu.editProfile=메뉴"
+    ).encode("utf-8")
+    entries[by_name[SPLASHES]].data = "대미덕에디션\n".encode("utf-8")
 
     font = ImageFont.truetype(
         str(font_path), FONT_SIZE, layout_engine=ImageFont.Layout.BASIC
@@ -355,7 +384,7 @@ def epw_slice_offset_fields(epw: bytes) -> list[int]:
     return fields
 
 
-def patch_runtime_text_input(epw: bytes) -> bytes:
+def patch_runtime(epw: bytes) -> bytes:
     if epw[:8] != EPW_MAGIC:
         raise ValueError("Input is not an Eaglercraft EPW bundle")
     stored_length, stored_crc = struct.unpack_from("<II", epw, 8)
@@ -375,8 +404,11 @@ def patch_runtime_text_input(epw: bytes) -> bytes:
         raise ValueError("EPW runtime has an unexpected uncompressed length")
     if runtime.count(RUNTIME_PASSWORD_INPUT) != 1:
         raise ValueError("EPW runtime does not contain exactly one password input")
+    if runtime.count(RUNTIME_MOBILE_GATE) != 1:
+        raise ValueError("EPW runtime does not contain exactly one mobile launch gate")
 
     runtime = runtime.replace(RUNTIME_PASSWORD_INPUT, RUNTIME_TEXT_INPUT)
+    runtime = runtime.replace(RUNTIME_MOBILE_GATE, RUNTIME_SKIP_MOBILE_GATE)
     compressed = lzma.compress(
         runtime,
         format=lzma.FORMAT_XZ,
@@ -402,6 +434,132 @@ def patch_runtime_text_input(epw: bytes) -> bytes:
         data_offset,
         len(compressed),
         len(runtime),
+        reserved,
+    )
+    struct.pack_into("<I", output, 8, len(output))
+    struct.pack_into("<I", output, 12, 0)
+    struct.pack_into("<I", output, 12, zlib.crc32(output[16:]) & 0xFFFFFFFF)
+    return bytes(output)
+
+
+def read_uleb(data: bytes, offset: int) -> tuple[int, int]:
+    value = 0
+    shift = 0
+    while offset < len(data):
+        byte = data[offset]
+        offset += 1
+        value |= (byte & 0x7F) << shift
+        if byte & 0x80 == 0:
+            return value, offset
+        shift += 7
+        if shift > 35:
+            break
+    raise ValueError("WASM contains an invalid unsigned LEB128 value")
+
+
+def encode_uleb(value: int) -> bytes:
+    encoded = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        encoded.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(encoded)
+
+
+def patch_wasm_data_string(wasm: bytes) -> bytes:
+    if wasm[:8] != b"\x00asm\x01\x00\x00\x00":
+        raise ValueError("EPW main program is not a supported WASM module")
+
+    output = bytearray(wasm[:8])
+    offset = 8
+    patched = False
+    while offset < len(wasm):
+        section_id = wasm[offset]
+        offset += 1
+        section_length, payload_offset = read_uleb(wasm, offset)
+        payload_end = payload_offset + section_length
+        if payload_end > len(wasm):
+            raise ValueError("WASM section extends past the end of the module")
+        payload = wasm[payload_offset:payload_end]
+
+        if section_id == 11:
+            segment_count, segment_offset = read_uleb(payload, 0)
+            if segment_count != 1:
+                raise ValueError("WASM data section does not contain exactly one segment")
+            flags, segment_offset = read_uleb(payload, segment_offset)
+            if flags != 0 or payload[segment_offset] != 0x41:
+                raise ValueError("WASM data segment has an unsupported offset expression")
+            segment_offset += 1
+            while segment_offset < len(payload) and payload[segment_offset] & 0x80:
+                segment_offset += 1
+            segment_offset += 1
+            if segment_offset >= len(payload) or payload[segment_offset] != 0x0B:
+                raise ValueError("WASM data segment offset expression is incomplete")
+            segment_offset += 1
+            length_offset = segment_offset
+            data_length, data_offset = read_uleb(payload, length_offset)
+            segment_data = payload[data_offset:]
+            if len(segment_data) != data_length:
+                raise ValueError("WASM data segment has an unexpected length")
+            if segment_data.count(OLD_VERSION_STRING) != 1:
+                raise ValueError("WASM data segment does not contain the expected version string")
+            segment_data = segment_data.replace(OLD_VERSION_STRING, SPAWNPOINT_VERSION_STRING)
+            payload = payload[:length_offset] + encode_uleb(len(segment_data)) + segment_data
+            patched = True
+
+        output.append(section_id)
+        output.extend(encode_uleb(len(payload)))
+        output.extend(payload)
+        offset = payload_end
+
+    if not patched:
+        raise ValueError("WASM module is missing its data section")
+    return bytes(output)
+
+
+def patch_main_menu(epw: bytes) -> bytes:
+    data_offset, compressed_length, raw_length, reserved = struct.unpack_from(
+        "<IIII", epw, EPW_MAIN_WASM_RECORD_OFFSET
+    )
+    old_end = data_offset + compressed_length
+    if old_end > len(epw):
+        raise ValueError("EPW main program extends past the end of the bundle")
+    wasm = bytearray(lzma.decompress(epw[data_offset:old_end]))
+    if len(wasm) != raw_length:
+        raise ValueError("EPW main program has an unexpected uncompressed length")
+
+    for name, start, end, expected_hash in MAIN_MENU_PATCH_RANGES:
+        current = bytes(wasm[start:end])
+        if hashlib.sha256(current).hexdigest() != expected_hash:
+            raise ValueError(f"EPW main program has an unexpected {name} implementation")
+        wasm[start:end] = b"\x01" * (end - start)
+    patched_wasm = patch_wasm_data_string(bytes(wasm))
+    compressed = lzma.compress(
+        patched_wasm,
+        format=lzma.FORMAT_XZ,
+        check=lzma.CHECK_CRC32,
+        preset=8 | lzma.PRESET_EXTREME,
+    )
+    delta = len(compressed) - compressed_length
+    output = bytearray(epw[:data_offset])
+    output.extend(compressed)
+    output.extend(epw[old_end:])
+
+    for field in epw_slice_offset_fields(epw):
+        if field == EPW_MAIN_WASM_RECORD_OFFSET:
+            continue
+        old_offset = struct.unpack_from("<I", epw, field)[0]
+        if old_offset >= old_end:
+            struct.pack_into("<I", output, field, old_offset + delta)
+
+    struct.pack_into(
+        "<IIII",
+        output,
+        EPW_MAIN_WASM_RECORD_OFFSET,
+        data_offset,
+        len(compressed),
+        len(patched_wasm),
         reserved,
     )
     struct.pack_into("<I", output, 8, len(output))
@@ -436,7 +594,7 @@ def main() -> None:
     prefix, compression, entries = parse_epk(base_epk)
     stats = apply_font(entries, args.font, args.license)
     new_epk = build_epk(prefix, compression, entries)
-    output = patch_runtime_text_input(patch_epw(base_epw, new_epk))
+    output = patch_main_menu(patch_runtime(patch_epw(base_epw, new_epk)))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(output)
 

@@ -453,10 +453,30 @@ describe("mobile portal controls", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" />);
+      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={vi.fn()} />);
     });
 
     expect(container.querySelector('[aria-label="게임 종료"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("exits the game when its menu button requests the portal", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onExit = vi.fn();
+    await act(async () => {
+      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={onExit} />);
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: window.location.origin,
+        data: { type: "spawnpoint:return-to-menu", launchId: "launch-123" },
+      }));
+    });
+    expect(onExit).toHaveBeenCalledOnce();
+
     await act(async () => root.unmount());
   });
 });

@@ -458,7 +458,7 @@ describe("portal game bridge", () => {
 
     expect(bundle.subarray(0, 8).toString("ascii")).toBe("EAG$WASM");
     expect(crypto.createHash("sha256").update(bundle).digest("hex")).toBe(
-      "6c4e3a34bb72307898f2eeea407a4da84f3ff1161503bf4f1517a6fb9ed290f0",
+      "92b8dd5f26693434c635706b46d3df8d177e02a2fa6903b7f0d18887d695fd09",
     );
   });
 
@@ -634,6 +634,21 @@ describe("portal game bridge", () => {
       "click",
     ]);
     expect(canvasEvents[0]).toMatchObject({ clientX: 480, clientY: 456 });
+  });
+
+  it("returns to the portal when keyboard navigation activates the menu button", () => {
+    const { options, parentMessages } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+
+    hooks.screenChanged("net.minecraft.client.gui.GuiMainMenu", 480, 300, 960, 600, 2);
+    hooks.screenChanged("net.lax1dude.eaglercraft.profile.GuiScreenEditProfile", 480, 300, 960, 600, 2);
+
+    expect(parentMessages).toEqual([{
+      message: { type: "spawnpoint:return-to-menu", launchId: "launch-123" },
+      targetOrigin: "https://spawnpoint.test",
+    }]);
   });
 
   it("commits one final Korean string instead of every IME composition update", () => {
@@ -1229,6 +1244,7 @@ describe("portal game bridge", () => {
     expect(style?.textContent).toContain("font:400 16px");
     expect(style?.textContent).toContain("/game/fonts/Galmuri11.ttf");
     expect(style?.textContent).toContain("padding:0;background:transparent;border:0;border-radius:0;box-shadow:none");
+    expect(style?.textContent).toContain("#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-chat-only{display:none}");
     expect(style?.textContent).toContain("#spawnpoint-mobile-controls.is-chat .sp-mobile-chat-only");
   });
 
@@ -1774,8 +1790,8 @@ describe("portal game bridge", () => {
     expect(canvasEvents).toEqual([]);
   });
 
-  it("blocks the client Edit Profile button in every session", () => {
-    const { canvas, handlers } = loadBridge();
+  it("returns to the Spawnpoint menu from the former Edit Profile button", () => {
+    const { canvas, handlers, parentMessages } = loadBridge();
     const event = {
       target: canvas,
       clientX: 500,
@@ -1788,5 +1804,9 @@ describe("portal game bridge", () => {
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(parentMessages).toEqual([{
+      message: { type: "spawnpoint:return-to-menu", launchId: "launch-123" },
+      targetOrigin: "https://spawnpoint.test",
+    }]);
   });
 });

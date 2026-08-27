@@ -78,7 +78,7 @@ export function App() {
   };
 
   const gameUrl = useMemo(() => game
-    ? `/game/${game.client}.html?v=20260827-mobile-slider-hold-v60&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
+    ? `/game/${game.client}.html?v=20260827-portal-menu-v64&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
     : "", [game]);
 
   const adminData = data?.user?.isAdmin ? data : null;
@@ -86,7 +86,7 @@ export function App() {
   if (!data) return <main className="flex min-h-dvh items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />월드 상태 불러오는 중</main>;
   return <>
     {game
-      ? <GameScreen game={game} gameUrl={gameUrl} />
+      ? <GameScreen game={game} gameUrl={gameUrl} onExit={() => setGame(null)} />
       : data.user
         ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={() => setAdminPanelOpen(true)} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
         : <AuthScreen data={data} onAuth={auth} notice={notice} />}

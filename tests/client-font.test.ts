@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -33,8 +34,16 @@ function runtimeRecord(bundle: Buffer) {
   };
 }
 
+function mainProgramRecord(bundle: Buffer) {
+  return {
+    dataOffset: bundle.readUInt32LE(228),
+    compressedLength: bundle.readUInt32LE(232),
+    rawLength: bundle.readUInt32LE(236),
+  };
+}
+
 describe("in-game bitmap font client", () => {
-  it("patches the runtime input and base assets while keeping the Korean locale overlay", () => {
+  it("patches the runtime input and mobile launch gate while keeping the Korean locale overlay", () => {
     const base = fs.readFileSync(path.join(clients, "stable-locale-fixed.epw"));
     const patched = fs.readFileSync(path.join(clients, "stable-galmuri.epw"));
 
@@ -49,11 +58,23 @@ describe("in-game bitmap font client", () => {
     const patchedLocale = epkRecord(patched, 1);
     const baseRuntime = runtimeRecord(base);
     const patchedRuntime = runtimeRecord(patched);
+    const baseMainProgram = mainProgramRecord(base);
+    const patchedMainProgram = mainProgramRecord(patched);
     expect(patchedRuntime.dataOffset).toBe(baseRuntime.dataOffset);
-    expect(patchedRuntime.rawLength).toBe(baseRuntime.rawLength - "password".length + "text".length);
+    expect(patchedRuntime.rawLength).toBe(
+      baseRuntime.rawLength
+        - "password".length
+        + "text".length
+        - "!ib&&navigator.userActivation&&navigator.userActivation.hasBeenActive".length
+        + "ib||navigator.userActivation&&navigator.userActivation.hasBeenActive".length,
+    );
     expect(patchedRuntime.compressedLength).not.toBe(baseRuntime.compressedLength);
+    expect(patchedMainProgram.rawLength).toBe(baseMainProgram.rawLength + 13);
+    expect(patchedMainProgram.compressedLength).not.toBe(baseMainProgram.compressedLength);
     expect(patchedAssets.dataOffset).toBe(
-      baseAssets.dataOffset + patchedRuntime.compressedLength - baseRuntime.compressedLength,
+      baseAssets.dataOffset
+        + patchedRuntime.compressedLength - baseRuntime.compressedLength
+        + patchedMainProgram.compressedLength - baseMainProgram.compressedLength,
     );
     expect(patchedAssets.rawLength).not.toBe(baseAssets.rawLength);
     expect(patched.subarray(patchedAssets.dataOffset, patchedAssets.dataOffset + 17)).toEqual(
@@ -75,5 +96,33 @@ describe("in-game bitmap font client", () => {
     expect(crypto.createHash("sha256").update(patchedLocaleBytes).digest("hex")).toBe(
       crypto.createHash("sha256").update(baseLocaleBytes).digest("hex"),
     );
+
+    const inspection = JSON.parse(execFileSync("python3", ["-c", `
+import json, lzma, struct, sys
+b = open(sys.argv[1], "rb").read()
+main_offset, main_compressed, _, _ = struct.unpack_from("<IIII", b, 228)
+wasm = lzma.decompress(b[main_offset:main_offset + main_compressed])
+asset_offset, asset_compressed, _, _ = struct.unpack_from("<IIII", b, 292)
+assets = lzma.decompress(b[asset_offset:asset_offset + asset_compressed])
+ranges = [(0x38895C, 0x388A03), (0x388A2D, 0x388A86), (0x388AE1, 0x388B3D), (0x389058, 0x389076), (0x389076, 0x389098)]
+print(json.dumps({
+  "menu_ranges_are_nops": all(set(wasm[start:end]) == {1} for start, end in ranges),
+  "version_count": wasm.count(b"Minecraft 1.12.2 (spawnpoint)"),
+  "verbose_fps_count": wasm.count(b"fps | C: "),
+  "fps_only_count": wasm.count(b"fps\\xc2\\xa7r\\xc2\\xa7r"),
+  "old_edit_profile_count": assets.count(b"eaglercraft.menu.editProfile=Edit Profile"),
+  "menu_label_count": assets.count("eaglercraft.menu.editProfile=메뉴".encode()),
+  "splash_count": assets.count("대미덕에디션\\n".encode()),
+}))
+`, path.join(clients, "stable-galmuri.epw")], { encoding: "utf8" }));
+    expect(inspection).toEqual({
+      menu_ranges_are_nops: true,
+      version_count: 1,
+      verbose_fps_count: 0,
+      fps_only_count: 1,
+      old_edit_profile_count: 0,
+      menu_label_count: 1,
+      splash_count: 1,
+    });
   });
 });

@@ -179,6 +179,7 @@
     if (existingScreenChangedHook) {
       existingScreenChangedHook.call(this, screenName, scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor);
     }
+    var previousScreenName = currentScreenName;
     currentScreenName = typeof screenName === "string" ? screenName : "";
     // Some browser/client combinations process the same physical Escape again
     // after the Exit Chat click. Undo only that immediate duplicate pause.
@@ -195,7 +196,8 @@
     updateTPAPickerLayout();
     updateMobileControlsVisibility();
     if (typeof screenName === "string" && /GuiScreenEditProfile$/.test(screenName)) {
-      dismissProfileEditor(scaledHeight);
+      if (/GuiMainMenu$/.test(previousScreenName)) requestPortalMenu();
+      else dismissProfileEditor(scaledHeight);
     }
     if (typeof screenName === "string" && /GuiChat$/.test(screenName)) {
       portalChatActive = false;
@@ -219,9 +221,9 @@
   if (typeof existingHooks.crashReportShow !== "function") existingHooks.crashReportShow = function () {};
   options.hooks = existingHooks;
 
-  // The vendored client has no launch option for disabling its profile editor.
-  // Block its canvas button permanently and dismiss the screen if another path
-  // reaches it. Spawnpoint owns the player's name and skin in every session.
+  // Spawnpoint owns the player's name and skin. The former profile button is
+  // the in-client way back to the portal, while stray profile screens still
+  // close automatically.
 
   function isEditProfileButton(event) {
     if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return false;
@@ -246,16 +248,25 @@
     return false;
   }
 
-  function blockProfileEditor(event) {
+  function requestPortalMenu() {
+    if (window.parent && window.parent !== window && typeof window.parent.postMessage === "function") {
+      window.parent.postMessage({ type: "spawnpoint:return-to-menu", launchId: launchId }, window.location.origin);
+    } else if (window.location && typeof window.location.replace === "function") {
+      window.location.replace("/");
+    }
+  }
+
+  function returnToPortalMenu(event) {
     if (autoDismissingProfileEditor) return;
     if (!isEditProfileButton(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    requestPortalMenu();
   }
 
   if (document.addEventListener) {
     var profileBlockEvent = typeof window.PointerEvent === "function" ? "pointerdown" : "mousedown";
-    document.addEventListener(profileBlockEvent, blockProfileEditor, true);
+    document.addEventListener(profileBlockEvent, returnToPortalMenu, true);
   }
 
   // The WASM runtime already has a hidden input that forwards beforeinput text
@@ -1764,7 +1775,7 @@
       "#spawnpoint-mobile-controls{position:fixed;inset:0;display:none;z-index:2147483200;pointer-events:none;--sp-touch:clamp(44px,13dvh,54px);--sp-press-duration:150ms;--sp-press-ease:cubic-bezier(.22,1,.36,1);font:700 12px/1 \"Spawnpoint Mark\",monospace;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}",
       "#spawnpoint-mobile-controls .sp-mobile-gameplay,#spawnpoint-mobile-controls .sp-mobile-menu{pointer-events:none}",
       "#spawnpoint-mobile-controls.is-gameplay .sp-mobile-menu,#spawnpoint-mobile-controls.is-menu .sp-mobile-gameplay{display:none}",
-      "#spawnpoint-mobile-controls .sp-mobile-chat-only{display:none}",
+      "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-chat-only{display:none}",
       "#spawnpoint-mobile-controls.is-chat .sp-mobile-gameplay,#spawnpoint-mobile-controls.is-chat .sp-mobile-menu{display:none}",
       "#spawnpoint-mobile-controls.is-chat .sp-mobile-chat-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid;width:56px;height:44px;border:1px solid rgba(255,255,255,.32);border-radius:0;background:rgba(3,6,4,.72);font:400 14px/1 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-controls .sp-mobile-menu{position:absolute;top:max(8px,env(safe-area-inset-top));left:50%;display:flex;gap:6px;transform:translateX(-50%)}",
