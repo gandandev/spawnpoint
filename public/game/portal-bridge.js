@@ -180,10 +180,11 @@
       existingScreenChangedHook.call(this, screenName, scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor);
     }
     currentScreenName = typeof screenName === "string" ? screenName : "";
-    // Some browser/client combinations process the same physical Escape again
-    // after the Exit Chat click. Undo only that immediate duplicate pause.
-    if (chatEscapeHandledAt && /GuiIngameMenu$/.test(currentScreenName) && Date.now() - chatEscapeHandledAt < 750) {
-      chatEscapeHandledAt = 0;
+    // A single Escape can close a client screen and then reach gameplay again
+    // during the same browser key press. Undo only that duplicate pause menu.
+    if (uiEscapeSourceScreen && /GuiIngameMenu$/.test(currentScreenName) && !/GuiIngameMenu$/.test(uiEscapeSourceScreen)
+      && Date.now() - uiEscapeHandledAt < 1_000) {
+      clearUiEscapeSuppression();
       setTimeout(function () { dispatchRelayedBackquote(null); }, 0);
     }
     if (typeof scaleFactor === "number" && isFinite(scaleFactor) && scaleFactor > 0) {
@@ -197,16 +198,24 @@
     if (typeof screenName === "string" && /GuiScreenEditProfile$/.test(screenName)) {
       dismissProfileEditor(scaledHeight);
     }
+    if (typeof screenName === "string" && /GuiGameOver$/.test(screenName)) {
+      releasePointerLockForDeathScreen();
+    }
     if (typeof screenName === "string" && /GuiChat$/.test(screenName)) {
       portalChatActive = false;
       desktopChatInputActive = true;
-      chatDraft = Date.now() - lastChatSlashAt < 500 ? "/" : "";
+      chatDraft = pendingClientChatValue !== null
+        ? pendingClientChatValue
+        : Date.now() - lastChatSlashAt < 500 ? "/" : "";
+      pendingClientChatValue = null;
+      beginChatHistoryNavigation();
       updateTPAPickerVisibility();
       // Keep a native input as a fallback if another client path opens GuiChat.
       showMobileChatComposer(chatDraft, !mobileTouchCapable);
       if (!mobileChatComposer) enableClientTextInput(true);
     } else if (desktopChatInputActive && !portalChatActive) {
       desktopChatInputActive = false;
+      pendingClientChatValue = null;
       chatDraft = "";
       updateTPAPickerVisibility();
       hideMobileChatComposer();
@@ -270,7 +279,9 @@
   var dispatchingIMECommit = false;
   var desktopChatInputActive = false;
   var currentScreenName = "";
-  var chatEscapeHandledAt = 0;
+  var uiEscapeSourceScreen = "";
+  var uiEscapeHandledAt = 0;
+  var uiEscapeClearTimer = null;
   var locatorGuiScale = 2;
   var locatorRoot = null;
   var locatorMarkerLayer = null;
@@ -280,6 +291,10 @@
   var locatorFailureCount = 0;
   var chatDraft = "";
   var lastChatSlashAt = 0;
+  var pendingClientChatValue = null;
+  var sentChatHistory = [];
+  var sentChatHistoryIndex = 0;
+  var sentChatHistoryDraft = "";
   var tpaRoot = null;
   var tpaList = null;
   var tpaPlayers = [];
@@ -535,7 +550,7 @@
   }
 
   function tpaDraftIsActive() {
-    return desktopChatInputActive && /^\/tpa\s*$/i.test(chatDraft);
+    return desktopChatInputActive && /^\/(?:tpa|티피에이|티피요청)\s*$/i.test(chatDraft);
   }
 
   function updateTPAPickerLayout() {
@@ -748,10 +763,10 @@
     clientKeyboardZoneObservedOpen = false;
   }
 
-  function dispatchMinecraftKey(key, code, keyCode) {
+  function dispatchMinecraftKey(key, code, keyCode, preserveFocus) {
     var canvas = document.querySelector && document.querySelector("#game_frame canvas, canvas");
     if (!canvas || typeof canvas.dispatchEvent !== "function" || typeof window.KeyboardEvent !== "function") return;
-    if (typeof canvas.focus === "function") canvas.focus();
+    if (!preserveFocus && typeof canvas.focus === "function") canvas.focus();
     setTimeout(function () {
       var init = {
         key: key,
@@ -762,8 +777,17 @@
         bubbles: true,
         cancelable: true,
       };
-      canvas.dispatchEvent(new window.KeyboardEvent("keydown", init));
-      canvas.dispatchEvent(new window.KeyboardEvent("keyup", init));
+      ["keydown", "keyup"].forEach(function (eventName) {
+        var event = new window.KeyboardEvent(eventName, init);
+        if (preserveFocus) {
+          try {
+            Object.defineProperty(event, "__spawnpointMobileControl", { value: true });
+          } catch (_error) {
+            event.__spawnpointMobileControl = true;
+          }
+        }
+        canvas.dispatchEvent(event);
+      });
     }, 0);
   }
 
@@ -816,6 +840,18 @@
     }
   }
 
+  function releasePointerLockForDeathScreen() {
+    var canvas = findMinecraftCanvas();
+    if (document.pointerLockElement && typeof document.exitPointerLock === "function") {
+      try {
+        document.exitPointerLock();
+      } catch (_error) {
+        // The death screen remains usable even if this browser already released it.
+      }
+    }
+    if (canvas && document.activeElement === canvas && typeof canvas.blur === "function") canvas.blur();
+  }
+
   function closePortalChat(restoreFocus) {
     portalChatActive = false;
     desktopChatInputActive = false;
@@ -827,33 +863,20 @@
     if (restoreFocus) restorePortalGameFocus();
   }
 
-  function openPortalChat(initialValue, focusInput) {
-    if (portalChatActive || mobileChatSending || currentScreenName || !findMinecraftCanvas()) return false;
-    portalChatActive = true;
+  function openClientChat(initialValue, focusInput) {
+    if (mobileChatSending || currentScreenName || !findMinecraftCanvas()) return false;
+    var value = typeof initialValue === "string" ? initialValue : "";
+    pendingClientChatValue = value;
     desktopChatInputActive = true;
-    chatDraft = typeof initialValue === "string" ? initialValue : "";
+    chatDraft = value;
+    beginChatHistoryNavigation();
     updateTPAPickerVisibility();
     setMobileChatStatus("", false);
     showMobileChatComposer(chatDraft, focusInput !== false);
     updateMobileControlsVisibility();
+    if (value === "/") dispatchMinecraftKey("/", "Slash", 191, true);
+    else dispatchMinecraftKey("t", "KeyT", 84, true);
     return true;
-  }
-
-  function interceptPortalChatOpen(event) {
-    if (!event || event.type !== "keydown" || event.repeat || portalChatActive || currentScreenName) return;
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
-    var target = event.target;
-    var tagName = target && typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
-    if (isClientTextInput(target) || isMobileChatInput(target) || tagName === "input" || tagName === "textarea" || (target && target.isContentEditable)) return;
-    var key = typeof event.key === "string" ? event.key : "";
-    var code = typeof event.code === "string" ? event.code : "";
-    var initialValue = null;
-    if (code === "KeyT" || key === "t" || key === "T") initialValue = "";
-    else if (code === "Slash" || key === "/") initialValue = "/";
-    if (initialValue === null || !findMinecraftCanvas()) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    openPortalChat(initialValue, true);
   }
 
   function updateMobileScreenMetrics(scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor) {
@@ -1897,6 +1920,35 @@
     updateTPAPickerVisibility();
   }
 
+  function beginChatHistoryNavigation() {
+    sentChatHistoryIndex = sentChatHistory.length;
+    sentChatHistoryDraft = chatDraft;
+  }
+
+  function rememberSentChat(message) {
+    if (!message) return;
+    if (sentChatHistory[sentChatHistory.length - 1] !== message) sentChatHistory.push(message);
+    if (sentChatHistory.length > 50) sentChatHistory.shift();
+    sentChatHistoryIndex = sentChatHistory.length;
+    sentChatHistoryDraft = "";
+  }
+
+  function navigateSentChatHistory(direction) {
+    if (!mobileChatInput || !sentChatHistory.length) return;
+    if (sentChatHistoryIndex === sentChatHistory.length) {
+      sentChatHistoryDraft = typeof mobileChatInput.value === "string" ? mobileChatInput.value : "";
+    }
+    sentChatHistoryIndex = Math.max(0, Math.min(sentChatHistory.length, sentChatHistoryIndex + direction));
+    mobileChatInput.value = sentChatHistoryIndex === sentChatHistory.length
+      ? sentChatHistoryDraft
+      : sentChatHistory[sentChatHistoryIndex];
+    updateMobileChatDraft();
+    if (typeof mobileChatInput.setSelectionRange === "function") {
+      var end = mobileChatInput.value.length;
+      mobileChatInput.setSelectionRange(end, end);
+    }
+  }
+
   function updateMobileChatComposerLayout() {
     if (!mobileChatComposer || !mobileChatComposerIsVisible()) return;
     var viewport = window.visualViewport;
@@ -1945,6 +1997,7 @@
     var message = typeof mobileChatInput.value === "string" ? mobileChatInput.value.trim() : "";
     if (!message) {
       if (portalChatActive) closePortalChat(true);
+      else if (desktopChatInputActive || /GuiChat$/.test(currentScreenName)) dispatchMobileBackAction();
       else hideMobileChatComposer();
       return;
     }
@@ -1983,9 +2036,9 @@
       });
     }).then(function () {
       setMobileChatSending(false);
+      rememberSentChat(message);
       if (submittedFromPortal && portalChatActive) closePortalChat(true);
       else if (!submittedFromPortal) {
-        chatEscapeHandledAt = Date.now();
         dismissClientChat();
         desktopChatInputActive = false;
         chatDraft = "";
@@ -1995,7 +2048,7 @@
       }
     }).catch(function (error) {
       setMobileChatSending(false);
-      if (submittedFromPortal && !portalChatActive) openPortalChat(message, true);
+      if (submittedFromPortal && !portalChatActive) openClientChat(message, true);
       else if (mobileChatInput && typeof mobileChatInput.focus === "function") mobileChatInput.focus();
       setMobileChatStatus(error && typeof error.message === "string" ? error.message : "채팅을 보내지 못했어요.", true);
     });
@@ -2034,6 +2087,11 @@
     };
     mobileChatInput.onkeydown = function (event) {
       if (event && typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+      if (event && !mobileChatComposing && !event.isComposing && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        if (typeof event.preventDefault === "function") event.preventDefault();
+        navigateSentChatHistory(event.key === "ArrowUp" ? -1 : 1);
+        return;
+      }
       if (!event || event.key !== "Enter" || mobileChatComposing || event.isComposing || event.keyCode === 229) return;
       if (typeof event.preventDefault === "function") event.preventDefault();
       submitMobileChat();
@@ -2063,13 +2121,15 @@
       return;
     }
     if (desktopChatInputActive || /GuiChat$/.test(currentScreenName)) {
-      chatEscapeHandledAt = Date.now();
+      markUiEscape(currentScreenName || "GuiChat");
       dismissClientChat();
       hideMobileChatComposer();
       var input = findClientTextInput();
       if (input && document.activeElement === input && typeof input.blur === "function") input.blur();
       return;
     }
+    if (currentScreenName && !/GuiIngameMenu$/.test(currentScreenName)) markUiEscape(currentScreenName);
+    else clearUiEscapeSuppression();
     dispatchRelayedBackquote(null);
   }
 
@@ -2224,7 +2284,7 @@
     var chatButton = createMobileButton("T", "채팅 열기", "chat");
     bindMobilePulseButton(chatButton, function () {
       // iOS only opens its keyboard when focus happens inside this touch turn.
-      openPortalChat("", true);
+      openClientChat("", true);
     });
     move.appendChild(chatButton);
     registerMobileEditableControl(chatButton);
@@ -2273,7 +2333,7 @@
       if (/GuiChat$/.test(currentScreenName) || desktopChatInputActive || mobileChatComposerIsVisible()) {
         showMobileChatComposer(chatDraft, true);
       } else if (!currentScreenName) {
-        openPortalChat("", true);
+        openClientChat("", true);
       } else {
         enableClientTextInput(true);
       }
@@ -2413,20 +2473,48 @@
     });
   }
 
+  function clearUiEscapeSuppression() {
+    uiEscapeSourceScreen = "";
+    uiEscapeHandledAt = 0;
+    if (uiEscapeClearTimer !== null && typeof window.clearTimeout === "function") {
+      window.clearTimeout(uiEscapeClearTimer);
+    }
+    uiEscapeClearTimer = null;
+  }
+
+  function markUiEscape(screenName) {
+    clearUiEscapeSuppression();
+    uiEscapeSourceScreen = screenName || "GuiScreen";
+    uiEscapeHandledAt = Date.now();
+  }
+
+  function scheduleUiEscapeSuppressionClear() {
+    if (!uiEscapeSourceScreen || typeof window.setTimeout !== "function") return;
+    if (uiEscapeClearTimer !== null && typeof window.clearTimeout === "function") {
+      window.clearTimeout(uiEscapeClearTimer);
+    }
+    uiEscapeClearTimer = window.setTimeout(clearUiEscapeSuppression, 150);
+  }
+
   function relayNativeEscape(event) {
     trackChatDraftKey(event);
     var isEscape = event.key === "Escape" || event.code === "Escape" || event.keyCode === 27 || event.which === 27;
     if (!isEscape || isRelayedBackquote(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (event.type === "keyup") {
+      scheduleUiEscapeSuppressionClear();
+      return;
+    }
     if (event.type !== "keydown" || event.repeat) return;
     if (portalChatActive) {
+      markUiEscape("PortalChat");
       closePortalChat(true);
       return;
     }
     var sourceTarget = event.target;
     if (isClientTextInput(sourceTarget) || desktopChatInputActive) {
-      chatEscapeHandledAt = Date.now();
+      markUiEscape(currentScreenName || "GuiChat");
       dismissClientChat();
       hideMobileChatComposer();
       if (isClientTextInput(sourceTarget) && document.activeElement === sourceTarget && typeof sourceTarget.blur === "function") {
@@ -2434,7 +2522,8 @@
       }
       return;
     }
-    chatEscapeHandledAt = 0;
+    if (currentScreenName && !/GuiIngameMenu$/.test(currentScreenName)) markUiEscape(currentScreenName);
+    else clearUiEscapeSuppression();
     dispatchRelayedBackquote(sourceTarget);
   }
 
@@ -2591,7 +2680,6 @@
       window.addEventListener(eventName, blockClientBackquote, true);
       window.addEventListener(eventName, relayNativeEscape, true);
     });
-    window.addEventListener("keydown", interceptPortalChatOpen, true);
   }
 
   function clearRecentIMECommit() {

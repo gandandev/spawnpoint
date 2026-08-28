@@ -23,7 +23,7 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
-<script src="/game/portal-bridge.js?v=20260828-inventory-drag-v69"></script>
+<script src="/game/portal-bridge.js?v=20260828-chat-controls-v70"></script>
 `;
 
 await fs.mkdir(path.join(root, "public/game"), { recursive: true });

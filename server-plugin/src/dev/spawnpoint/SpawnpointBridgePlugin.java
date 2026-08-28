@@ -77,6 +77,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerBedEnterEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -112,6 +113,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private final Map<UUID, Long> teleportRequestCooldowns = new HashMap<>();
     private final Map<UUID, String> advancementRuleRestores = new HashMap<>();
     private boolean advancementReflectionWarningLogged;
+    private boolean deathTranslationWarningLogged;
     private boolean packetReflectionWarningLogged;
 
     @Override
@@ -921,6 +923,20 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         getLogger().info("Set all loaded worlds to 6 AM after the empty server received a player.");
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerBedEnter(PlayerBedEnterEvent event) {
+        Player sleeper = event.getPlayer();
+        getServer().getScheduler().runTaskLater(this, () -> {
+            if (!sleeper.isOnline() || !sleeper.isSleeping()) return;
+            World world = sleeper.getWorld();
+            long fullTime = world.getFullTime();
+            world.setFullTime(fullTime + 24_000L - Math.floorMod(fullTime, 24_000L));
+            world.setStorm(false);
+            world.setThundering(false);
+            getServer().broadcastMessage(ChatColor.YELLOW + playerLabel(sleeper) + "님이 잠들어 아침이 됐어요.");
+        }, 1L);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -939,12 +955,62 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     public void onPlayerDeath(PlayerDeathEvent event) {
         Location location = event.getEntity().getLocation();
         String coordinates = location.getBlockX() + ", " + location.getBlockY() + ", " + location.getBlockZ();
-        String deathMessage = event.getDeathMessage();
-        if (deathMessage == null) {
+        String showDeathMessages = event.getEntity().getWorld().getGameRuleValue("showDeathMessages");
+        if (showDeathMessages != null && !Boolean.parseBoolean(showDeathMessages)) {
+            event.setDeathMessage(null);
             event.getEntity().sendMessage("사망 좌표: " + coordinates);
             return;
         }
-        event.setDeathMessage(replaceTechnicalPlayerNames(deathMessage) + ChatColor.GRAY + " [좌표: " + coordinates + "]");
+        BaseComponent[] deathMessage = localizedDeathMessage(event.getEntity());
+        if (deathMessage == null) {
+            event.setDeathMessage(playerLabel(event.getEntity()) + "님이 사망했습니다."
+                + ChatColor.GRAY + " [좌표: " + coordinates + "]");
+            return;
+        }
+        event.setDeathMessage(null);
+        TextComponent coordinateMessage = new TextComponent(" [좌표: " + coordinates + "]");
+        coordinateMessage.setColor(net.md_5.bungee.api.ChatColor.GRAY);
+        BaseComponent[] message = new BaseComponent[deathMessage.length + 1];
+        System.arraycopy(deathMessage, 0, message, 0, deathMessage.length);
+        message[message.length - 1] = coordinateMessage;
+        getServer().spigot().broadcast(message);
+    }
+
+    private BaseComponent[] localizedDeathMessage(Player player) {
+        try {
+            Object handle = player.getClass().getMethod("getHandle").invoke(player);
+            Object tracker = handle.getClass().getMethod("getCombatTracker").invoke(handle);
+            Object component = tracker.getClass().getMethod("getDeathMessage").invoke(tracker);
+            Class<?> componentType = Class.forName("net.minecraft.server.v1_12_R1.IChatBaseComponent");
+            Class<?> serializerType = Class.forName("net.minecraft.server.v1_12_R1.IChatBaseComponent$ChatSerializer");
+            String json = (String) serializerType.getMethod("a", componentType).invoke(null, component);
+            BaseComponent[] translated = ComponentSerializer.parse(json);
+            for (BaseComponent part : translated) replaceTechnicalPlayerNames(part);
+            return translated;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
+            if (!deathTranslationWarningLogged) {
+                deathTranslationWarningLogged = true;
+                getLogger().warning("Could not preserve the localized death message: " + exception.getMessage());
+            }
+            return null;
+        }
+    }
+
+    private void replaceTechnicalPlayerNames(BaseComponent component) {
+        if (component instanceof TextComponent text) {
+            text.setText(replaceTechnicalPlayerNames(text.getText()));
+        } else if (component instanceof TranslatableComponent translated) {
+            if (translated.getWith() != null) {
+                for (BaseComponent argument : translated.getWith()) replaceTechnicalPlayerNames(argument);
+            }
+        }
+        if (component.getExtra() != null) {
+            for (BaseComponent extra : component.getExtra()) replaceTechnicalPlayerNames(extra);
+        }
+        HoverEvent hover = component.getHoverEvent();
+        if (hover != null && hover.getValue() != null) {
+            for (BaseComponent value : hover.getValue()) replaceTechnicalPlayerNames(value);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -1238,7 +1304,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     public void onAuthCheck(EaglercraftAuthCheckRequiredEvent event) {
         Ticket ticket = verifyPath(event.getPendingConnection().getWebSocketPath());
         if (ticket == null) {
-            event.kickUser("Open spawnpoint, log in, then launch the game again.");
+            event.kickUser("spawnpoint에 로그인한 뒤 게임에 다시 접속하세요.");
             return;
         }
         event.setNicknameSelectionEnabled(false);
@@ -1250,7 +1316,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     public void onLogin(EaglercraftLoginEvent event) {
         Ticket ticket = verifyPath(event.getLoginConnection().getWebSocketPath());
         if (ticket == null) {
-            event.setKickMessage("Your spawnpoint launch ticket is invalid or expired.");
+            event.setKickMessage("spawnpoint 접속 정보가 잘못됐거나 만료됐어요. 다시 접속하세요.");
             event.setCancelled(true);
             return;
         }

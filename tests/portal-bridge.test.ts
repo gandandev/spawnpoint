@@ -62,6 +62,9 @@ function loadBridge(
     focus() {
       documentObject.activeElement = canvas;
     },
+    blur() {
+      if (documentObject.activeElement === canvas) documentObject.activeElement = null;
+    },
   };
   const bodyEvents: Array<Record<string, unknown>> = [];
   const body = {
@@ -719,17 +722,16 @@ describe("portal game bridge", () => {
     expect(input).not.toBe(documentObject.activeElement);
   });
 
-  it("intercepts T before Minecraft and opens the portal chat input", () => {
+  it("leaves T for Minecraft so its native chat history remains visible and clickable", () => {
     const {
       canvas,
       canvasEvents,
-      documentObject,
       locatorElementsById,
       windowHandlers,
+      windowObject,
     } = loadBridge(undefined, true, undefined, { renderDom: true });
-    const exitPointerLock = vi.fn();
-    documentObject.pointerLockElement = canvas;
-    documentObject.exitPointerLock = exitPointerLock;
+    const runtimeListener = vi.fn();
+    windowObject.addEventListener("keydown", runtimeListener, true);
     const event = {
       target: canvas,
       type: "keydown",
@@ -740,15 +742,12 @@ describe("portal game bridge", () => {
       stopImmediatePropagation: vi.fn(),
     };
 
-    windowHandlers.get("keydown")?.[2](event);
+    windowHandlers.get("keydown")?.forEach((listener) => listener(event));
 
-    const composer = locatorElementsById.get("spawnpoint-mobile-chat")!;
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
-    expect(composer.style.display).toBe("flex");
-    expect(documentObject.activeElement).toBe(composer.children[0]);
-    expect(documentObject.pointerLockElement).toBe(canvas);
-    expect(exitPointerLock).not.toHaveBeenCalled();
+    expect(runtimeListener).toHaveBeenCalledOnce();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
+    expect(locatorElementsById.get("spawnpoint-mobile-chat")).toBeUndefined();
     expect(canvasEvents).toHaveLength(0);
   });
 
@@ -851,31 +850,24 @@ describe("portal game bridge", () => {
     expect(navigationEvent.preventDefault).not.toHaveBeenCalled();
   });
 
-  it("shows online players after /tpa and sends the selected command", async () => {
+  it("shows online players after a Korean TPA command and sends the selected command", async () => {
     const {
       canvasEvents,
       clientTextInputEvents,
       locatorElementsById,
-      windowHandlers,
+      options,
       windowObject,
     } = loadBridge(undefined, true, {
       active: false,
       targets: [],
       players: [{ gameUsername: "MossRunner", displayName: "이끼 러너" }],
     });
-    const openEvent = {
-      target: {},
-      type: "keydown",
-      key: "/",
-      code: "Slash",
-      repeat: false,
-      preventDefault: vi.fn(),
-      stopImmediatePropagation: vi.fn(),
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
     };
-    windowHandlers.get("keydown")?.[2](openEvent);
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
     const chatInput = locatorElementsById.get("spawnpoint-mobile-chat")!.children[0];
-    expect(chatInput.value).toBe("/");
-    chatInput.value = "/tpa";
+    chatInput.value = "/티피에이";
     chatInput.oninput({ isComposing: false });
 
     await vi.waitFor(() => {
@@ -890,7 +882,7 @@ describe("portal game bridge", () => {
     await vi.waitFor(() => expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/chat", expect.objectContaining({
       method: "POST",
       credentials: "same-origin",
-      body: JSON.stringify({ launchId: "launch-123", message: "/tpa MossRunner" }),
+      body: JSON.stringify({ launchId: "launch-123", message: "/티피에이 MossRunner" }),
     })));
     expect(clientTextInputEvents).toHaveLength(0);
     expect(canvasEvents).toHaveLength(0);
@@ -1213,13 +1205,16 @@ describe("portal game bridge", () => {
   });
 
   it("holds mobile movement keys until the matching touch ends", () => {
-    const { canvas, canvasEvents, documentObject, locatorElementsById } = loadBridge(
+    const { canvas, canvasEvents, documentObject, locatorElementsById, options } = loadBridge(
       undefined,
       true,
       undefined,
       { maxTouchPoints: 5, renderDom: true },
     );
     const root = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
     const forward = findControl(root, "forward")!;
     const touchEvent = {
       preventDefault: vi.fn(),
@@ -1244,7 +1239,11 @@ describe("portal game bridge", () => {
     const chat = findControl(root, "chat")!;
     chat.ontouchstart(touchEvent);
     chat.ontouchend(touchEvent);
-    expect(canvasEvents).toHaveLength(0);
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ type: "keydown", key: "t", code: "KeyT", keyCode: 84, __spawnpointMobileControl: true }),
+      expect.objectContaining({ type: "keyup", key: "t", code: "KeyT", keyCode: 84, __spawnpointMobileControl: true }),
+    ]);
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
     expect(locatorElementsById.get("spawnpoint-mobile-chat")?.style.display).toBe("flex");
   });
 
@@ -1255,6 +1254,7 @@ describe("portal game bridge", () => {
       clientTextInputEvents,
       documentObject,
       locatorElementsById,
+      options,
       windowObject,
     } = loadBridge(undefined, true, undefined, {
       renderDom: true,
@@ -1262,11 +1262,15 @@ describe("portal game bridge", () => {
     });
     canvas.requestPointerLock();
     const controls = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
     const chat = findControl(controls, "chat")!;
     const touchEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
 
     chat.ontouchstart(touchEvent);
     chat.ontouchend(touchEvent);
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
 
     const composer = locatorElementsById.get("spawnpoint-mobile-chat")!;
     const input = composer.children[0];
@@ -1276,7 +1280,10 @@ describe("portal game bridge", () => {
     expect(findControl(controls, "chat-exit")).toMatchObject({ textContent: "ESC", "aria-label": "채팅 닫기" });
     expect(send.textContent).toBe("전송");
     expect(documentObject.activeElement).toBe(input);
-    expect(canvasEvents).toHaveLength(0);
+    expect(canvasEvents.slice(0, 2)).toEqual([
+      expect.objectContaining({ type: "keydown", key: "t", code: "KeyT", keyCode: 84, __spawnpointMobileControl: true }),
+      expect.objectContaining({ type: "keyup", key: "t", code: "KeyT", keyCode: 84, __spawnpointMobileControl: true }),
+    ]);
     expect(input).toMatchObject({
       type: "text",
       inputMode: "text",
@@ -1305,7 +1312,7 @@ describe("portal game bridge", () => {
       credentials: "same-origin",
       body: JSON.stringify({ launchId: "launch-123", message: "안" }),
     }));
-    expect(canvasEvents).toHaveLength(0);
+    expect(canvasEvents.slice(-3).map(({ type }) => type)).toEqual(["mousedown", "mouseup", "click"]);
 
     const style = documentObject.head.children.find(
       (element: Record<string, unknown>) => element.id === "spawnpoint-mobile-control-style",
@@ -1316,6 +1323,39 @@ describe("portal game bridge", () => {
     expect(style?.textContent).toContain("padding:0;background:transparent;border:0;border-radius:0;box-shadow:none");
     expect(style?.textContent).toContain("#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-chat-only{display:none}");
     expect(style?.textContent).toContain("#spawnpoint-mobile-controls.is-chat .sp-mobile-chat-only");
+  });
+
+  it("recalls sent chat with ArrowUp and restores the draft with ArrowDown", async () => {
+    const { locatorElementsById, options, windowObject } = loadBridge(undefined, true, undefined, { renderDom: true });
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
+    const composer = locatorElementsById.get("spawnpoint-mobile-chat")!;
+    const input = composer.children[0];
+    const send = findControl(composer, "chat-send")!;
+
+    input.value = "첫 메시지";
+    input.oninput({ isComposing: false });
+    send.onclick({ preventDefault: vi.fn(), stopPropagation: vi.fn() });
+    await vi.waitFor(() => expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/chat", expect.objectContaining({
+      body: JSON.stringify({ launchId: "launch-123", message: "첫 메시지" }),
+    })));
+    await vi.waitFor(() => expect(composer.style.display).toBe("none"));
+
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
+    input.value = "작성 중";
+    input.oninput({ isComposing: false });
+    const up = { key: "ArrowUp", preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() };
+    input.onkeydown(up);
+    expect(input.value).toBe("첫 메시지");
+    expect(up.preventDefault).toHaveBeenCalledOnce();
+
+    const down = { key: "ArrowDown", preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() };
+    input.onkeydown(down);
+    expect(input.value).toBe("작성 중");
+    expect(down.preventDefault).toHaveBeenCalledOnce();
   });
 
   it("uses the client's Exit Chat target for the mobile back action", () => {
@@ -1602,6 +1642,34 @@ describe("portal game bridge", () => {
     }));
   });
 
+  it("does not open the pause menu after Escape closes another game UI", () => {
+    const { canvas, canvasEvents, options, windowHandlers } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
+    windowHandlers.get("keydown")?.[1]({
+      target: canvas,
+      type: "keydown",
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+      repeat: false,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    });
+    hooks.screenChanged("net.minecraft.client.gui.GuiIngameMenu", 480, 300, 960, 600, 2);
+
+    expect(canvasEvents.map(({ type }) => type)).toEqual([
+      "keydown", "keypress", "keyup",
+      "keydown", "keypress", "keyup",
+    ]);
+    canvasEvents.forEach((event) => expect(event).toMatchObject({
+      code: "Backquote",
+      __spawnpointRelayedBackquote: true,
+    }));
+  });
+
   it("maps physical Escape to marked back action on gameplay and menu targets", () => {
     const { body, bodyEvents, canvas, canvasEvents, windowHandlers } = loadBridge();
     const escapeListener = windowHandlers.get("keydown")?.[1];
@@ -1882,6 +1950,22 @@ describe("portal game bridge", () => {
     handlers.get("pointerlockchange")?.forEach((handler) => handler({}));
 
     expect(canvasEvents).toEqual([]);
+  });
+
+  it("releases pointer lock and canvas focus on the death screen", () => {
+    const { canvas, documentObject, options } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    documentObject.pointerLockElement = canvas;
+    documentObject.activeElement = canvas;
+    documentObject.exitPointerLock = vi.fn(() => { documentObject.pointerLockElement = null; });
+
+    hooks.screenChanged("net.minecraft.client.gui.GuiGameOver", 480, 300, 960, 600, 2);
+
+    expect(documentObject.exitPointerLock).toHaveBeenCalledOnce();
+    expect(documentObject.pointerLockElement).toBeNull();
+    expect(documentObject.activeElement).toBeNull();
   });
 
   it("blocks the client Edit Profile button without leaving the game", () => {
