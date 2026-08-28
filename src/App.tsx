@@ -159,7 +159,7 @@ export function App() {
   if (!data) return <main className="flex min-h-dvh items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />월드 상태 불러오는 중</main>;
   return <>
     {game
-      ? <GameScreen game={game} gameUrl={gameUrl} onExit={() => setGame(null)} />
+      ? <GameScreen game={game} gameUrl={gameUrl} />
       : data.user
         ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={openAdmin} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
         : <AuthScreen data={data} mode={authMode} onAuth={auth} onModeChange={changeAuthMode} onOpenAdmin={openAdmin} notice={notice} />}

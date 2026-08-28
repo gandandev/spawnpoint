@@ -651,21 +651,6 @@ describe("portal game bridge", () => {
     expect(canvasEvents[0]).toMatchObject({ clientX: 480, clientY: 456 });
   });
 
-  it("returns to the portal when keyboard navigation activates the menu button", () => {
-    const { options, parentMessages } = loadBridge();
-    const hooks = options.hooks as {
-      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
-    };
-
-    hooks.screenChanged("net.minecraft.client.gui.GuiMainMenu", 480, 300, 960, 600, 2);
-    hooks.screenChanged("net.lax1dude.eaglercraft.profile.GuiScreenEditProfile", 480, 300, 960, 600, 2);
-
-    expect(parentMessages).toEqual([{
-      message: { type: "spawnpoint:return-to-menu", launchId: "launch-123" },
-      targetOrigin: "https://spawnpoint.test",
-    }]);
-  });
-
   it("commits one final Korean string instead of every IME composition update", () => {
     const { handlers } = loadBridge();
     const dispatched: Array<Record<string, unknown>> = [];
@@ -1899,7 +1884,7 @@ describe("portal game bridge", () => {
     expect(canvasEvents).toEqual([]);
   });
 
-  it("returns to the Spawnpoint menu from the former Edit Profile button", () => {
+  it("blocks the client Edit Profile button without leaving the game", () => {
     const { canvas, handlers, parentMessages } = loadBridge();
     const event = {
       target: canvas,
@@ -1913,9 +1898,6 @@ describe("portal game bridge", () => {
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
-    expect(parentMessages).toEqual([{
-      message: { type: "spawnpoint:return-to-menu", launchId: "launch-123" },
-      targetOrigin: "https://spawnpoint.test",
-    }]);
+    expect(parentMessages).toEqual([]);
   });
 });

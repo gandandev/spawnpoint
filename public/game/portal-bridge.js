@@ -179,7 +179,6 @@
     if (existingScreenChangedHook) {
       existingScreenChangedHook.call(this, screenName, scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor);
     }
-    var previousScreenName = currentScreenName;
     currentScreenName = typeof screenName === "string" ? screenName : "";
     // Some browser/client combinations process the same physical Escape again
     // after the Exit Chat click. Undo only that immediate duplicate pause.
@@ -196,8 +195,7 @@
     updateTPAPickerLayout();
     updateMobileControlsVisibility();
     if (typeof screenName === "string" && /GuiScreenEditProfile$/.test(screenName)) {
-      if (/GuiMainMenu$/.test(previousScreenName)) requestPortalMenu();
-      else dismissProfileEditor(scaledHeight);
+      dismissProfileEditor(scaledHeight);
     }
     if (typeof screenName === "string" && /GuiChat$/.test(screenName)) {
       portalChatActive = false;
@@ -221,9 +219,9 @@
   if (typeof existingHooks.crashReportShow !== "function") existingHooks.crashReportShow = function () {};
   options.hooks = existingHooks;
 
-  // Spawnpoint owns the player's name and skin. The former profile button is
-  // the in-client way back to the portal, while stray profile screens still
-  // close automatically.
+  // The vendored client has no launch option for disabling its profile editor.
+  // Block its canvas button permanently and dismiss the screen if another path
+  // reaches it. Spawnpoint owns the player's name and skin in every session.
 
   function isEditProfileButton(event) {
     if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return false;
@@ -248,25 +246,16 @@
     return false;
   }
 
-  function requestPortalMenu() {
-    if (window.parent && window.parent !== window && typeof window.parent.postMessage === "function") {
-      window.parent.postMessage({ type: "spawnpoint:return-to-menu", launchId: launchId }, window.location.origin);
-    } else if (window.location && typeof window.location.replace === "function") {
-      window.location.replace("/");
-    }
-  }
-
-  function returnToPortalMenu(event) {
+  function blockProfileEditor(event) {
     if (autoDismissingProfileEditor) return;
     if (!isEditProfileButton(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    requestPortalMenu();
   }
 
   if (document.addEventListener) {
     var profileBlockEvent = typeof window.PointerEvent === "function" ? "pointerdown" : "mousedown";
-    document.addEventListener(profileBlockEvent, returnToPortalMenu, true);
+    document.addEventListener(profileBlockEvent, blockProfileEditor, true);
   }
 
   // The WASM runtime already has a hidden input that forwards beforeinput text
