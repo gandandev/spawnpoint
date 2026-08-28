@@ -248,6 +248,7 @@
 
   function blockProfileEditor(event) {
     if (autoDismissingProfileEditor) return;
+    if (!/GuiMainMenu$/.test(currentScreenName)) return;
     if (!isEditProfileButton(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();

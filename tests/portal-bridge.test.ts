@@ -1885,7 +1885,10 @@ describe("portal game bridge", () => {
   });
 
   it("blocks the client Edit Profile button without leaving the game", () => {
-    const { canvas, handlers, parentMessages } = loadBridge();
+    const { canvas, handlers, options, parentMessages } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
     const event = {
       target: canvas,
       clientX: 500,
@@ -1894,10 +1897,31 @@ describe("portal game bridge", () => {
       stopImmediatePropagation: vi.fn(),
     };
 
+    hooks.screenChanged("net.minecraft.client.gui.GuiMainMenu", 480, 300, 960, 600, 2);
     handlers.get("pointerdown")?.[0](event);
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
     expect(parentMessages).toEqual([]);
+  });
+
+  it("keeps inventory clicks and drags active at the former profile-button coordinates", () => {
+    const { canvas, handlers, options } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    const event = {
+      target: canvas,
+      clientX: 500,
+      clientY: 420,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+
+    hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
+    handlers.get("pointerdown")?.[0](event);
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
   });
 });

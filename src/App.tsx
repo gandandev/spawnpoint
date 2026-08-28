@@ -144,7 +144,7 @@ export function App() {
   };
 
   const gameUrl = useMemo(() => game
-    ? `/game/${game.client}.html?v=20260827-portal-menu-v64&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
+    ? `/game/${game.client}.html?v=20260828-inventory-drag-v69&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
     : "", [game]);
 
   const standaloneAdminData = standaloneAdmin && standaloneAdmin.adminExpiresAt > Date.now() && data ? {
