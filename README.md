@@ -98,7 +98,7 @@ recommended watch paths:
 
 1. deploy the new frontend on a temporary Railway domain and verify login, the status stream, a game launch, `/game/stable.html`, and `/frontend-healthz`.
 2. move the public and custom domains from the old combined service to the frontend service.
-3. change the existing backend service from `Dockerfile` to `Dockerfile.backend`. the root `railway.toml` is the old single-service compatibility config, so clear its config-file setting or migrate the project to Railway IaC before selecting the backend Dockerfile.
+3. change the existing backend service from `Dockerfile` to `Dockerfile.backend`. `.railway/railway.ts` keeps both service definitions and existing secrets in sync.
 4. apply the watch paths above. frontend-only commits then replace only the small Caddy service and leave the Node and Java processes running.
 
 do not make the backend public after the cutover. the frontend proxy is the only public entry point.
