@@ -518,8 +518,16 @@
   }
 
   function installLocatorHud() {
-    if (locatorRoot || !document.createElement || !document.body) return;
+    if (!document.createElement || !document.body) return;
     injectLocatorHudStyles();
+    if (locatorRoot) {
+      if (locatorRoot.parentNode !== document.body) {
+        document.body.appendChild(locatorRoot);
+        updateLocatorHudLayout();
+        updateLocatorHudVisibility();
+      }
+      return;
+    }
     locatorRoot = document.createElement("div");
     locatorRoot.id = "spawnpoint-player-locator";
     locatorRoot.setAttribute("aria-hidden", "true");
@@ -2769,6 +2777,7 @@
   if (typeof window.MutationObserver === "function" && document.documentElement) {
     var imeObserver = new window.MutationObserver(function () {
       enableClientTextInput(false);
+      installLocatorHud();
       installMobileControls();
       prepareMobileCanvasPointerLock();
       updateMobileControlsVisibility();

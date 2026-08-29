@@ -583,7 +583,7 @@ describe("portal game bridge", () => {
   });
 
   it("renders a separate top locator with pixel-outlined player heads", async () => {
-    const { documentObject, locatorContexts, locatorElementsById, locatorIntervals, options, windowObject } = loadBridge(
+    const { body, documentObject, locatorContexts, locatorElementsById, locatorIntervals, options, triggerMutation, windowObject } = loadBridge(
       undefined,
       true,
       {
@@ -630,6 +630,12 @@ describe("portal game bridge", () => {
       cache: "no-store",
     });
     expect(locatorIntervals).toEqual([{ callback: expect.any(Function), delay: 200 }]);
+
+    body.removeChild(root);
+    expect(root.parentNode).toBeNull();
+    triggerMutation();
+    expect(root.parentNode).toBe(body);
+    expect(root.style.display).toBe("block");
 
     hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
     expect(root.style.display).toBe("none");
