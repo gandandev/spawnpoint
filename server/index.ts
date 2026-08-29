@@ -108,8 +108,8 @@ if (config.serveClient) {
     response.setHeader("Content-Encoding", encoding);
     response.setHeader("Content-Type", "text/html; charset=utf-8");
     response.setHeader("Vary", "Accept-Encoding");
-    // The HTML embeds the current EPW bundle. The query value is a release label,
-    // not a content hash, so immutable caching can pin an older runtime for a year.
+    // The query value is a release label, not a content hash, so the small loader
+    // HTML must revalidate. Its large EPW payload has a separate content-hashed URL.
     response.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
     response.sendFile(precompressed, (error) => {
       if (error) next(error);
@@ -122,6 +122,10 @@ if (config.serveClient) {
     maxAge: "1h",
     setHeaders(response, filePath) {
       if (filePath.endsWith(".html")) response.setHeader("Cache-Control", "public, max-age=300, must-revalidate");
+      if (/stable-[0-9a-f]{16}\.epw$/.test(filePath)) {
+        response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        response.setHeader("Content-Type", "application/octet-stream");
+      }
     },
   }));
 

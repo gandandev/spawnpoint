@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { brotliCompressSync, gzipSync, constants as zlibConstants } from "node:zlib";
 
 const root = process.cwd();
@@ -13,7 +14,8 @@ if (!/^[A-Za-z0-9_-]{1,80}$/.test(gameClient.cacheVersion)) {
 }
 const loadingBackgroundPattern = /center \/ contain no-repeat url\("data:image\/png;base64,[^"]+"\)/g;
 const epwDataUriPattern = /data:application\/octet-stream;base64,[A-Za-z0-9+/=]+/g;
-const bridgeTag = `
+const bridgeTag = (epwUrl) => `
+<link rel="preload" href="${epwUrl}" as="fetch" crossorigin="anonymous">
 <style>
 ._eaglercraftX_early_splash_element {
   background: center / cover no-repeat url("${loadingImage}") !important;
@@ -37,7 +39,17 @@ await fs.copyFile(
   path.join(root, "public/game/fonts/Galmuri11.ttf"),
 );
 const patchedEpw = await fs.readFile(path.join(root, "vendor/clients/stable-galmuri.epw"));
-const patchedEpwDataUri = `data:application/octet-stream;base64,${patchedEpw.toString("base64")}`;
+const epwHash = createHash("sha256").update(patchedEpw).digest("hex").slice(0, 16);
+const epwFileName = `stable-${epwHash}.epw`;
+const epwUrl = `/game/${epwFileName}`;
+await fs.writeFile(path.join(root, "public/game", epwFileName), patchedEpw);
+
+const generatedEpwPattern = /^stable-[0-9a-f]{16}\.epw$/;
+for (const entry of await fs.readdir(path.join(root, "public/game"), { withFileTypes: true })) {
+  if (entry.isFile() && generatedEpwPattern.test(entry.name) && entry.name !== epwFileName) {
+    await fs.unlink(path.join(root, "public/game", entry.name));
+  }
+}
 
 for (const [name, sourceName] of clients) {
   const sourcePath = path.join(root, "vendor/clients", sourceName);
@@ -55,12 +67,12 @@ for (const [name, sourceName] of clients) {
   if (epwDataUris?.length !== 1) {
     throw new Error(`${sourceName} has ${epwDataUris?.length ?? 0} EPW data URIs, expected exactly 1`);
   }
-  const patchedInput = input.replace(epwDataUriPattern, patchedEpwDataUri);
+  const patchedInput = input.replace(epwDataUriPattern, epwUrl);
   const brandedInput = patchedInput.replace(
     loadingBackgroundPattern,
     `center / cover no-repeat url("${loadingImage}")`,
   );
-  const output = brandedInput.slice(0, scriptEnd + 9) + bridgeTag + brandedInput.slice(scriptEnd + 9);
+  const output = brandedInput.slice(0, scriptEnd + 9) + bridgeTag(epwUrl) + brandedInput.slice(scriptEnd + 9);
   await fs.writeFile(outputPath, output, "utf8");
   const outputBuffer = Buffer.from(output, "utf8");
   await Promise.all([
@@ -69,5 +81,5 @@ for (const [name, sourceName] of clients) {
     })),
     fs.writeFile(`${outputPath}.gz`, gzipSync(outputBuffer, { level: 9 })),
   ]);
-  console.log(`${name}: ${input.length.toLocaleString()} chars, loading screens and bridge injected with Brotli and gzip variants`);
+  console.log(`${name}: ${output.length.toLocaleString()} chars, external EPW ${epwFileName}, loading screens and bridge injected with Brotli and gzip variants`);
 }
