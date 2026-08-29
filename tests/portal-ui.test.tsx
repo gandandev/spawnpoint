@@ -121,6 +121,34 @@ const testPlayer: PlayerDetails = {
 };
 
 describe("administrator access", () => {
+  it("shows a retry action when bootstrap fails and recovers on demand", async () => {
+    const signedOutData = { ...adminData, user: null, csrf: null };
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(jsonResponse(signedOutData));
+    vi.stubGlobal("fetch", fetchMock);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("spawnpoint에 연결할 수 없어요");
+    const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "다시 시도")!;
+    await act(async () => {
+      retry.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("#username")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => root.unmount());
+  });
+
   it("does not react to the old hidden admin keyword", async () => {
     const signedOutData = { ...adminData, user: null, csrf: null };
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
@@ -383,6 +411,8 @@ describe("server password input", () => {
     });
     expect(container.querySelector(".auth-mode-panel")?.getAttribute("data-direction")).toBe("up");
     expect(container.textContent).toContain("계정이 있나요?");
+    expect(container.querySelector("#password")?.getAttribute("minlength")).toBe("8");
+    expect((container.querySelector("#password") as HTMLInputElement).placeholder).toBe("비밀번호 (8자 이상)");
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
       for (const [selector, value] of [["#username", "텔레그램"], ["#password", "password123"], ["#server-password", "server-password"]] as const) {
@@ -508,22 +538,48 @@ describe("skin change flow", () => {
 });
 
 describe("account settings copy and spacing", () => {
-  it("uses one concise name action and tighter password fields", async () => {
+  it("edits the login ID and display name without merging them", async () => {
+    const onSession = vi.fn();
+    const fetchMock = vi.fn(async () => jsonResponse({
+      user: { ...adminData.user!, username: "member", displayName: "새 이름" },
+      csrf: "updated-csrf",
+      adminExpiresAt: null,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<AccountDialog data={adminData} onSession={vi.fn()} notice={vi.fn()} />);
+      root.render(<AccountDialog data={{ ...adminData, user: { ...adminData.user!, username: "member", displayName: "멤버" } }} onSession={onSession} notice={vi.fn()} />);
     });
     const trigger = container.querySelector("button") as HTMLButtonElement;
     expect(trigger.className).toContain("min-w-11");
     expect(trigger.className).toContain("shrink");
     await act(async () => trigger.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
-    expect(document.body.textContent).not.toContain("플레이어 이름과 비밀번호를 관리하세요.");
-    expect(document.body.textContent).not.toContain("이 이름으로 로그인하며");
+    expect((document.body.querySelector("#account-username") as HTMLInputElement).value).toBe("member");
+    const displayName = document.body.querySelector("#account-display-name") as HTMLInputElement;
+    expect(displayName.value).toBe("멤버");
+    const changeButton = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "이름 변경") as HTMLButtonElement;
+    expect(changeButton.disabled).toBe(true);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(displayName, "새 이름");
+      displayName.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      displayName.form?.requestSubmit();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/account/profile", expect.objectContaining({
+      body: JSON.stringify({ username: "member", displayName: "새 이름" }),
+    }));
+    expect(onSession).toHaveBeenCalledWith(expect.objectContaining({ username: "member", displayName: "새 이름" }), "updated-csrf", null);
     expect(document.body.textContent).toContain("이름 변경");
     expect(document.body.querySelector("#current-password")?.closest('[data-slot="field-group"]')?.className).toContain("gap-2");
+    expect(document.body.querySelector("#new-password")?.getAttribute("minlength")).toBe("8");
     await act(async () => root.unmount());
   });
 });
@@ -882,6 +938,9 @@ describe("administrator console and account actions", () => {
 
     expect(changeButton).toBeTruthy();
     expect(changeButton?.querySelector("svg")).toBeTruthy();
+    expect((document.body.querySelector("#admin-username-member-1") as HTMLInputElement).value).toBe("member");
+    expect((document.body.querySelector("#admin-display-name-member-1") as HTMLInputElement).value).toBe("멤버");
+    expect((changeButton as HTMLButtonElement).disabled).toBe(true);
     expect(document.body.textContent).toContain("플레이어 1");
     expect(document.body.textContent).not.toContain("계정 1");
     expect(document.body.textContent).not.toContain("변경 저장");

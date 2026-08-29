@@ -7,6 +7,10 @@ const clients = [
   ["stable", "stable-source.html"],
 ];
 const loadingImage = "/game/loading.webp";
+const gameClient = JSON.parse(await fs.readFile(path.join(root, "src/game-client.json"), "utf8"));
+if (!/^[A-Za-z0-9_-]{1,80}$/.test(gameClient.cacheVersion)) {
+  throw new Error("src/game-client.json has an invalid cacheVersion");
+}
 const loadingBackgroundPattern = /center \/ contain no-repeat url\("data:image\/png;base64,[^"]+"\)/g;
 const epwDataUriPattern = /data:application\/octet-stream;base64,[A-Za-z0-9+/=]+/g;
 const bridgeTag = `
@@ -23,7 +27,7 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
-<script src="/game/portal-bridge.js?v=20260828-chat-controls-v70"></script>
+<script src="/game/portal-bridge.js?v=${gameClient.cacheVersion}"></script>
 `;
 
 await fs.mkdir(path.join(root, "public/game"), { recursive: true });

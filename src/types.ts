@@ -107,3 +107,9 @@ export interface BootstrapData {
   clients: ClientChoice[];
   setup: { eulaAccepted: boolean };
 }
+
+export interface SessionUpdate {
+  user: PublicUser;
+  csrf: string;
+  adminExpiresAt: number | null;
+}

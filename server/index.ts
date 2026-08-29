@@ -71,7 +71,6 @@ app.use("/api", createApiRouter({
   serverPassword: config.serverPassword,
   secureCookies: config.secureCookies,
   sessionDays: config.sessionDays,
-  gameTicketMinutes: config.gameTicketMinutes,
   eulaAccepted: config.eulaAccepted || config.mockServer,
   gameConnections,
   adminUsernames: config.adminUsernames,

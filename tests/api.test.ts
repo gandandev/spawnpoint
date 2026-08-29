@@ -74,7 +74,6 @@ async function createHarness(options: { bridgeOrigin?: string; adminUserIds?: st
     serverPassword: sharedServerPassword,
     secureCookies: false,
     sessionDays: 1,
-    gameTicketMinutes: 2,
     eulaAccepted: true,
     gameConnections,
     adminUserIds: options.adminUserIds ?? [admin.id],
@@ -361,22 +360,79 @@ afterEach(async () => {
 });
 
 describe("separate login and registration", () => {
-  it("requires the shared answer only for signup and accepts a one-character password", async () => {
+  it("requires strong new passwords while letting an existing weak account sign in", async () => {
     const harness = await createHarness();
+    const weakPassword = await hashPassword("한");
+    harness.database.createUser("기존계정", weakPassword.hash, weakPassword.salt);
+
+    const rejectedRegistration = await fetch(`${harness.origin}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: harness.origin },
+      body: JSON.stringify({ username: "새계정", password: "한", serverPassword: sharedServerPassword }),
+    });
+    expect(rejectedRegistration.status).toBe(400);
+
     const registerResponse = await fetch(`${harness.origin}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: harness.origin },
-      body: JSON.stringify({ username: "짧은비번", password: "한", serverPassword: sharedServerPassword }),
+      body: JSON.stringify({ username: "새계정", password: "충분히긴비밀번호", serverPassword: sharedServerPassword }),
     });
     expect(registerResponse.status).toBe(201);
 
     const loginResponse = await fetch(`${harness.origin}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: harness.origin },
-      body: JSON.stringify({ username: "짧은비번", password: "한" }),
+      body: JSON.stringify({ username: "기존계정", password: "한" }),
     });
     expect(loginResponse.status).toBe(200);
     expect(await loginResponse.json()).toMatchObject({ created: false });
+  });
+});
+
+describe("account session updates", () => {
+  it("revokes temporary administrator access after a password change", async () => {
+    const harness = await createHarness({ adminUserIds: [] });
+    const playerSession = createSessionToken(harness.user, secret, 1);
+    const sessionCookie = `spawnpoint_session=${playerSession.token}`;
+    const unlocked = await fetch(`${harness.origin}/api/auth/admin-unlock`, {
+      method: "POST",
+      headers: { Cookie: sessionCookie, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "G4ndan" }),
+    });
+    const unlockBody = await unlocked.json() as { csrf: string; adminExpiresAt: number };
+    const adminCookie = unlocked.headers.get("set-cookie")!.split(";", 1)[0];
+
+    const changed = await fetch(`${harness.origin}/api/account/password`, {
+      method: "POST",
+      headers: {
+        Cookie: `${sessionCookie}; ${adminCookie}`,
+        Origin: harness.origin,
+        "Content-Type": "application/json",
+        "x-spawnpoint-csrf": unlockBody.csrf,
+      },
+      body: JSON.stringify({ currentPassword: "user-password", newPassword: "new-user-password" }),
+    });
+    const body = await changed.json() as { user: { isAdmin: boolean }; adminExpiresAt: number | null };
+
+    expect(changed.status).toBe(200);
+    expect(body).toMatchObject({ user: { isAdmin: false }, adminExpiresAt: null });
+    expect(changed.headers.get("set-cookie")).toContain("spawnpoint_admin=; Max-Age=0");
+  });
+});
+
+describe("game launch", () => {
+  it("creates the client profile without returning a discarded game ticket", async () => {
+    const harness = await createHarness({ serverStatus: { ...serverStatus, phase: "online" } });
+    const response = await fetch(`${harness.origin}/api/game-ticket`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ launchId: crypto.randomUUID() }),
+    });
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body.profile).toEqual(expect.any(String));
+    expect(body).not.toHaveProperty("ticket");
   });
 });
 

@@ -10,13 +10,13 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { useAdminMutation, useAdminOverview } from "@/features/admin-hooks";
-import type { AdminOverview, AdminUser, BootstrapData, InventoryItem, PlayerDetails, PublicUser } from "@/types";
+import type { AdminOverview, AdminUser, BootstrapData, InventoryItem, PlayerDetails, SessionUpdate } from "@/types";
 
 type AdminTab = "players" | "console";
 
 interface AdminPanelProps {
   data: BootstrapData;
-  onSession: (user: PublicUser, csrf: string) => void;
+  onSession: (user: SessionUpdate["user"], csrf: string, adminExpiresAt: number | null) => void;
   notice: (message: string) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -91,30 +91,33 @@ interface UserEditorProps {
   busy: boolean;
   resetConfirming: boolean;
   resetCode: string | null;
-  onSave: (playerName: string) => Promise<void>;
+  onSave: (identity: Pick<AdminUser, "username" | "displayName">) => Promise<void>;
   onReset: () => Promise<void>;
   onArmReset: () => void;
   onCopyResetCode: () => void;
 }
 
 function UserEditor({ user, currentUserId, busy, resetConfirming, resetCode, onSave, onReset, onArmReset, onCopyResetCode }: UserEditorProps) {
-  const [playerName, setPlayerName] = useState(user.displayName);
+  const [username, setUsername] = useState(user.username);
+  const [displayName, setDisplayName] = useState(user.displayName);
   useEffect(() => {
-    setPlayerName(user.displayName);
+    setUsername(user.username);
+    setDisplayName(user.displayName);
   }, [user.displayName, user.id, user.username]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void onSave(playerName);
+    void onSave({ username, displayName });
   };
 
   return <div className="flex min-w-0 flex-col gap-4">
     <div className="flex items-center gap-2"><div className="min-w-0"><div className="truncate font-medium">{user.displayName}</div><div className="truncate text-xs text-muted-foreground">게임 기술 ID: {user.gameUsername}</div></div>{user.isAdmin && <Badge variant="secondary" className="ml-auto"><ShieldCheck />관리자</Badge>}</div>
     <form className="flex flex-col gap-3" onSubmit={submit}>
       <FieldGroup>
-        <Field><FieldLabel htmlFor={`admin-name-${user.id}`}>플레이어 이름</FieldLabel><Input id={`admin-name-${user.id}`} value={playerName} onChange={(event) => setPlayerName(event.target.value)} minLength={1} maxLength={16} required /></Field>
+        <Field><FieldLabel htmlFor={`admin-username-${user.id}`}>플레이어 ID</FieldLabel><Input id={`admin-username-${user.id}`} value={username} onChange={(event) => setUsername(event.target.value)} minLength={1} maxLength={16} required /></Field>
+        <Field><FieldLabel htmlFor={`admin-display-name-${user.id}`}>표시 이름</FieldLabel><Input id={`admin-display-name-${user.id}`} value={displayName} onChange={(event) => setDisplayName(event.target.value)} minLength={1} maxLength={16} required /></Field>
       </FieldGroup>
-      <Button type="submit" disabled={busy || (playerName === user.username && playerName === user.displayName)}>{busy ? <Spinner /> : <Check />}이름 변경</Button>
+      <Button type="submit" disabled={busy || (username === user.username && displayName === user.displayName)}>{busy ? <Spinner /> : <Check />}이름 변경</Button>
     </form>
     {user.id !== currentUserId && <div className="rounded-lg border p-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium"><KeyRound className="size-4" />비밀번호 초기화</div>
@@ -214,8 +217,8 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
                 .then(() => notice("초기화 코드를 복사했어요."))
                 .catch(() => notice("코드를 길게 눌러 직접 복사하세요."));
             }}
-            onSave={async (playerName) => {
-              const changed = await mutate(`user:${selectedUser.id}`, `/admin/users/${selectedUser.id}/profile`, { method: "PATCH", body: JSON.stringify({ username: playerName, displayName: playerName }), headers: { "Content-Type": "application/json" } });
+            onSave={async (identity) => {
+              const changed = await mutate(`user:${selectedUser.id}`, `/admin/users/${selectedUser.id}/profile`, { method: "PATCH", body: JSON.stringify(identity), headers: { "Content-Type": "application/json" } });
               if (changed) notice("사용자 정보를 변경했어요.");
             }}
             onReset={async () => {

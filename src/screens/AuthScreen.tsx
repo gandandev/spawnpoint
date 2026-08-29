@@ -144,7 +144,8 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
                       onBlur={() => setCapsLockOn(false)}
                       onAnimationEnd={() => setPasswordError(false)}
                       aria-invalid={passwordError}
-                      placeholder={resetRequired ? "새 비밀번호" : "비밀번호"}
+                      placeholder={resetRequired ? "새 비밀번호 (8자 이상)" : mode === "register" ? "비밀번호 (8자 이상)" : "비밀번호"}
+                      minLength={mode === "register" || resetRequired ? 8 : undefined}
                       maxLength={128}
                       required
                     />

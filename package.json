@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "sh -c 'pids=$(lsof -ti tcp:3000 2>/dev/null); [ -z \"$pids\" ] || kill $pids; for i in $(seq 1 25); do [ -z \"$(lsof -ti tcp:3000 2>/dev/null)\" ] && [ -z \"$(lsof -ti tcp:25565 2>/dev/null)\" ] && break; sleep 1; done; lsof -ti tcp:3000 2>/dev/null | xargs kill -9 2>/dev/null || true; lsof -ti tcp:25565 2>/dev/null | xargs kill -9 2>/dev/null || true; exec tsx watch --env-file=.env server/index.ts'",
+    "dev": "tsx watch --env-file=.env server/index.ts",
     "dev:client": "vite",
     "prebuild": "npm run prepare:clients && npm run generate:skins",
     "build": "npm run build:client && npm run build:server",

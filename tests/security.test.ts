@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createPasswordResetCode, createSessionToken, hashPassword, isSameOriginHeaders, sessionFromCookieHeader,
-  signToken, validateCredentials, validateDisplayName, verifyPassword, verifyPasswordResetCode, verifyToken,
+  signToken, validateCredentials, validateDisplayName, validateNewPassword, verifyPassword, verifyPasswordResetCode, verifyToken,
 } from "../server/security.js";
 
 const secret = "test-secret-that-is-longer-than-thirty-two-characters";
@@ -69,6 +69,12 @@ describe("credentials", () => {
     expect(() => validateCredentials("two words", "password123")).toThrow();
     expect(validateCredentials("player", "짧음").password).toBe("짧음");
     expect(() => validateCredentials("player", "")).toThrow();
+  });
+
+  it("keeps legacy passwords valid for login but requires eight characters for new passwords", () => {
+    expect(validateCredentials("player", "한").password).toBe("한");
+    expect(() => validateNewPassword("짧은비번")).toThrow("8~128자");
+    expect(validateNewPassword("충분히긴비밀번호")).toBe("충분히긴비밀번호");
   });
 
   it("accepts Korean display names without Minecraft formatting characters", () => {

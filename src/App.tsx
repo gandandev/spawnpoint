@@ -7,10 +7,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { currentSiteName } from "@/lib/site-name";
+import gameClient from "@/game-client.json";
 import { AuthScreen } from "@/screens/AuthScreen";
 import { Dashboard } from "@/screens/Dashboard";
 import { GameScreen, type GameSession } from "@/screens/GameScreen";
-import type { BootstrapData, ClientChoice, PublicUser, ServerStatus } from "@/types";
+import type { BootstrapData, ClientChoice, PublicUser, ServerStatus, SessionUpdate } from "@/types";
 
 const AdminPanel = lazy(() => import("@/features/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 
@@ -24,6 +25,7 @@ export function App() {
   const siteName = currentSiteName();
   const [authMode, setAuthMode] = useState<"login" | "register">(() => window.location.pathname === "/signup" ? "register" : "login");
   const [data, setData] = useState<BootstrapData | null>(null);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [game, setGame] = useState<GameSession | null>(null);
   const [showSkinAfterSignup, setShowSkinAfterSignup] = useState(false);
   const [adminPasswordOpen, setAdminPasswordOpen] = useState(false);
@@ -32,11 +34,18 @@ export function App() {
   const [adminUnlocking, setAdminUnlocking] = useState(false);
   const [standaloneAdmin, setStandaloneAdmin] = useState<StandaloneAdminAccess | null>(null);
   const notice = useCallback((message: string) => toast(message, { duration: 4_500 }), []);
-  const reload = useCallback(async () => setData(await api<BootstrapData>("/bootstrap")), []);
+  const reload = useCallback(async () => {
+    setBootstrapError(null);
+    try {
+      setData(await api<BootstrapData>("/bootstrap"));
+    } catch {
+      setBootstrapError(`${siteName}에 연결할 수 없어요`);
+    }
+  }, [siteName]);
 
   useEffect(() => {
-    void reload().catch(() => notice(`${siteName}에 연결할 수 없어요`));
-  }, [reload, notice, siteName]);
+    void reload();
+  }, [reload]);
 
   useEffect(() => {
     const syncAuthMode = () => setAuthMode(window.location.pathname === "/signup" ? "register" : "login");
@@ -116,11 +125,12 @@ export function App() {
     }
   };
 
-  const updateSession = useCallback((user: PublicUser, csrf: string) => {
+  const updateSession = useCallback((user: SessionUpdate["user"], csrf: string, adminExpiresAt: number | null) => {
     setData((current) => current ? {
       ...current,
-      user: current.adminExpiresAt && current.adminExpiresAt > Date.now() ? { ...user, isAdmin: true } : user,
+      user,
       csrf,
+      adminExpiresAt,
     } : current);
   }, []);
 
@@ -144,7 +154,7 @@ export function App() {
   };
 
   const gameUrl = useMemo(() => game
-    ? `/game/${game.client}.html?v=20260828-chat-controls-v70&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
+    ? `/game/${game.client}.html?v=${gameClient.cacheVersion}&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
     : "", [game]);
 
   const standaloneAdminData = standaloneAdmin && standaloneAdmin.adminExpiresAt > Date.now() && data ? {
@@ -156,7 +166,9 @@ export function App() {
   const loggedInAdminData = data?.user?.isAdmin && (data.adminExpiresAt === null || data.adminExpiresAt > Date.now()) ? data : null;
   const adminData = standaloneAdminData ?? loggedInAdminData;
 
-  if (!data) return <main className="flex min-h-dvh items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />월드 상태 불러오는 중</main>;
+  if (!data) return <main className="flex min-h-dvh flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+    {bootstrapError ? <><span>{bootstrapError}</span><Button variant="outline" onClick={() => void reload()}>다시 시도</Button></> : <><Spinner />월드 상태 불러오는 중</>}
+  </main>;
   return <>
     {game
       ? <GameScreen game={game} gameUrl={gameUrl} />
@@ -178,9 +190,9 @@ export function App() {
         </form>
       </DialogContent>
     </Dialog>
-    {adminData ? <Suspense fallback={null}><AdminPanel data={adminData} onSession={(user, csrf) => {
-      if (standaloneAdminData) setStandaloneAdmin((current) => current ? { ...current, user, csrf } : current);
-      else updateSession(user, csrf);
+    {adminData ? <Suspense fallback={null}><AdminPanel data={adminData} onSession={(user, csrf, adminExpiresAt) => {
+      if (standaloneAdminData) setStandaloneAdmin((current) => current ? { ...current, user, csrf, adminExpiresAt: adminExpiresAt ?? current.adminExpiresAt } : current);
+      else updateSession(user, csrf, adminExpiresAt);
     }} notice={notice} open={adminPanelOpen} onOpenChange={setAdminPanelOpen} showTrigger={false} /></Suspense> : null}
     <Toaster position="bottom-right" />
   </>;

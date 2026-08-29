@@ -11,7 +11,6 @@ import {
   clearAdminCookie,
   clearSessionCookie,
   createAdminToken,
-  createGameTicket,
   createPasswordResetCode,
   createSessionToken,
   hashPassword,
@@ -21,12 +20,13 @@ import {
   setSessionCookie,
   validateCredentials,
   validateDisplayName,
+  validateNewPassword,
   validatePassword,
   validateUsername,
   verifyPassword,
   verifyPasswordResetCode,
 } from "./security.js";
-import { SKIN_CATALOG, SkinService, skinPathForUser, toPublicUser } from "./skins.js";
+import { SKIN_CATALOG, SkinService, toPublicUser } from "./skins.js";
 import type {
   AdminActor,
   AdminAuthorization,
@@ -47,7 +47,6 @@ export interface ApiContext {
   serverPassword: string;
   secureCookies: boolean;
   sessionDays: number;
-  gameTicketMinutes: number;
   eulaAccepted: boolean;
   gameConnections: GameConnectionTracker;
   adminUsernames?: readonly string[];
@@ -204,14 +203,18 @@ function hasActivePasswordReset(user: UserRecord, now = Date.now()): boolean {
     && user.passwordResetExpiresAt > now;
 }
 
-function requireUser(request: Request, response: Response, context: ApiContext, csrf = false): UserRecord | null {
+function requireAuthentication(request: Request, response: Response, context: ApiContext, csrf = false): UserAuthentication | null {
   const authenticated = userForRequest(request, context);
   if (!authenticated) {
     fail(response, 401, "먼저 로그인하세요.", "AUTH_REQUIRED");
     return null;
   }
   if (csrf && !requireCsrf(request, response, authenticated.csrf)) return null;
-  return authenticated.user;
+  return authenticated;
+}
+
+function requireUser(request: Request, response: Response, context: ApiContext, csrf = false): UserRecord | null {
+  return requireAuthentication(request, response, context, csrf)?.user ?? null;
 }
 
 function requireCsrf(request: Request, response: Response, csrf: string): boolean {
@@ -565,6 +568,7 @@ export function createApiRouter(context: ApiContext): express.Router {
     if (!requireServerPassword(request, response, context)) return;
     try {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
+      validateNewPassword(credentials.password);
       if (isAdminUsername(credentials.username, context) && !context.database.getUserByUsername(credentials.username)) {
         fail(response, 403, "관리자용 플레이어 ID는 새로 등록할 수 없어요.", "RESERVED_USERNAME");
         return;
@@ -630,6 +634,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       let created = false;
 
       if (user && hasActivePasswordReset(user)) {
+        validateNewPassword(credentials.password);
         const resetDigest = user.passwordResetDigest!;
         if (!passwordResetLimiter.take(resetDigest.toString("base64url"))) {
           fail(response, 429, "초기화 코드 확인 요청이 너무 많아요. 새 코드를 발급하세요.", "RATE_LIMITED");
@@ -667,7 +672,7 @@ export function createApiRouter(context: ApiContext): express.Router {
             fail(response, 403, "관리자용 플레이어 ID는 새로 등록할 수 없어요.", "RESERVED_USERNAME");
             return;
           }
-          const password = await hashPassword(credentials.password);
+          const password = await hashPassword(validateNewPassword(credentials.password));
           try {
             user = context.database.createUser(credentials.username, password.hash, password.salt);
             created = true;
@@ -696,8 +701,9 @@ export function createApiRouter(context: ApiContext): express.Router {
 
   router.patch("/account/profile", async (request, response) => {
     if (!requireSameOrigin(request, response)) return;
-    const user = requireUser(request, response, context, true);
-    if (!user) return;
+    const authenticated = requireAuthentication(request, response, context, true);
+    if (!authenticated) return;
+    const { user } = authenticated;
     if (!accountLimiter.take(`${user.id}:profile`)) {
       fail(response, 429, "계정 변경 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
@@ -721,7 +727,11 @@ export function createApiRouter(context: ApiContext): express.Router {
       const updated = context.database.updateIdentity(user.id, username, displayName);
       const session = createSessionToken(updated, context.sessionSecret, context.sessionDays);
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
-      response.json({ user: publicUser(updated, context), csrf: session.csrf });
+      response.json({
+        user: publicUser(updated, context, authenticated.adminExpiresAt),
+        csrf: session.csrf,
+        adminExpiresAt: authenticated.adminExpiresAt,
+      });
     } catch (error) {
       failFromError(response, 400, error, "계정 정보를 변경하지 못했어요.", "INVALID_PROFILE");
     }
@@ -737,7 +747,7 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
     try {
       const currentPassword = validatePassword(request.body?.currentPassword);
-      const newPassword = validatePassword(request.body?.newPassword);
+      const newPassword = validateNewPassword(request.body?.newPassword);
       if (!await verifyPassword(currentPassword, user.passwordSalt, user.passwordHash)) {
         fail(response, 401, "현재 비밀번호가 올바르지 않아요.", "INVALID_CURRENT_PASSWORD");
         return;
@@ -746,7 +756,8 @@ export function createApiRouter(context: ApiContext): express.Router {
       const updated = context.database.updatePassword(user.id, password.hash, password.salt);
       const session = createSessionToken(updated, context.sessionSecret, context.sessionDays);
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
-      response.json({ user: publicUser(updated, context), csrf: session.csrf });
+      clearAdminCookie(response, context.secureCookies);
+      response.json({ user: publicUser(updated, context), csrf: session.csrf, adminExpiresAt: null });
     } catch (error) {
       failFromError(response, 400, error, "비밀번호를 변경하지 못했어요.", "INVALID_PASSWORD");
     }
@@ -954,13 +965,18 @@ export function createApiRouter(context: ApiContext): express.Router {
         if (authenticated) {
           const session = createSessionToken(updated, context.sessionSecret, context.sessionDays);
           setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
-          response.json({ user: publicUser(updated, context), csrf: session.csrf });
+          response.json({
+            user: publicUser(updated, context, authenticated.adminExpiresAt),
+            csrf: session.csrf,
+            adminExpiresAt: authenticated.adminExpiresAt,
+          });
         } else {
           const standaloneAdmin = createAdminToken(updated, context.sessionSecret, ADMIN_UNLOCK_MINUTES);
           setAdminCookie(response, standaloneAdmin.token, ADMIN_UNLOCK_MINUTES, context.secureCookies);
           response.json({
             user: publicUser(updated, context, standaloneAdmin.expiresAt),
             csrf: standaloneAdmin.csrf,
+            adminExpiresAt: standaloneAdmin.expiresAt,
           });
         }
         return;
@@ -1042,17 +1058,9 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      const [ticket, profile] = await Promise.all([
-        Promise.resolve(createGameTicket(
-          user,
-          skinPathForUser(user),
-          context.sessionSecret,
-          context.gameTicketMinutes,
-        )),
-        context.skins.createClientProfile(user),
-      ]);
+      const profile = await context.skins.createClientProfile(user);
       context.gameConnections.create(launchId, user.id);
-      response.json({ ticket, username: user.gameUsername, displayName: user.displayName, profile });
+      response.json({ username: user.gameUsername, displayName: user.displayName, profile });
     } catch (error) {
       failFromError(response, 500, error, "저장된 프로필을 불러오지 못했어요.", "PROFILE_LOAD_FAILED");
     }

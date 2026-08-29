@@ -8,14 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { waitForServerOnline } from "@/lib/api";
-import type { BootstrapData, ClientChoice, PublicUser } from "@/types";
+import type { BootstrapData, ClientChoice, SessionUpdate } from "@/types";
 
 const SkinStudio = lazy(() => import("@/features/SkinStudio").then((module) => ({ default: module.SkinStudio })));
 
 interface DashboardProps {
   data: BootstrapData;
   onData: (patch: Partial<BootstrapData>) => void;
-  onSession: (user: PublicUser, csrf: string) => void;
+  onSession: (user: SessionUpdate["user"], csrf: string, adminExpiresAt: number | null) => void;
   onStart: () => Promise<void>;
   onLogout: () => Promise<void>;
   notice: (message: string) => void;

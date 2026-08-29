@@ -95,6 +95,12 @@ export function validatePassword(password: unknown): string {
   return password;
 }
 
+export function validateNewPassword(password: unknown): string {
+  const validPassword = validatePassword(password);
+  if (validPassword.length < 8) throw new Error("비밀번호는 8~128자로 입력하세요.");
+  return validPassword;
+}
+
 export function validateDisplayName(input: unknown): string {
   if (typeof input !== "string") throw new Error("표시 이름을 입력하세요.");
   const displayName = input.normalize("NFC").trim();

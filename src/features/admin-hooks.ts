@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { AdminOverview, PublicUser } from "@/types";
+import type { AdminOverview, PublicUser, SessionUpdate } from "@/types";
 
 interface UseAdminOverviewOptions {
   open: boolean;
@@ -62,7 +62,7 @@ export function useAdminOverview({ open, csrf, onOverview }: UseAdminOverviewOpt
 
 interface AdminMutationOptions {
   csrf: string | null;
-  onSession: (user: PublicUser, csrf: string) => void;
+  onSession: (user: SessionUpdate["user"], csrf: string, adminExpiresAt: number | null) => void;
   notice: (message: string) => void;
   refresh: () => Promise<AdminOverview | null>;
 }
@@ -70,6 +70,7 @@ interface AdminMutationOptions {
 interface AdminMutationResult {
   user?: PublicUser;
   csrf?: string;
+  adminExpiresAt?: number | null;
   resetCode?: string;
 }
 
@@ -90,7 +91,7 @@ export function useAdminMutation({ csrf, onSession, notice, refresh }: AdminMuta
         headers: { "x-spawnpoint-csrf": csrf!, ...options.headers },
       });
       if (result?.user && result.csrf) {
-        onSession(result.user, result.csrf);
+        onSession(result.user, result.csrf, result.adminExpiresAt ?? null);
       } else {
         await refresh();
       }
