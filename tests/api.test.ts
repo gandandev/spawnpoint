@@ -52,7 +52,7 @@ async function listen(server: Server): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-async function createHarness(options: { bridgeOrigin?: string; adminUsernames?: string[]; serverStatus?: ServerStatus; consoleCommands?: string[] } = {}) {
+async function createHarness(options: { bridgeOrigin?: string; adminUserIds?: string[]; adminUsernames?: string[]; serverStatus?: ServerStatus; consoleCommands?: string[] } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "spawnpoint-api-"));
   const database = new AppDatabase(dataDir);
   cleanups.push(() => {
@@ -77,7 +77,7 @@ async function createHarness(options: { bridgeOrigin?: string; adminUsernames?: 
     gameTicketMinutes: 2,
     eulaAccepted: true,
     gameConnections,
-    adminUserIds: [admin.id],
+    adminUserIds: options.adminUserIds ?? [admin.id],
     adminUsernames: options.adminUsernames,
     adminPassword: "G4ndan",
     bridgeOrigin: options.bridgeOrigin,
@@ -92,6 +92,29 @@ async function createHarness(options: { bridgeOrigin?: string; adminUsernames?: 
 }
 
 describe("hidden administrator unlock", () => {
+  it("unlocks without a configured administrator account", async () => {
+    const harness = await createHarness({ adminUserIds: [], adminUsernames: [] });
+    const unlocked = await fetch(`${harness.origin}/api/auth/admin-unlock`, {
+      method: "POST",
+      headers: { Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "G4ndan" }),
+    });
+    const body = await unlocked.json() as { user: { id: string; displayName: string; isAdmin: boolean }; csrf: string };
+
+    expect(unlocked.status).toBe(200);
+    expect(body.user).toMatchObject({
+      id: "spawnpoint-standalone-admin",
+      displayName: "관리자",
+      isAdmin: true,
+    });
+
+    const adminCookie = unlocked.headers.get("set-cookie")!.split(";", 1)[0];
+    const overview = await fetch(`${harness.origin}/api/admin/overview`, {
+      headers: { Cookie: adminCookie, "x-spawnpoint-csrf": body.csrf },
+    });
+    expect(overview.status).toBe(200);
+  });
+
   it("counts only wrong passwords and resets the limit after a correct password", async () => {
     const harness = await createHarness();
     const wrong = await fetch(`${harness.origin}/api/auth/admin-unlock`, {
@@ -108,7 +131,7 @@ describe("hidden administrator unlock", () => {
     });
     const body = await unlocked.json() as { user: { id: string; isAdmin: boolean }; csrf: string; adminExpiresAt: number };
     expect(unlocked.status).toBe(200);
-    expect(body.user).toMatchObject({ id: harness.admin.id, isAdmin: true });
+    expect(body.user).toMatchObject({ id: "spawnpoint-standalone-admin", isAdmin: true });
     expect(body.csrf).toEqual(expect.any(String));
     expect(body.adminExpiresAt).toBeGreaterThan(Date.now() + 9 * 60_000);
     expect(unlocked.headers.get("set-cookie")).not.toContain("spawnpoint_session=");

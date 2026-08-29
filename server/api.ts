@@ -51,6 +51,13 @@ const PASSWORD_RESET_WINDOW_MS = 15 * 60_000;
 const ADMIN_UNLOCK_MINUTES = 10;
 const ADMIN_OVERVIEW_RATE_LIMIT = 1_200;
 const ADMIN_OVERVIEW_RATE_WINDOW_MS = 10 * 60_000;
+const STANDALONE_ADMIN = {
+  id: "spawnpoint-standalone-admin",
+  username: "admin",
+  sessionVersion: 0,
+} as const;
+
+type AdminActor = Pick<UserRecord, "id" | "username" | "sessionVersion">;
 
 class MemoryRateLimiter {
   private readonly buckets = new Map<string, number[]>();
@@ -112,9 +119,16 @@ function userForRequest(request: Request, context: ApiContext): { user: UserReco
   return { user, csrf: session.csrf, adminExpiresAt };
 }
 
-function standaloneAdminForRequest(request: Request, context: ApiContext): { user: UserRecord; csrf: string; adminExpiresAt: number } | null {
+function standaloneAdminForRequest(request: Request, context: ApiContext): { user: AdminActor; csrf: string; adminExpiresAt: number } | null {
   const admin = adminFromRequest(request, context.sessionSecret);
   if (!admin?.csrf) return null;
+  if (
+    admin.sub === STANDALONE_ADMIN.id
+    && admin.username === STANDALONE_ADMIN.username
+    && (admin.sessionVersion ?? 0) === STANDALONE_ADMIN.sessionVersion
+  ) {
+    return { user: STANDALONE_ADMIN, csrf: admin.csrf, adminExpiresAt: admin.exp * 1_000 };
+  }
   const user = context.database.getUserById(admin.sub);
   if (
     !user
@@ -124,7 +138,7 @@ function standaloneAdminForRequest(request: Request, context: ApiContext): { use
   return { user, csrf: admin.csrf, adminExpiresAt: admin.exp * 1_000 };
 }
 
-function isAdmin(user: UserRecord, context: ApiContext): boolean {
+function isAdmin(user: Pick<UserRecord, "id" | "username">, context: ApiContext): boolean {
   return isAdminId(user.id, context) || isAdminUsername(user.username, context);
 }
 
@@ -136,18 +150,6 @@ function isAdminId(id: string, context: ApiContext): boolean {
 function isAdminUsername(username: string, context: ApiContext): boolean {
   const normalized = username.toLowerCase();
   return (context.adminUsernames ?? []).some((candidate) => candidate.toLowerCase() === normalized);
-}
-
-function configuredAdmin(context: ApiContext): UserRecord | null {
-  for (const id of context.adminUserIds ?? []) {
-    const user = context.database.getUserById(id);
-    if (user) return user;
-  }
-  for (const username of context.adminUsernames ?? []) {
-    const user = context.database.getUserByUsername(username);
-    if (user) return user;
-  }
-  return null;
 }
 
 function safeSecretEqual(actual: unknown, expected: string): boolean {
@@ -162,6 +164,21 @@ function publicUser(user: UserRecord, context: ApiContext, adminExpiresAt: numbe
     ...toPublicUser(user),
     displayName: user.displayName,
     isAdmin: isAdmin(user, context) || (adminExpiresAt !== null && adminExpiresAt > Date.now()),
+  };
+}
+
+function standaloneAdminPublicUser() {
+  return {
+    id: STANDALONE_ADMIN.id,
+    username: STANDALONE_ADMIN.username,
+    displayName: "관리자",
+    isAdmin: true,
+    skin: {
+      type: "preset" as const,
+      model: "steve" as const,
+      label: "spawnpoint",
+      previewUrl: "/api/skins/preset/spawnpoint",
+    },
   };
 }
 
@@ -184,7 +201,7 @@ function requireUser(request: Request, response: Response, context: ApiContext, 
   return authenticated.user;
 }
 
-function requireAdmin(request: Request, response: Response, context: ApiContext): UserRecord | null {
+function requireAdmin(request: Request, response: Response, context: ApiContext): AdminActor | null {
   const authenticated = userForRequest(request, context);
   const standaloneAdmin = authenticated ? null : standaloneAdminForRequest(request, context);
   const csrf = authenticated?.csrf ?? standaloneAdmin?.csrf;
@@ -359,15 +376,13 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
     adminUnlockLimiter.reset(limiterKey);
     const authenticated = userForRequest(request, context);
-    const user = authenticated?.user ?? configuredAdmin(context);
-    if (!user) {
-      fail(response, 503, "관리자 계정을 찾을 수 없어요.", "ADMIN_NOT_CONFIGURED");
-      return;
-    }
+    const user = authenticated?.user ?? STANDALONE_ADMIN;
     const admin = createAdminToken(user, context.sessionSecret, ADMIN_UNLOCK_MINUTES);
     setAdminCookie(response, admin.token, ADMIN_UNLOCK_MINUTES, context.secureCookies);
     response.json({
-      user: publicUser(user, context, admin.expiresAt),
+      user: authenticated
+        ? publicUser(authenticated.user, context, admin.expiresAt)
+        : standaloneAdminPublicUser(),
       csrf: authenticated?.csrf ?? admin.csrf,
       adminExpiresAt: admin.expiresAt,
       standalone: !authenticated,

@@ -155,7 +155,11 @@ export function createSessionToken(user: UserRecord, secret: string, days: numbe
   };
 }
 
-export function createAdminToken(user: UserRecord, secret: string, minutes: number): { token: string; csrf: string; expiresAt: number } {
+export function createAdminToken(
+  user: Pick<UserRecord, "id" | "username" | "sessionVersion">,
+  secret: string,
+  minutes: number,
+): { token: string; csrf: string; expiresAt: number } {
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + minutes * 60;
   const csrf = crypto.randomBytes(24).toString("base64url");

@@ -47,9 +47,9 @@ the repository never ships `eula.txt` and never accepts it for you. first startu
 4. set `SESSION_SECRET` to at least 32 random characters, for example `openssl rand -base64 48`.
 5. set a non-empty `SERVER_PASSWORD` for the people allowed to join.
 6. after reading the Minecraft EULA, set `MC_EULA=true` if you accept it.
-7. leave `SPAWNPOINT_ADMIN_USERNAMES` and `SPAWNPOINT_ADMIN_USER_IDS` empty for the first deploy, and keep `MC_MEMORY_MB=768` and `MC_IDLE_MINUTES=15` for the cheap profile.
+7. set `SPAWNPOINT_ADMIN_PASSWORD` for independent administrator-panel access. `SPAWNPOINT_ADMIN_USERNAMES` and `SPAWNPOINT_ADMIN_USER_IDS` are optional and grant permanent administrator access to matching signed-in accounts.
 8. deploy. the included `railway.toml` uses the Dockerfile and `/healthz` check.
-9. create the first account through the protected portal, add its login ID to `SPAWNPOINT_ADMIN_USERNAMES`, then redeploy. for rename-safe access, replace or supplement it later with the stable account UUID in `SPAWNPOINT_ADMIN_USER_IDS`.
+9. create accounts through the protected portal. use `SPAWNPOINT_ADMIN_USER_IDS` only if a signed-in account should open the administrator panel without the separate administrator password.
 
 the Hobby plan's $5 is usage credit, not a hard resource cap. spawnpoint keeps the always-on Node control plane small and pays the Java memory cost only while the world is awake, but nobody can honestly guarantee a fixed bill. watch Railway usage, especially if people hammer the public wake button or keep the world occupied. the portal also enforces a start cooldown and per-IP rate limits.
 
