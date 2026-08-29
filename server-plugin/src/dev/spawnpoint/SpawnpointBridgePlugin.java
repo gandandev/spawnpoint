@@ -342,6 +342,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
         target.spigot().sendMessage(marker, requesterName, request);
 
+        TextComponent commandHint = new TextComponent("        채팅에 /수락 또는 /거절을 입력하세요.");
+        commandHint.setColor(net.md_5.bungee.api.ChatColor.GRAY);
+        target.spigot().sendMessage(commandHint);
+
         TextComponent indent = new TextComponent("        ");
 
         TextComponent accept = new TextComponent("수락");
