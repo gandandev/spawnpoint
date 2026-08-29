@@ -5,11 +5,19 @@ interface SkinPreviewProps {
   model: "steve" | "alex";
   nameTag?: string;
   className?: string;
+  paused?: boolean;
 }
 
-export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps) {
+export function SkinPreview({ src, model, nameTag, className, paused = false }: SkinPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pausedRef = useRef(paused);
+  const updateAnimationRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    pausedRef.current = paused;
+    updateAnimationRef.current();
+  }, [paused]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -65,10 +73,11 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
       let lastWidth = 0;
       let lastHeight = 0;
       const updateAnimationState = () => {
-        const paused = document.hidden || !visible;
-        if (viewer.animation) viewer.animation.paused = paused;
-        viewer.renderPaused = paused;
+        const shouldPause = pausedRef.current || document.hidden || !visible;
+        if (viewer.animation) viewer.animation.paused = shouldPause;
+        viewer.renderPaused = shouldPause;
       };
+      updateAnimationRef.current = updateAnimationState;
       const intersectionObserver = new IntersectionObserver(([entry]) => {
         visible = entry?.isIntersecting ?? true;
         updateAnimationState();
@@ -89,6 +98,7 @@ export function SkinPreview({ src, model, nameTag, className }: SkinPreviewProps
       updateAnimationState();
 
       disposeViewer = () => {
+        updateAnimationRef.current = () => {};
         document.removeEventListener("visibilitychange", updateAnimationState);
         intersectionObserver.disconnect();
         resizeObserver.disconnect();

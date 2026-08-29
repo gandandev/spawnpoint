@@ -111,4 +111,27 @@ describe("SkinPreview", () => {
 
     act(() => root.unmount());
   });
+
+  it("pauses the background renderer while an overlapping dialog is open", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(<SkinPreview src="/skin.png" model="steve" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.viewers[0].renderPaused).toBe(false);
+
+    await act(async () => root.render(<SkinPreview src="/skin.png" model="steve" paused />));
+    expect(mocks.viewers[0].renderPaused).toBe(true);
+    expect(mocks.viewers[0].animation?.paused).toBe(true);
+
+    await act(async () => root.render(<SkinPreview src="/skin.png" model="steve" paused={false} />));
+    expect(mocks.viewers[0].renderPaused).toBe(false);
+    expect(mocks.viewers[0].animation?.paused).toBe(false);
+
+    act(() => root.unmount());
+  });
 });
