@@ -1033,6 +1033,7 @@ describe("portal game bridge", () => {
     expect(root.className).toContain("is-editing");
     expect(edit["aria-pressed"]).toBe("true");
     expect(attack.style.position).toBe("fixed");
+    expect(sensitivity.max).toBe("4.05");
 
     attack.dispatchEvent(gestureEvent("touchstart", attack, 7, 260, 680));
     client.documentObject.dispatchEvent(gestureEvent("touchmove", attack, 7, 220, 610));
@@ -1053,10 +1054,10 @@ describe("portal game bridge", () => {
       height: 133,
     });
 
-    sensitivity.value = "2";
+    sensitivity.value = "4.05";
     sensitivity.oninput();
-    expect(sensitivityValue.textContent).toBe("148%");
-    expect(client.storage.get("spawnpoint_mobile_look_sensitivity")).toBe("2");
+    expect(sensitivityValue.textContent).toBe("300%");
+    expect(client.storage.get("spawnpoint_mobile_look_sensitivity")).toBe("4.05");
 
     tap(hide);
     expect(root.className).toContain("are-controls-hidden");
@@ -1438,7 +1439,7 @@ describe("portal game bridge", () => {
   it("restores the saved mobile look sensitivity", () => {
     const { canvas, canvasEvents, handlers } = loadBridge(undefined, true, undefined, {
       coarsePointer: true,
-      mobileLookSensitivity: 2,
+      mobileLookSensitivity: 4.05,
       renderDom: true,
     });
     canvas.requestPointerLock();
@@ -1454,8 +1455,8 @@ describe("portal game bridge", () => {
     });
 
     expect(canvasEvents.find(({ type }) => type === "mousemove")).toMatchObject({
-      movementX: 20,
-      movementY: -10,
+      movementX: 40.5,
+      movementY: -20.25,
     });
   });
 

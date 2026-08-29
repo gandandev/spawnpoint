@@ -14,7 +14,7 @@ import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
 fs.mkdirSync(config.dataDir, { recursive: true });
 const sessionSecret = loadOrCreateSecret(config.dataDir, config.sessionSecret);
 const database = new AppDatabase(config.dataDir);
-const skins = new SkinService(database, config.dataDir, config.clientDir);
+const skins = new SkinService(database, config.dataDir, config.assetRootDir);
 const gameConnections = new GameConnectionTracker();
 const serverManager = new MinecraftServerManager({
   dataDir: config.dataDir,
@@ -88,86 +88,88 @@ function preferredEncoding(acceptEncoding: string | undefined): "br" | "gzip" | 
   return null;
 }
 
-app.get("/game/stable.html", (request, response, next) => {
-  const version = request.query.v;
-  if (typeof version !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(version)) {
-    next();
-    return;
-  }
-  const encoding = preferredEncoding(request.headers["accept-encoding"]);
-  if (!encoding) {
-    next();
-    return;
-  }
-  const extension = encoding === "br" ? "br" : "gz";
-  const precompressed = path.join(gameDir, `stable.html.${extension}`);
-  if (!fs.existsSync(precompressed)) {
-    next();
-    return;
-  }
-  response.setHeader("Content-Encoding", encoding);
-  response.setHeader("Content-Type", "text/html; charset=utf-8");
-  response.setHeader("Vary", "Accept-Encoding");
-  // The HTML embeds the current EPW bundle. The query value is a release label,
-  // not a content hash, so immutable caching can pin an older runtime for a year.
-  response.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
-  response.sendFile(precompressed, (error) => {
-    if (error) next(error);
-  });
-});
-
-app.use("/game", express.static(gameDir, {
-  fallthrough: false,
-  index: false,
-  maxAge: "1h",
-  setHeaders(response, filePath) {
-    if (filePath.endsWith(".html")) response.setHeader("Cache-Control", "public, max-age=300, must-revalidate");
-  },
-}));
-
-app.get("/assets/:file", (request, response, next) => {
-  const file = request.params.file;
-  if (!/^[A-Za-z0-9_.-]+\.(?:css|js|json|svg)$/.test(file)) {
-    next();
-    return;
-  }
-  const encoding = preferredEncoding(request.headers["accept-encoding"]);
-  if (!encoding) {
-    next();
-    return;
-  }
-  const extension = encoding === "br" ? "br" : "gz";
-  const precompressed = path.join(config.clientDir, "assets", `${file}.${extension}`);
-  if (!fs.existsSync(precompressed)) {
-    next();
-    return;
-  }
-  response.setHeader("Content-Encoding", encoding);
-  response.setHeader("Content-Type", file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".json") ? "application/json; charset=utf-8" : "image/svg+xml");
-  response.setHeader("Vary", "Accept-Encoding");
-  response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-  response.sendFile(precompressed, (error) => {
-    if (error) next(error);
-  });
-});
-
-app.use(express.static(config.clientDir, {
-  index: false,
-  maxAge: "1h",
-  setHeaders(response, filePath) {
-    if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-      response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+if (config.serveClient) {
+  app.get("/game/stable.html", (request, response, next) => {
+    const version = request.query.v;
+    if (typeof version !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(version)) {
+      next();
+      return;
     }
-  },
-}));
+    const encoding = preferredEncoding(request.headers["accept-encoding"]);
+    if (!encoding) {
+      next();
+      return;
+    }
+    const extension = encoding === "br" ? "br" : "gz";
+    const precompressed = path.join(gameDir, `stable.html.${extension}`);
+    if (!fs.existsSync(precompressed)) {
+      next();
+      return;
+    }
+    response.setHeader("Content-Encoding", encoding);
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.setHeader("Vary", "Accept-Encoding");
+    // The HTML embeds the current EPW bundle. The query value is a release label,
+    // not a content hash, so immutable caching can pin an older runtime for a year.
+    response.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+    response.sendFile(precompressed, (error) => {
+      if (error) next(error);
+    });
+  });
 
-app.use((request, response, next) => {
-  if (request.method !== "GET" || request.path.startsWith("/api/") || request.path.startsWith("/gateway")) {
-    next();
-    return;
-  }
-  response.sendFile(path.join(config.clientDir, "index.html"));
-});
+  app.use("/game", express.static(gameDir, {
+    fallthrough: false,
+    index: false,
+    maxAge: "1h",
+    setHeaders(response, filePath) {
+      if (filePath.endsWith(".html")) response.setHeader("Cache-Control", "public, max-age=300, must-revalidate");
+    },
+  }));
+
+  app.get("/assets/:file", (request, response, next) => {
+    const file = request.params.file;
+    if (!/^[A-Za-z0-9_.-]+\.(?:css|js|json|svg)$/.test(file)) {
+      next();
+      return;
+    }
+    const encoding = preferredEncoding(request.headers["accept-encoding"]);
+    if (!encoding) {
+      next();
+      return;
+    }
+    const extension = encoding === "br" ? "br" : "gz";
+    const precompressed = path.join(config.clientDir, "assets", `${file}.${extension}`);
+    if (!fs.existsSync(precompressed)) {
+      next();
+      return;
+    }
+    response.setHeader("Content-Encoding", encoding);
+    response.setHeader("Content-Type", file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".json") ? "application/json; charset=utf-8" : "image/svg+xml");
+    response.setHeader("Vary", "Accept-Encoding");
+    response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    response.sendFile(precompressed, (error) => {
+      if (error) next(error);
+    });
+  });
+
+  app.use(express.static(config.clientDir, {
+    index: false,
+    maxAge: "1h",
+    setHeaders(response, filePath) {
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    },
+  }));
+
+  app.use((request, response, next) => {
+    if (request.method !== "GET" || request.path.startsWith("/api/") || request.path.startsWith("/gateway")) {
+      next();
+      return;
+    }
+    response.sendFile(path.join(config.clientDir, "index.html"));
+  });
+}
 
 const server = http.createServer(app);
 const proxy = httpProxy.createProxyServer({

@@ -21,17 +21,24 @@ interface AuthScreenProps {
   notice: (message: string) => void;
 }
 
-function AuthModePanel({ children, mode }: { children: ReactNode; mode: "login" | "register" }) {
-  const [open, setOpen] = useState(false);
+function AuthModePanel({ animate, children, mode }: { animate: boolean; children: ReactNode; mode: "login" | "register" }) {
+  const [open, setOpen] = useState(!animate);
 
-  useEffect(() => setOpen(true), []);
+  useEffect(() => {
+    if (animate) setOpen(true);
+  }, [animate]);
 
   return <div className="t-panel-slide auth-mode-panel" data-direction={mode === "register" ? "up" : "down"} data-open={open}>{children}</div>;
 }
 
 function AuthModeContainer({ children, mode }: { children: ReactNode; mode: "login" | "register" }) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const hasMounted = useRef(false);
   const [height, setHeight] = useState<number>();
+
+  useEffect(() => {
+    hasMounted.current = true;
+  }, []);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -48,7 +55,7 @@ function AuthModeContainer({ children, mode }: { children: ReactNode; mode: "log
     <div className="auth-mode-slot">
       <div className="t-resize auth-mode-container" style={height === undefined ? undefined : { height }}>
         <div ref={contentRef}>
-          <AuthModePanel key={mode} mode={mode}>{children}</AuthModePanel>
+          <AuthModePanel key={mode} animate={hasMounted.current} mode={mode}>{children}</AuthModePanel>
         </div>
       </div>
     </div>
@@ -175,7 +182,7 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
               </Button>
               <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
                 <span>{mode === "login" ? "계정이 없나요?" : "계정이 있나요?"}</span>
-                <Button type="button" variant="link" size="sm" className="h-auto p-0 font-semibold" disabled={busy} onClick={() => onModeChange(mode === "login" ? "register" : "login")}>
+                <Button type="button" variant="link" className="h-auto p-0 font-semibold" disabled={busy} onClick={() => onModeChange(mode === "login" ? "register" : "login")}>
                   {mode === "login" ? "가입" : "로그인"}
                 </Button>
               </div>

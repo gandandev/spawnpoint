@@ -21,6 +21,8 @@ export const config = {
   port: integerEnv("PORT", 3000, 1, 65_535),
   dataDir: path.resolve(process.env.DATA_DIR ?? path.join(process.cwd(), "data")),
   clientDir: path.resolve(process.cwd(), "dist/client"),
+  assetRootDir: path.resolve(process.cwd(), "public"),
+  serveClient: process.env.SERVE_CLIENT !== "false",
   seedDir: path.resolve(process.cwd(), "server-runtime/seed"),
   sessionSecret: process.env.SESSION_SECRET?.trim() ?? "",
   serverPassword: process.env.SERVER_PASSWORD?.trim() ?? "",

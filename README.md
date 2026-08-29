@@ -31,6 +31,14 @@ MC_MOCK=true npm start
 
 open `http://localhost:3000`. mock mode exercises the entire portal without starting Minecraft.
 
+the production frontend and backend are separate, but the combined local server remains available for quick development. to exercise the same split locally, run:
+
+```bash
+docker compose up --build
+```
+
+open `http://localhost:3000`. caddy serves the frontend and proxies `/api`, `/healthz`, and `/gateway` to the private backend service.
+
 to start the real server, first read the [Minecraft EULA](https://www.minecraft.net/eula), then make your own acceptance explicit:
 
 ```bash
@@ -41,15 +49,59 @@ the repository never ships `eula.txt` and never accepts it for you. first startu
 
 ## railway deployment
 
-1. create a Railway project from this repository.
-2. add a persistent volume mounted at `/data`.
-3. set `DATA_DIR=/data`.
-4. set `SESSION_SECRET` to at least 32 random characters, for example `openssl rand -base64 48`.
-5. set a non-empty `SERVER_PASSWORD` for the people allowed to join.
-6. after reading the Minecraft EULA, set `MC_EULA=true` if you accept it.
-7. set `SPAWNPOINT_ADMIN_PASSWORD` for independent administrator-panel access. `SPAWNPOINT_ADMIN_USERNAMES` and `SPAWNPOINT_ADMIN_USER_IDS` are optional and grant permanent administrator access to matching signed-in accounts.
-8. deploy. the included `railway.toml` uses the Dockerfile and `/healthz` check.
-9. create accounts through the protected portal. use `SPAWNPOINT_ADMIN_USER_IDS` only if a signed-in account should open the administrator panel without the separate administrator password.
+production uses two Railway services from this repository. the frontend owns every public domain. it serves static files and proxies authenticated traffic over Railway's private network, so cookies, CSRF checks, server-sent events, and the WebSocket gateway stay on one browser origin.
+
+### backend service
+
+use `Dockerfile.backend`, keep the `/data` volume, and set `/healthz` as the health check. keep the existing secrets and Minecraft variables on this service. `SERVE_CLIENT=false` is already set in the image.
+
+recommended watch paths:
+
+```text
+/server/**
+/server-plugin/**
+/server-runtime/**
+/public/assets/skins/**
+/Dockerfile.backend
+/tsconfig.server.json
+```
+
+### frontend service
+
+create a second service from the same repository and use `Dockerfile.frontend`. set its health check to `/frontend-healthz` and set:
+
+```text
+BACKEND_ORIGIN=http://${{spawnpoint-web.RAILWAY_PRIVATE_DOMAIN}}:${{spawnpoint-web.PORT}}
+```
+
+replace `spawnpoint-web` if the backend service has another name. keep this service in the same Railway project and environment because private DNS does not cross either boundary.
+
+recommended watch paths:
+
+```text
+/src/**
+/public/**
+/vendor/**
+/scripts/prepare-clients.mjs
+/scripts/generate-presets.mjs
+/scripts/compress-client-assets.mjs
+/index.html
+/vite.config.ts
+/tsconfig.json
+/Dockerfile.frontend
+/Caddyfile.frontend
+/package.json
+/package-lock.json
+```
+
+### safe cutover
+
+1. deploy the new frontend on a temporary Railway domain and verify login, the status stream, a game launch, `/game/stable.html`, and `/frontend-healthz`.
+2. move the public and custom domains from the old combined service to the frontend service.
+3. change the existing backend service from `Dockerfile` to `Dockerfile.backend`. the root `railway.toml` is the old single-service compatibility config, so clear its config-file setting or migrate the project to Railway IaC before selecting the backend Dockerfile.
+4. apply the watch paths above. frontend-only commits then replace only the small Caddy service and leave the Node and Java processes running.
+
+do not make the backend public after the cutover. the frontend proxy is the only public entry point.
 
 the Hobby plan's $5 is usage credit, not a hard resource cap. spawnpoint keeps the always-on Node control plane small and pays the Java memory cost only while the world is awake, but nobody can honestly guarantee a fixed bill. watch Railway usage, especially if people hammer the public wake button or keep the world occupied. the portal also enforces a start cooldown and per-IP rate limits.
 
@@ -57,10 +109,13 @@ the Hobby plan's $5 is usage credit, not a hard resource cap. spawnpoint keeps t
 
 - `src/`: React portal
 - `server/`: account API, skin service, status stream, gateway, and process manager
+- `server/package.json`: isolated backend dependencies, so frontend package changes do not redeploy the server
 - `server-plugin/`: signed-ticket EaglerXServer plugin source
 - `server-runtime/seed/`: Paper 1.12.2 and EaglerXServer seed copied into persistent storage
 - `vendor/clients/`: untouched offline client sources
 - `scripts/prepare-clients.mjs`: injects the same-origin gateway configuration into all three clients
+- `Dockerfile.frontend` and `Caddyfile.frontend`: static frontend and same-origin backend proxy
+- `Dockerfile.backend`: API, gateway, and Minecraft runtime without frontend assets
 - `ATTRIBUTION.md`: client and server provenance with hashes
 - `DESIGN_QA.md`: concept fidelity ledger and real browser verification record
 

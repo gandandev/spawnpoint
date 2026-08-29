@@ -1360,7 +1360,7 @@
   function readMobileLookSensitivity() {
     try {
       var savedSensitivity = Number(window.localStorage.getItem(mobileLookSensitivityStorageKey));
-      return isFinite(savedSensitivity) && savedSensitivity >= 0.5 && savedSensitivity <= 2.5 ? savedSensitivity : 1.35;
+      return isFinite(savedSensitivity) && savedSensitivity >= 0.5 && savedSensitivity <= 4.05 ? savedSensitivity : 1.35;
     } catch (_error) {
       return 1.35;
     }
@@ -1563,7 +1563,7 @@
   function setMobileLookSensitivity(value) {
     value = Number(value);
     if (!isFinite(value)) return;
-    mobileLookSensitivity = clampMobileValue(value, 0.5, 2.5);
+    mobileLookSensitivity = clampMobileValue(value, 0.5, 4.05);
     updateMobileSensitivityDisplay();
     try {
       window.localStorage.setItem(mobileLookSensitivityStorageKey, String(mobileLookSensitivity));
@@ -2255,7 +2255,7 @@
     mobileSensitivityInput = document.createElement("input");
     mobileSensitivityInput.type = "range";
     mobileSensitivityInput.min = "0.5";
-    mobileSensitivityInput.max = "2.5";
+    mobileSensitivityInput.max = "4.05";
     mobileSensitivityInput.step = "0.05";
     mobileSensitivityInput.setAttribute("aria-label", "마우스 감도");
     mobileSensitivityInput.oninput = function () { setMobileLookSensitivity(mobileSensitivityInput.value); };

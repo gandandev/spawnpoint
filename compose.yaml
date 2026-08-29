@@ -1,0 +1,27 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      DATA_DIR: /data
+      MC_MOCK: "true"
+      NODE_ENV: development
+      SESSION_SECRET: local-development-secret-with-at-least-32-characters
+    volumes:
+      - spawnpoint-data:/data
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      - server
+    environment:
+      BACKEND_ORIGIN: http://server:3000
+      PORT: 3000
+    ports:
+      - "3000:3000"
+
+volumes:
+  spawnpoint-data:

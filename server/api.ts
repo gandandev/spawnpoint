@@ -336,7 +336,7 @@ export function createApiRouter(context: ApiContext): express.Router {
   const adminLimiter = new MemoryRateLimiter(60, 10 * 60_000);
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 256 * 1024, files: 1, fields: 4 },
+    limits: { fileSize: 256 * 1024, files: 1, fields: 4, fieldNestingDepth: 0 },
   });
 
   router.use(express.json({ limit: "32kb" }));
