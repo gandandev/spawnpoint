@@ -66,6 +66,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.advancement.Advancement;
+import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -75,17 +76,21 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerBedEnterEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.material.Bed;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -1081,6 +1086,22 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (getServer().getOnlinePlayers().size() != 1) return;
         getServer().getWorlds().forEach(world -> world.setTime(0L));
         getLogger().info("Set all loaded worlds to 6 AM after the empty server received a player.");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerBedInteract(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() != EquipmentSlot.HAND) return;
+        Block bedBlock = event.getClickedBlock();
+        if (bedBlock == null || bedBlock.getType() != Material.BED_BLOCK) return;
+        if (bedBlock.getWorld().getEnvironment() != World.Environment.NORMAL) return;
+
+        Bed bed = (Bed) bedBlock.getState().getData();
+        Block bedHead = bed.isHeadOfBed() ? bedBlock : bedBlock.getRelative(bed.getFacing());
+        if (bedHead.getType() != Material.BED_BLOCK) return;
+
+        Player player = event.getPlayer();
+        player.setBedSpawnLocation(bedHead.getLocation(), false);
+        player.sendMessage(ChatColor.YELLOW + "리스폰 지점을 설정했어요.");
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
