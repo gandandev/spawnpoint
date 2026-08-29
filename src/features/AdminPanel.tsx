@@ -91,33 +91,30 @@ interface UserEditorProps {
   busy: boolean;
   resetConfirming: boolean;
   resetCode: string | null;
-  onSave: (identity: Pick<AdminUser, "username" | "displayName">) => Promise<void>;
+  onSave: (identity: Pick<AdminUser, "username">) => Promise<void>;
   onReset: () => Promise<void>;
   onArmReset: () => void;
   onCopyResetCode: () => void;
 }
 
 function UserEditor({ user, currentUserId, busy, resetConfirming, resetCode, onSave, onReset, onArmReset, onCopyResetCode }: UserEditorProps) {
-  const [username, setUsername] = useState(user.username);
-  const [displayName, setDisplayName] = useState(user.displayName);
+  const [name, setName] = useState(user.username);
   useEffect(() => {
-    setUsername(user.username);
-    setDisplayName(user.displayName);
-  }, [user.displayName, user.id, user.username]);
+    setName(user.username);
+  }, [user.id, user.username]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void onSave({ username, displayName });
+    void onSave({ username: name });
   };
 
   return <div className="flex min-w-0 flex-col gap-4">
     <div className="flex items-center gap-2"><div className="min-w-0"><div className="truncate font-medium">{user.displayName}</div><div className="truncate text-xs text-muted-foreground">게임 기술 ID: {user.gameUsername}</div></div>{user.isAdmin && <Badge variant="secondary" className="ml-auto"><ShieldCheck />관리자</Badge>}</div>
     <form className="flex flex-col gap-3" onSubmit={submit}>
       <FieldGroup>
-        <Field><FieldLabel htmlFor={`admin-username-${user.id}`}>플레이어 ID</FieldLabel><Input id={`admin-username-${user.id}`} value={username} onChange={(event) => setUsername(event.target.value)} minLength={1} maxLength={16} required /></Field>
-        <Field><FieldLabel htmlFor={`admin-display-name-${user.id}`}>표시 이름</FieldLabel><Input id={`admin-display-name-${user.id}`} value={displayName} onChange={(event) => setDisplayName(event.target.value)} minLength={1} maxLength={16} required /></Field>
+        <Field><FieldLabel htmlFor={`admin-name-${user.id}`}>이름</FieldLabel><Input id={`admin-name-${user.id}`} value={name} onChange={(event) => setName(event.target.value)} minLength={1} maxLength={16} required /></Field>
       </FieldGroup>
-      <Button type="submit" disabled={busy || (username === user.username && displayName === user.displayName)}>{busy ? <Spinner /> : <Check />}이름 변경</Button>
+      <Button type="submit" disabled={busy || name === user.username}>{busy ? <Spinner /> : <Check />}이름 변경</Button>
     </form>
     {user.id !== currentUserId && <div className="rounded-lg border p-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium"><KeyRound className="size-4" />비밀번호 초기화</div>

@@ -7,10 +7,10 @@ an actual Eaglercraft multiplayer portal with site accounts, account-bound in-ga
 - player registration and login with a 3 to 16 character player ID and password
 - scrypt password hashing, signed HTTP-only sessions, same-origin checks, CSRF tokens, and request rate limits
 - short-lived signed game tickets passed through the same-origin WebSocket gateway
-- a custom EaglerXServer plugin that verifies the ticket, forces the site player ID as the in-game name, and forces the selected skin
+- a custom EaglerXServer plugin that verifies the ticket, keeps a Minecraft-safe technical ID internal, and shows the site player name in game
 - 64x64 or legacy 64x32 PNG upload, and skin lookup by Minecraft username through Mojang's official profile APIs
 - a public server status stream and an authenticated wake button
-- editable login IDs, Korean display names, password changes, and one-time administrator password resets
+- one editable Korean-capable player name for login and in-game display, password changes, and one-time administrator password resets
 - an administrator panel backed by a loopback-only bridge for live player details, OP controls, and server logs
 - Paper 1.12.2 off by default, with automatic shutdown after 15 empty minutes
 - a persistent SQLite account database, uploaded skins, and Minecraft world under one Railway volume

@@ -550,7 +550,7 @@
   }
 
   function tpaDraftIsActive() {
-    return desktopChatInputActive && /^\/(?:tpa|티피에이|티피요청)\s*$/i.test(chatDraft);
+    return desktopChatInputActive && /^\/(?:tpa|티피에이|티피요청|텔포)\s*$/i.test(chatDraft);
   }
 
   function updateTPAPickerLayout() {

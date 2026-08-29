@@ -21,9 +21,10 @@ describe("account database migrations", () => {
   it("preserves the original Minecraft identity when an account is renamed", () => {
     const database = new AppDatabase(temporaryDataDirectory());
     const created = database.createUser("oldplayer", Buffer.from("hash"), Buffer.from("salt"));
-    const renamed = database.updateIdentity(created.id, "newplayer", "새 플레이어");
+    const renamed = database.updateIdentity(created.id, "새플레이어");
 
-    expect(renamed.username).toBe("newplayer");
+    expect(renamed.username).toBe("새플레이어");
+    expect(renamed.displayName).toBe("새플레이어");
     expect(renamed.gameUsername).toBe("oldplayer");
     expect(database.getUserByGameUsername("OLDPLAYER")?.id).toBe(created.id);
     database.close();
@@ -38,6 +39,25 @@ describe("account database migrations", () => {
     expect(created.gameUsername).toMatch(/^sp_[a-f0-9]{13}$/);
     expect(created.gameUsername).toHaveLength(16);
     database.close();
+  });
+
+  it("migrates a separate display name back to the account name", () => {
+    const dataDir = temporaryDataDirectory();
+    const database = new AppDatabase(dataDir);
+    const created = database.createUser("텔레그램", Buffer.from("hash"), Buffer.from("salt"));
+    database.close();
+
+    const raw = new Database(path.join(dataDir, "spawnpoint.sqlite"));
+    raw.prepare("UPDATE users SET display_name = ? WHERE id = ?").run("다른이름", created.id);
+    raw.close();
+
+    const migrated = new AppDatabase(dataDir);
+    expect(migrated.getUserById(created.id)).toMatchObject({
+      username: "텔레그램",
+      displayName: "텔레그램",
+      gameUsername: created.gameUsername,
+    });
+    migrated.close();
   });
 
   it("backfills immutable game and display names in a legacy database", () => {

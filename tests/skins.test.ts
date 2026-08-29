@@ -88,12 +88,12 @@ describe("account skin storage", () => {
   it("updates account identity and invalidates old sessions after password changes", () => {
     const database = createDatabase();
     const user = database.createUser("oldplayer", Buffer.from("old-hash"), Buffer.from("old-salt"));
-    const renamed = database.updateIdentity(user.id, "newplayer", "새 플레이어");
+    const renamed = database.updateIdentity(user.id, "새플레이어");
     const passwordChanged = database.updatePassword(user.id, Buffer.from("new-hash"), Buffer.from("new-salt"));
 
-    expect(renamed.username).toBe("newplayer");
+    expect(renamed.username).toBe("새플레이어");
     expect(renamed.gameUsername).toBe("oldplayer");
-    expect(renamed.displayName).toBe("새 플레이어");
+    expect(renamed.displayName).toBe("새플레이어");
     expect(passwordChanged.sessionVersion).toBe(1);
     database.close();
   });

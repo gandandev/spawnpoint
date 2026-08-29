@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createPasswordResetCode, createSessionToken, hashPassword, isSameOriginHeaders, sessionFromCookieHeader,
-  signToken, validateCredentials, validateDisplayName, validateNewPassword, verifyPassword, verifyPasswordResetCode, verifyToken,
+  signToken, validateCredentials, validateNewPassword, verifyPassword, verifyPasswordResetCode, verifyToken,
 } from "../server/security.js";
 
 const secret = "test-secret-that-is-longer-than-thirty-two-characters";
@@ -75,12 +75,5 @@ describe("credentials", () => {
     expect(validateCredentials("player", "한").password).toBe("한");
     expect(() => validateNewPassword("짧은비번")).toThrow("8~128자");
     expect(validateNewPassword("충분히긴비밀번호")).toBe("충분히긴비밀번호");
-  });
-
-  it("accepts Korean display names without Minecraft formatting characters", () => {
-    expect(validateDisplayName(" 이끼 러너 ")).toBe("이끼 러너");
-    expect(Array.from(validateDisplayName("가나다라마바사아자차카타파하가나"))).toHaveLength(16);
-    expect(() => validateDisplayName("§c관리자")).toThrow();
-    expect(() => validateDisplayName("가나다라마바사아자차카타파하가나다")).toThrow();
   });
 });

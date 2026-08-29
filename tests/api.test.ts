@@ -90,6 +90,49 @@ async function createHarness(options: { bridgeOrigin?: string; adminUserIds?: st
   return { admin, adminHeaders, database, gameConnections, origin, user };
 }
 
+describe("unified player names", () => {
+  it("keeps the login name and in-game display name identical", async () => {
+    const harness = await createHarness();
+    const session = createSessionToken(harness.user, secret, 1);
+    const response = await fetch(`${harness.origin}/api/account/profile`, {
+      method: "PATCH",
+      headers: {
+        Cookie: `spawnpoint_session=${session.token}`,
+        "x-spawnpoint-csrf": session.csrf,
+        "Content-Type": "application/json",
+        Origin: harness.origin,
+      },
+      body: JSON.stringify({ username: "텔레그램", displayName: "다른이름" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      user: { username: "텔레그램", displayName: "텔레그램" },
+    });
+    expect(harness.database.getUserById(harness.user.id)).toMatchObject({
+      username: "텔레그램",
+      displayName: "텔레그램",
+    });
+  });
+
+  it("exposes technical name mappings only to the local plugin secret", async () => {
+    const harness = await createHarness();
+    const rejected = await fetch(`${harness.origin}/api/internal/game-identities`);
+    expect(rejected.status).toBe(401);
+
+    const allowed = await fetch(`${harness.origin}/api/internal/game-identities`, {
+      headers: { Authorization: `Bearer ${secret}` },
+    });
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({
+      identities: expect.arrayContaining([
+        { displayName: "adminuser", gameUsername: "adminuser" },
+        { displayName: "normaluser", gameUsername: "normaluser" },
+      ]),
+    });
+  });
+});
+
 describe("hidden administrator unlock", () => {
   it("unlocks without a configured administrator account", async () => {
     const harness = await createHarness({ adminUserIds: [], adminUsernames: [] });
@@ -386,6 +429,11 @@ describe("separate login and registration", () => {
     });
     expect(loginResponse.status).toBe(200);
     expect(await loginResponse.json()).toMatchObject({ created: false });
+
+    const existingAvailability = await fetch(`${harness.origin}/api/auth/username-availability?username=${encodeURIComponent("기존계정")}`);
+    expect(await existingAvailability.json()).toMatchObject({ available: false, exists: true });
+    const missingAvailability = await fetch(`${harness.origin}/api/auth/username-availability?username=${encodeURIComponent("없는계정")}`);
+    expect(await missingAvailability.json()).toMatchObject({ available: true, exists: false });
   });
 });
 

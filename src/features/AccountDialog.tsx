@@ -18,8 +18,7 @@ interface AccountDialogProps {
 export function AccountDialog({ data, onSession, notice }: AccountDialogProps) {
   const user = data.user!;
   const [open, setOpen] = useState(false);
-  const [username, setUsername] = useState(user.username);
-  const [displayName, setDisplayName] = useState(user.displayName);
+  const [name, setName] = useState(user.username);
   const [profileBusy, setProfileBusy] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -28,12 +27,11 @@ export function AccountDialog({ data, onSession, notice }: AccountDialogProps) {
 
   useEffect(() => {
     if (!open) return;
-    setUsername(user.username);
-    setDisplayName(user.displayName);
+    setName(user.username);
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
-  }, [open, user.displayName, user.username]);
+  }, [open, user.username]);
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
@@ -42,7 +40,7 @@ export function AccountDialog({ data, onSession, notice }: AccountDialogProps) {
       const result = await api<SessionUpdate>("/account/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", "x-spawnpoint-csrf": data.csrf! },
-        body: JSON.stringify({ username, displayName }),
+        body: JSON.stringify({ username: name }),
       });
       onSession(result.user, result.csrf, result.adminExpiresAt);
       notice("계정 정보를 변경했어요.");
@@ -89,10 +87,9 @@ export function AccountDialog({ data, onSession, notice }: AccountDialogProps) {
       </DialogHeader>
       <form className="flex flex-col gap-4" onSubmit={saveProfile}>
         <FieldGroup>
-          <Field><FieldLabel htmlFor="account-username">플레이어 ID</FieldLabel><Input id="account-username" value={username} onChange={(event) => setUsername(event.target.value)} minLength={1} maxLength={16} autoComplete="username" required /></Field>
-          <Field><FieldLabel htmlFor="account-display-name">표시 이름</FieldLabel><Input id="account-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} minLength={1} maxLength={16} required /></Field>
+          <Field><FieldLabel htmlFor="account-name">이름</FieldLabel><Input id="account-name" value={name} onChange={(event) => setName(event.target.value)} minLength={1} maxLength={16} autoComplete="username" required /></Field>
         </FieldGroup>
-        <Button type="submit" className="h-10 w-full" disabled={profileBusy || (username === user.username && displayName === user.displayName)}>{profileBusy ? <Spinner /> : <Check />}이름 변경</Button>
+        <Button type="submit" className="h-10 w-full" disabled={profileBusy || name === user.username}>{profileBusy ? <Spinner /> : <Check />}이름 변경</Button>
       </form>
       <Separator />
       <form className="flex flex-col gap-4" onSubmit={changePassword}>

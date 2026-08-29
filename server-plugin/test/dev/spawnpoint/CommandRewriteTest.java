@@ -18,6 +18,7 @@ public final class CommandRewriteTest {
     public static void main(String[] args) {
         assertRewrite("/tell " + FRIEND + " 안녕 친구", "/tell 친구 안녕 친구");
         assertRewrite("/minecraft:msg " + FRIEND + " 반가워", "/minecraft:msg 친구 반가워");
+        assertRewrite("/ban " + FRIEND, "/ban 친구");
         assertRewrite("/tell " + MOSS_RUNNER + " 안녕", "/tell 이끼 러너 안녕");
         assertRewrite("/tell " + MOSS + " 러너 안녕", "/tell \"이끼\" 러너 안녕");
         assertRewrite("/tp " + ADMIN + " " + FRIEND, "/tp 관리자 친구");

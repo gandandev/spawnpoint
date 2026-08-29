@@ -867,7 +867,7 @@ describe("portal game bridge", () => {
     };
     hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
     const chatInput = locatorElementsById.get("spawnpoint-mobile-chat")!.children[0];
-    chatInput.value = "/티피에이";
+    chatInput.value = "/텔포";
     chatInput.oninput({ isComposing: false });
 
     await vi.waitFor(() => {
@@ -882,7 +882,7 @@ describe("portal game bridge", () => {
     await vi.waitFor(() => expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/chat", expect.objectContaining({
       method: "POST",
       credentials: "same-origin",
-      body: JSON.stringify({ launchId: "launch-123", message: "/티피에이 MossRunner" }),
+      body: JSON.stringify({ launchId: "launch-123", message: "/텔포 MossRunner" }),
     })));
     expect(clientTextInputEvents).toHaveLength(0);
     expect(canvasEvents).toHaveLength(0);

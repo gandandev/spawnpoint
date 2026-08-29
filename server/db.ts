@@ -109,7 +109,7 @@ export class AppDatabase {
       if (!columns.has(name)) this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
     }
     this.db.exec("UPDATE users SET game_username = username WHERE game_username = ''");
-    this.db.exec("UPDATE users SET display_name = username WHERE display_name = ''");
+    this.db.exec("UPDATE users SET display_name = username WHERE display_name != username");
     this.db.exec("UPDATE users SET password_reset_expires_at = NULL WHERE password_reset_digest IS NULL");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_game_username_unique ON users(game_username COLLATE NOCASE)");
     this.byUsername = this.db.prepare("SELECT * FROM users WHERE username = ?");
@@ -218,8 +218,8 @@ export class AppDatabase {
     return this.requireUser(id, "updating skin");
   }
 
-  updateIdentity(id: string, username: string, displayName: string): UserRecord {
-    this.updateIdentityStatement.run({ id, username, displayName });
+  updateIdentity(id: string, username: string): UserRecord {
+    this.updateIdentityStatement.run({ id, username, displayName: username });
     return this.requireUser(id, "updating identity");
   }
 

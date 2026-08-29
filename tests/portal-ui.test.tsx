@@ -197,7 +197,7 @@ describe("administrator access", () => {
       }));
       if (path === "/api/admin/overview") return Promise.resolve(jsonResponse(adminOverview(false)));
       if (path === "/api/auth/login") return Promise.resolve(jsonResponse({ user: player, csrf: "player-csrf", created: false }));
-      if (path.startsWith("/api/auth/username-availability")) return Promise.resolve(jsonResponse({ available: false, resetRequired: false }));
+      if (path.startsWith("/api/auth/username-availability")) return Promise.resolve(jsonResponse({ available: false, exists: true, resetRequired: false }));
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     }));
     const container = document.createElement("div");
@@ -357,7 +357,7 @@ describe("server password input", () => {
 
   it("keeps login to two fields and links to signup below the full-width button", async () => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn(async () => jsonResponse({ available: true, resetRequired: false }));
+    const fetchMock = vi.fn(async () => jsonResponse({ available: true, exists: false, resetRequired: false }));
     vi.stubGlobal("fetch", fetchMock);
     const onModeChange = vi.fn();
     const container = document.createElement("div");
@@ -369,10 +369,13 @@ describe("server password input", () => {
 
     const initialButtons = [...container.querySelectorAll("form button")];
     expect(initialButtons[0]?.textContent).toContain("로그인");
+    expect(initialButtons[0]?.querySelector(".auth-label-in")).toBeNull();
     expect(initialButtons[0]?.className).toContain("w-full");
     expect(initialButtons[1]?.textContent).toContain("가입");
     expect(container.querySelector(".auth-mode-slot")).not.toBeNull();
     expect(container.querySelector(".auth-mode-container")?.className).toContain("t-resize");
+    expect(container.querySelector('.auth-mode-panel [data-slot="card"]')?.className).toContain("bg-transparent");
+    expect(container.querySelector(".auth-mode-panel")?.getAttribute("data-direction")).toBe("from-left");
     expect(container.textContent).toContain("계정이 없나요?");
     expect(container.querySelector("#server-password")).toBeNull();
     expect((container.querySelector("#password") as HTMLInputElement).placeholder).toBe("비밀번호");
@@ -397,7 +400,85 @@ describe("server password input", () => {
     expect(buttons).toHaveLength(2);
     expect(buttons[0]?.textContent).toContain("로그인");
     expect(buttons[0]?.className).toContain("w-full");
-    expect(buttons[1]?.textContent).toContain("가입");
+    expect(container.textContent).toContain("없는 이름이에요. 대신");
+    expect(buttons[1]?.textContent).toContain("가입할까요?");
+    await act(async () => root.unmount());
+  });
+
+  it("suggests login when the signup name already exists", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => jsonResponse({ available: false, exists: true, resetRequired: false }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onModeChange = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="register" onAuth={vi.fn()} onModeChange={onModeChange} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+    });
+
+    const input = container.querySelector("#username") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "텔레그램");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/username-availability?username=%ED%85%94%EB%A0%88%EA%B7%B8%EB%9E%A8",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(container.textContent).toContain("이미 있는 이름이에요. 대신");
+    expect((container.querySelector("#server-password") as HTMLInputElement).type).toBe("text");
+    expect([...container.querySelectorAll("form button")][0]?.textContent).toContain("가입");
+    const loginSuggestion = [...container.querySelectorAll("form button")].find((button) => button.textContent?.includes("로그인할까요?"));
+    await act(async () => loginSuggestion?.click());
+    expect(onModeChange).toHaveBeenCalledWith("login");
+    await act(async () => root.unmount());
+  });
+
+  it("overlaps the old form exit with the new form entry from the opposite side", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const props = {
+      data: { ...adminData, user: null },
+      onAuth: vi.fn(async () => undefined),
+      onModeChange: vi.fn(),
+      onOpenAdmin: vi.fn(),
+      notice: vi.fn(),
+    };
+    await act(async () => root.render(<AuthScreen {...props} mode="login" />));
+
+    await act(async () => root.render(<AuthScreen {...props} mode="register" />));
+    let outgoing = container.querySelector('[data-layer="outgoing"]') as HTMLDivElement;
+    let incoming = container.querySelector('[data-layer="incoming"]') as HTMLDivElement;
+    expect(outgoing.dataset.state).toBe("exiting");
+    expect(incoming.dataset.state).toBe("entering");
+    expect(outgoing.dataset.direction).toBe("from-right");
+    expect(incoming.dataset.direction).toBe("from-right");
+    expect(outgoing.textContent).toContain("로그인");
+    expect(incoming.textContent).toContain("가입");
+
+    await act(async () => incoming.dispatchEvent(new Event("animationend", { bubbles: true })));
+    let panel = container.querySelector(".auth-mode-panel") as HTMLDivElement;
+    expect(container.querySelectorAll(".auth-mode-panel")).toHaveLength(1);
+    expect(panel.dataset.state).toBe("idle");
+    expect(panel.textContent).toContain("가입");
+
+    await act(async () => root.render(<AuthScreen {...props} mode="login" />));
+    outgoing = container.querySelector('[data-layer="outgoing"]') as HTMLDivElement;
+    incoming = container.querySelector('[data-layer="incoming"]') as HTMLDivElement;
+    expect(outgoing.dataset.direction).toBe("from-left");
+    expect(incoming.dataset.direction).toBe("from-left");
+    expect(outgoing.textContent).toContain("가입");
+    expect(incoming.textContent).toContain("로그인");
+    await act(async () => incoming.dispatchEvent(new Event("animationend", { bubbles: true })));
+    panel = container.querySelector(".auth-mode-panel") as HTMLDivElement;
+    expect(panel.dataset.state).toBe("idle");
+    expect(panel.textContent).toContain("로그인");
+
     await act(async () => root.unmount());
   });
 
@@ -409,7 +490,7 @@ describe("server password input", () => {
     await act(async () => {
       root.render(<AuthScreen data={{ ...adminData, user: null }} mode="register" onAuth={onAuth} onModeChange={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
     });
-    expect(container.querySelector(".auth-mode-panel")?.getAttribute("data-direction")).toBe("up");
+    expect(container.querySelector(".auth-mode-panel")?.getAttribute("data-direction")).toBe("from-right");
     expect(container.textContent).toContain("계정이 있나요?");
     expect(container.querySelector("#password")?.getAttribute("minlength")).toBe("8");
     expect((container.querySelector("#password") as HTMLInputElement).placeholder).toBe("비밀번호 (8자 이상)");
@@ -538,10 +619,10 @@ describe("skin change flow", () => {
 });
 
 describe("account settings copy and spacing", () => {
-  it("edits the login ID and display name without merging them", async () => {
+  it("edits one name used for login and in-game display", async () => {
     const onSession = vi.fn();
     const fetchMock = vi.fn(async () => jsonResponse({
-      user: { ...adminData.user!, username: "member", displayName: "새 이름" },
+      user: { ...adminData.user!, username: "새이름", displayName: "새이름" },
       csrf: "updated-csrf",
       adminExpiresAt: null,
     }));
@@ -557,26 +638,26 @@ describe("account settings copy and spacing", () => {
     expect(trigger.className).toContain("shrink");
     await act(async () => trigger.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
-    expect((document.body.querySelector("#account-username") as HTMLInputElement).value).toBe("member");
-    const displayName = document.body.querySelector("#account-display-name") as HTMLInputElement;
-    expect(displayName.value).toBe("멤버");
+    const name = document.body.querySelector("#account-name") as HTMLInputElement;
+    expect(name.value).toBe("member");
+    expect(document.body.querySelector("#account-display-name")).toBeNull();
     const changeButton = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "이름 변경") as HTMLButtonElement;
     expect(changeButton.disabled).toBe(true);
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      setter.call(displayName, "새 이름");
-      displayName.dispatchEvent(new Event("input", { bubbles: true }));
+      setter.call(name, "새이름");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      displayName.form?.requestSubmit();
+      name.form?.requestSubmit();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/account/profile", expect.objectContaining({
-      body: JSON.stringify({ username: "member", displayName: "새 이름" }),
+      body: JSON.stringify({ username: "새이름" }),
     }));
-    expect(onSession).toHaveBeenCalledWith(expect.objectContaining({ username: "member", displayName: "새 이름" }), "updated-csrf", null);
+    expect(onSession).toHaveBeenCalledWith(expect.objectContaining({ username: "새이름", displayName: "새이름" }), "updated-csrf", null);
     expect(document.body.textContent).toContain("이름 변경");
     expect(document.body.querySelector("#current-password")?.closest('[data-slot="field-group"]')?.className).toContain("gap-2");
     expect(document.body.querySelector("#new-password")?.getAttribute("minlength")).toBe("8");
@@ -938,8 +1019,8 @@ describe("administrator console and account actions", () => {
 
     expect(changeButton).toBeTruthy();
     expect(changeButton?.querySelector("svg")).toBeTruthy();
-    expect((document.body.querySelector("#admin-username-member-1") as HTMLInputElement).value).toBe("member");
-    expect((document.body.querySelector("#admin-display-name-member-1") as HTMLInputElement).value).toBe("멤버");
+    expect((document.body.querySelector("#admin-name-member-1") as HTMLInputElement).value).toBe("member");
+    expect(document.body.querySelector("#admin-display-name-member-1")).toBeNull();
     expect((changeButton as HTMLButtonElement).disabled).toBe(true);
     expect(document.body.textContent).toContain("플레이어 1");
     expect(document.body.textContent).not.toContain("계정 1");

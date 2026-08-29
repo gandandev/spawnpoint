@@ -120,6 +120,8 @@
 :root {
   --resize-dur: 300ms;
   --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --auth-mode-phase-dur: 200ms;
+  --auth-mode-enter-delay: 100ms;
 }
 .t-resize {
   transition:
@@ -136,12 +138,35 @@
   overflow: visible;
 }
 
-.auth-mode-panel {
-  --panel-translate-y: 30px;
+.auth-mode-stage {
+  position: relative;
 }
 
-.auth-mode-panel[data-direction="down"] {
-  --panel-translate-y: -30px;
+.auth-mode-panel {
+  --auth-mode-enter-x: var(--distance-medium);
+  --auth-mode-exit-x: calc(-1 * var(--distance-medium));
+}
+
+.auth-mode-panel[data-direction="from-left"] {
+  --auth-mode-enter-x: calc(-1 * var(--distance-medium));
+  --auth-mode-exit-x: var(--distance-medium);
+}
+
+.auth-mode-panel[data-layer="outgoing"] {
+  position: absolute;
+  inset: 0;
+}
+
+.auth-mode-panel[data-state="exiting"] {
+  animation: auth-mode-exit var(--auth-mode-phase-dur) ease-in both;
+  pointer-events: none;
+  will-change: transform, opacity, filter;
+}
+
+.auth-mode-panel[data-state="entering"] {
+  animation: auth-mode-enter var(--auth-mode-phase-dur) var(--ease-out) var(--auth-mode-enter-delay) both;
+  pointer-events: none;
+  will-change: transform, opacity, filter;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -170,9 +195,14 @@
   80% { transform: translateX(var(--distance-small)); }
 }
 
-@keyframes auth-label-in {
-  from { opacity: 0; transform: translateY(var(--distance-micro)); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes auth-mode-exit {
+  from { opacity: 1; transform: translateX(0); filter: blur(0); }
+  to { opacity: 0; transform: translateX(var(--auth-mode-exit-x)); filter: blur(var(--blur-small)); }
+}
+
+@keyframes auth-mode-enter {
+  from { opacity: 0; transform: translateX(var(--auth-mode-enter-x)); filter: blur(var(--blur-small)); }
+  to { opacity: 1; transform: translateX(0); filter: blur(0); }
 }
 
 @keyframes skin-studio-content-in {
@@ -203,10 +233,6 @@
 
   .password-field-error {
     animation: password-shake calc(var(--duration-micro) * 5) var(--ease-in-out);
-  }
-
-  .auth-label-in {
-    animation: auth-label-in var(--duration-quick) var(--ease-in-out);
   }
 
   .dashboard-shell {
@@ -325,8 +351,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .auth-mode-panel,
   .password-field-error,
-  .auth-label-in,
   .skin-studio-content {
     animation: none;
   }

@@ -19,7 +19,6 @@ import {
   setAdminCookie,
   setSessionCookie,
   validateCredentials,
-  validateDisplayName,
   validateNewPassword,
   validatePassword,
   validateUsername,
@@ -452,15 +451,30 @@ export function createApiRouter(context: ApiContext): express.Router {
       const user = context.database.getUserByUsername(username);
       response.json({
         available: user === null && !isAdminUsername(username, context),
+        exists: user !== null,
         resetRequired: user ? hasActivePasswordReset(user) : false,
       });
     } catch (error) {
-      failFromError(response, 400, error, "플레이어 ID를 확인할 수 없어요.", "INVALID_USERNAME");
+      failFromError(response, 400, error, "플레이어 이름을 확인할 수 없어요.", "INVALID_USERNAME");
     }
   });
 
   router.get("/server/status", (_request, response) => {
     response.json({ server: context.serverManager.getStatus() });
+  });
+
+  router.get("/internal/game-identities", (request, response) => {
+    if (!safeSecretEqual(request.get("authorization"), `Bearer ${context.sessionSecret}`)) {
+      fail(response, 401, "브리지 인증이 올바르지 않아요.", "BRIDGE_AUTH_REQUIRED");
+      return;
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      identities: context.database.listUsers().map((user) => ({
+        displayName: user.displayName,
+        gameUsername: user.gameUsername,
+      })),
+    });
   });
 
   router.get("/server/players", (request, response) => {
@@ -570,11 +584,11 @@ export function createApiRouter(context: ApiContext): express.Router {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
       validateNewPassword(credentials.password);
       if (isAdminUsername(credentials.username, context) && !context.database.getUserByUsername(credentials.username)) {
-        fail(response, 403, "관리자용 플레이어 ID는 새로 등록할 수 없어요.", "RESERVED_USERNAME");
+        fail(response, 403, "관리자용 플레이어 이름은 새로 등록할 수 없어요.", "RESERVED_USERNAME");
         return;
       }
       if (context.database.getUserByUsername(credentials.username)) {
-        fail(response, 409, "이미 등록된 플레이어 ID예요.", "USERNAME_TAKEN");
+        fail(response, 409, "이미 등록된 플레이어 이름이에요.", "USERNAME_TAKEN");
         return;
       }
       const password = await hashPassword(credentials.password);
@@ -582,7 +596,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       try {
         user = context.database.createUser(credentials.username, password.hash, password.salt);
       } catch {
-        fail(response, 409, "이미 등록된 플레이어 ID예요.", "USERNAME_TAKEN");
+        fail(response, 409, "이미 등록된 플레이어 이름이에요.", "USERNAME_TAKEN");
         return;
       }
       const session = createSessionToken(user, context.sessionSecret, context.sessionDays);
@@ -611,7 +625,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       }
       const valid = user ? await verifyPassword(credentials.password, user.passwordSalt, user.passwordHash) : false;
       if (!user || !valid) {
-        fail(response, 401, "플레이어 ID 또는 비밀번호가 올바르지 않아요.", "INVALID_LOGIN");
+        fail(response, 401, "플레이어 이름 또는 비밀번호가 올바르지 않아요.", "INVALID_LOGIN");
         return;
       }
       const session = createSessionToken(user, context.sessionSecret, context.sessionDays);
@@ -641,7 +655,7 @@ export function createApiRouter(context: ApiContext): express.Router {
           return;
         }
         if (!verifyPasswordResetCode(request.body?.serverPassword, context.sessionSecret, resetDigest)) {
-          fail(response, 401, "플레이어 ID 또는 인증 정보가 올바르지 않아요.", "INVALID_LOGIN");
+          fail(response, 401, "플레이어 이름 또는 인증 정보가 올바르지 않아요.", "INVALID_LOGIN");
           return;
         }
         const password = await hashPassword(credentials.password);
@@ -653,7 +667,7 @@ export function createApiRouter(context: ApiContext): express.Router {
           Date.now(),
         );
         if (!user) {
-          fail(response, 401, "플레이어 ID 또는 인증 정보가 올바르지 않아요.", "INVALID_LOGIN");
+          fail(response, 401, "플레이어 이름 또는 인증 정보가 올바르지 않아요.", "INVALID_LOGIN");
           return;
         }
       } else {
@@ -669,7 +683,7 @@ export function createApiRouter(context: ApiContext): express.Router {
           }
         } else {
           if (isAdminUsername(credentials.username, context)) {
-            fail(response, 403, "관리자용 플레이어 ID는 새로 등록할 수 없어요.", "RESERVED_USERNAME");
+            fail(response, 403, "관리자용 플레이어 이름은 새로 등록할 수 없어요.", "RESERVED_USERNAME");
             return;
           }
           const password = await hashPassword(validateNewPassword(credentials.password));
@@ -677,7 +691,7 @@ export function createApiRouter(context: ApiContext): express.Router {
             user = context.database.createUser(credentials.username, password.hash, password.salt);
             created = true;
           } catch {
-            fail(response, 409, "플레이어 ID가 방금 등록됐어요. 다시 시도하세요.", "USERNAME_TAKEN");
+            fail(response, 409, "플레이어 이름이 방금 등록됐어요. 다시 시도하세요.", "USERNAME_TAKEN");
             return;
           }
         }
@@ -710,21 +724,20 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
     try {
       const username = request.body?.username === undefined ? user.username : validateUsername(request.body.username);
-      const displayName = request.body?.displayName === undefined ? user.displayName : validateDisplayName(request.body.displayName);
       if (isAdmin(user, context) && !isAdminId(user.id, context) && !isAdminUsername(username, context)) {
-        fail(response, 400, "관리자 플레이어 ID는 서버 설정과 함께 변경해야 해요.", "ADMIN_USERNAME_FIXED");
+        fail(response, 400, "관리자 플레이어 이름은 서버 설정과 함께 변경해야 해요.", "ADMIN_USERNAME_FIXED");
         return;
       }
       if (isAdminUsername(username, context) && !isAdmin(user, context)) {
-        fail(response, 403, "관리자용 플레이어 ID로 변경할 수 없어요.", "RESERVED_USERNAME");
+        fail(response, 403, "관리자용 플레이어 이름으로 변경할 수 없어요.", "RESERVED_USERNAME");
         return;
       }
       const owner = context.database.getUserByUsername(username);
       if (owner && owner.id !== user.id) {
-        fail(response, 409, "이미 등록된 플레이어 ID예요.", "USERNAME_TAKEN");
+        fail(response, 409, "이미 등록된 플레이어 이름이에요.", "USERNAME_TAKEN");
         return;
       }
-      const updated = context.database.updateIdentity(user.id, username, displayName);
+      const updated = context.database.updateIdentity(user.id, username);
       const session = createSessionToken(updated, context.sessionSecret, context.sessionDays);
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({
@@ -946,21 +959,20 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
     try {
       const username = request.body?.username === undefined ? target.username : validateUsername(request.body.username);
-      const displayName = request.body?.displayName === undefined ? target.displayName : validateDisplayName(request.body.displayName);
       if (target.id === admin.id && isAdmin(admin, context) && !isAdminId(admin.id, context) && !isAdminUsername(username, context)) {
-        fail(response, 400, "관리자 플레이어 ID는 서버 설정과 함께 변경해야 해요.", "ADMIN_USERNAME_FIXED");
+        fail(response, 400, "관리자 플레이어 이름은 서버 설정과 함께 변경해야 해요.", "ADMIN_USERNAME_FIXED");
         return;
       }
       if (isAdminUsername(username, context) && !isAdmin(target, context)) {
-        fail(response, 403, "관리자용 플레이어 ID로 변경할 수 없어요.", "RESERVED_USERNAME");
+        fail(response, 403, "관리자용 플레이어 이름으로 변경할 수 없어요.", "RESERVED_USERNAME");
         return;
       }
       const owner = context.database.getUserByUsername(username);
       if (owner && owner.id !== target.id) {
-        fail(response, 409, "이미 등록된 플레이어 ID예요.", "USERNAME_TAKEN");
+        fail(response, 409, "이미 등록된 플레이어 이름이에요.", "USERNAME_TAKEN");
         return;
       }
-      const updated = context.database.updateIdentity(target.id, username, displayName);
+      const updated = context.database.updateIdentity(target.id, username);
       if (updated.id === admin.id) {
         if (authenticated) {
           const session = createSessionToken(updated, context.sessionSecret, context.sessionDays);

@@ -101,16 +101,6 @@ export function validateNewPassword(password: unknown): string {
   return validPassword;
 }
 
-export function validateDisplayName(input: unknown): string {
-  if (typeof input !== "string") throw new Error("표시 이름을 입력하세요.");
-  const displayName = input.normalize("NFC").trim();
-  const length = Array.from(displayName).length;
-  if (length < 1 || length > 16 || !/^[\p{L}\p{N}_ ]+$/u.test(displayName) || /  /.test(displayName)) {
-    throw new Error("표시 이름은 한글, 영문, 숫자, 공백, 밑줄을 사용해 1~16자로 입력하세요.");
-  }
-  return displayName;
-}
-
 export function validateUsername(username: unknown): string {
   if (typeof username !== "string") throw new Error("플레이어 이름을 입력하세요.");
   const normalized = username.normalize("NFC").trim();

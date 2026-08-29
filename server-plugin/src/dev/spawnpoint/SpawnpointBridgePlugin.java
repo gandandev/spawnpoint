@@ -103,6 +103,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private static final long TPA_REQUEST_MILLIS = 60_000L;
     private static final long TPA_REQUEST_TICKS = 60L * 20L;
     private static final long TPA_COOLDOWN_MILLIS = 3_000L;
+    private static final long COMMAND_IDENTITY_REFRESH_TICKS = 10L * 20L;
     private static final int IDENTITY_RESOLVE_ATTEMPTS = 40;
     private static final Pattern TECHNICAL_GAME_USERNAME = Pattern.compile("(?i)sp_[a-f0-9]{13}");
 
@@ -111,10 +112,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private HttpServer bridgeServer;
     private ExecutorService bridgeExecutor;
     private BukkitTask locatorSnapshotTask;
+    private BukkitTask commandIdentityRefreshTask;
     private boolean tpaEnabled;
     private final Map<String, PlayerIdentity> pendingIdentities = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerIdentity> activeIdentities = new ConcurrentHashMap<>();
     private volatile Map<String, JsonObject> locatorSnapshots = Map.of();
+    private volatile List<CommandTargetName> commandTargets = List.of();
     private final Map<UUID, TeleportRequest> teleportRequests = new HashMap<>();
     private final Map<UUID, BukkitTask> teleportExpiryTasks = new HashMap<>();
     private final Map<UUID, Long> teleportRequestCooldowns = new HashMap<>();
@@ -122,6 +125,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private boolean advancementReflectionWarningLogged;
     private boolean deathTranslationWarningLogged;
     private boolean packetReflectionWarningLogged;
+    private boolean commandIdentityWarningLogged;
 
     @Override
     public void onEnable() {
@@ -149,6 +153,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         startBridgeServer();
         if (!isEnabled()) return;
         this.locatorSnapshotTask = getServer().getScheduler().runTaskTimer(this, this::refreshLocatorSnapshots, 1L, 2L);
+        this.commandIdentityRefreshTask = getServer().getScheduler().runTaskTimerAsynchronously(
+            this,
+            this::refreshCommandTargets,
+            1L,
+            COMMAND_IDENTITY_REFRESH_TICKS
+        );
         getLogger().info("Site-ticket authentication and the loopback server bridge are active.");
     }
 
@@ -167,9 +177,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     @Override
     public void onDisable() {
         if (locatorSnapshotTask != null) locatorSnapshotTask.cancel();
+        if (commandIdentityRefreshTask != null) commandIdentityRefreshTask.cancel();
         restoreAdvancementAnnouncementRules();
         getServer().getOnlinePlayers().forEach(this::removeDisplayNamePacketHandler);
         locatorSnapshots = Map.of();
+        commandTargets = List.of();
         pendingIdentities.clear();
         activeIdentities.clear();
         teleportRequests.clear();
@@ -239,7 +251,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         String targetName = String.join(" ", args);
         PlayerLookup lookup = findOnlinePlayer(requester, targetName);
         if (lookup.duplicateDisplayName) {
-            requester.sendMessage("같은 표시 이름을 쓰는 플레이어가 여러 명이에요. 게임 ID를 입력하세요.");
+            requester.sendMessage("같은 이름을 쓰는 플레이어가 여러 명이에요. 관리자에게 알려주세요.");
             return true;
         }
         Player target = lookup.player;
@@ -434,19 +446,67 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
-        List<CommandTargetName> targets = new ArrayList<>();
+        Map<String, CommandTargetName> targetsByTechnicalName = new HashMap<>();
+        for (CommandTargetName target : commandTargets) {
+            targetsByTechnicalName.put(target.technicalName.toLowerCase(Locale.ROOT), target);
+        }
         for (Player candidate : getServer().getOnlinePlayers()) {
-            if (!event.getPlayer().canSee(candidate)) continue;
+            String technicalKey = candidate.getName().toLowerCase(Locale.ROOT);
+            if (!event.getPlayer().canSee(candidate)) {
+                targetsByTechnicalName.remove(technicalKey);
+                continue;
+            }
             String displayName = resolvedPlayerName(candidate);
             if (displayName == null) continue;
-            targets.add(new CommandTargetName(displayName, candidate.getName()));
+            targetsByTechnicalName.put(technicalKey, new CommandTargetName(displayName, candidate.getName()));
         }
+        List<CommandTargetName> targets = new ArrayList<>(targetsByTechnicalName.values());
         CommandRewrite rewrite = rewriteDisplayNameCommand(event.getMessage(), targets);
         if (rewrite.ambiguousDisplayName) {
             event.setCancelled(true);
-            event.getPlayer().sendMessage("같은 표시 이름을 쓰는 플레이어가 여러 명이에요. 게임 ID로 명령어 대상을 입력하세요.");
+            event.getPlayer().sendMessage("같은 이름을 쓰는 플레이어가 여러 명이에요. 관리자에게 알려주세요.");
         } else if (!rewrite.message.equals(event.getMessage())) {
             event.setMessage(rewrite.message);
+        }
+    }
+
+    private void refreshCommandTargets() {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) URI.create(portalOrigin + "/api/internal/game-identities").toURL().openConnection();
+            connection.setConnectTimeout(2_000);
+            connection.setReadTimeout(2_000);
+            connection.setUseCaches(false);
+            connection.setRequestProperty("Authorization", "Bearer " + new String(secret, StandardCharsets.UTF_8));
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                throw new IOException("portal returned " + connection.getResponseCode());
+            }
+            byte[] response;
+            try (InputStream input = connection.getInputStream()) {
+                response = input.readNBytes(MAX_RESPONSE_BYTES + 1);
+            }
+            if (response.length > MAX_RESPONSE_BYTES) throw new IOException("portal response is too large");
+            JsonObject body = new JsonParser().parse(new String(response, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonArray identities = body.getAsJsonArray("identities");
+            if (identities == null) throw new JsonParseException("identities are missing");
+            List<CommandTargetName> refreshed = new ArrayList<>();
+            for (JsonElement element : identities) {
+                if (!element.isJsonObject()) continue;
+                JsonObject identity = element.getAsJsonObject();
+                String displayName = string(identity, "displayName");
+                String gameUsername = string(identity, "gameUsername");
+                if (!isSafeDisplayName(displayName) || gameUsername == null || !gameUsername.matches("[A-Za-z0-9_]{3,16}")) continue;
+                refreshed.add(new CommandTargetName(displayName, gameUsername));
+            }
+            commandTargets = List.copyOf(refreshed);
+            commandIdentityWarningLogged = false;
+        } catch (IOException | IllegalArgumentException | IllegalStateException | JsonParseException exception) {
+            if (!commandIdentityWarningLogged) {
+                commandIdentityWarningLogged = true;
+                getLogger().warning("Could not refresh command names; keeping the previous cache: " + exception.getMessage());
+            }
+        } finally {
+            if (connection != null) connection.disconnect();
         }
     }
 
