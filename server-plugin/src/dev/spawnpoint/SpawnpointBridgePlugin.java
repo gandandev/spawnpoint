@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -78,6 +79,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerBedEnterEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -423,6 +425,164 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             displayNameMatch = candidate;
         }
         return new PlayerLookup(displayNameMatch, false);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        List<CommandTargetName> targets = new ArrayList<>();
+        for (Player candidate : getServer().getOnlinePlayers()) {
+            if (!event.getPlayer().canSee(candidate)) continue;
+            String displayName = resolvedPlayerName(candidate);
+            if (displayName == null) continue;
+            targets.add(new CommandTargetName(displayName, candidate.getName()));
+        }
+        CommandRewrite rewrite = rewriteDisplayNameCommand(event.getMessage(), targets);
+        if (rewrite.ambiguousDisplayName) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage("같은 표시 이름을 쓰는 플레이어가 여러 명이에요. 게임 ID로 명령어 대상을 입력하세요.");
+        } else if (!rewrite.message.equals(event.getMessage())) {
+            event.setMessage(rewrite.message);
+        }
+    }
+
+    static CommandRewrite rewriteDisplayNameCommand(String message, List<CommandTargetName> targets) {
+        List<CommandSpan> spans = commandSpans(message);
+        if (spans.isEmpty()) return new CommandRewrite(message, false);
+        String command = spanValue(message, spans.get(0));
+        if (!command.startsWith("/")) return new CommandRewrite(message, false);
+        command = command.substring(1);
+        int namespaceSeparator = command.lastIndexOf(':');
+        if (namespaceSeparator >= 0) command = command.substring(namespaceSeparator + 1);
+        command = command.toLowerCase(Locale.ROOT);
+
+        return switch (command) {
+            case "tell", "msg", "w", "whisper", "message", "pm", "dm",
+                "kick", "ban", "pardon", "op", "deop", "kill", "give", "clear",
+                "effect", "enchant", "spawnpoint", "tellraw", "testfor", "title",
+                "execute", "entitydata", "stopsound" -> rewriteCommandTargets(message, targets, 0);
+            case "tp", "teleport", "spectate" -> rewriteCommandTargets(message, targets, 0, 1);
+            case "gamemode", "xp", "advancement", "recipe" -> rewriteCommandTargets(message, targets, 1);
+            case "playsound", "achievement" -> rewriteCommandTargets(message, targets, 2);
+            case "replaceitem", "stats" -> "entity".equalsIgnoreCase(commandArgument(message, 0))
+                ? rewriteCommandTargets(message, targets, 1)
+                : new CommandRewrite(message, false);
+            case "scoreboard" -> rewriteScoreboardTargets(message, targets);
+            default -> new CommandRewrite(message, false);
+        };
+    }
+
+    private static CommandRewrite rewriteScoreboardTargets(String message, List<CommandTargetName> targets) {
+        if (!"players".equalsIgnoreCase(commandArgument(message, 0))) {
+            return new CommandRewrite(message, false);
+        }
+        if ("operation".equalsIgnoreCase(commandArgument(message, 1))) {
+            return rewriteCommandTargets(message, targets, 2, 5);
+        }
+        return rewriteCommandTargets(message, targets, 2);
+    }
+
+    private static CommandRewrite rewriteCommandTargets(
+        String message,
+        List<CommandTargetName> targets,
+        int... argumentIndexes
+    ) {
+        String rewritten = message;
+        for (int argumentIndex : argumentIndexes) {
+            TargetRewrite targetRewrite = rewriteCommandTarget(rewritten, targets, argumentIndex);
+            if (targetRewrite.ambiguousDisplayName) return new CommandRewrite(message, true);
+            rewritten = targetRewrite.message;
+        }
+        return new CommandRewrite(rewritten, false);
+    }
+
+    private static TargetRewrite rewriteCommandTarget(
+        String message,
+        List<CommandTargetName> targets,
+        int argumentIndex
+    ) {
+        List<CommandSpan> spans = commandSpans(message);
+        int spanIndex = argumentIndex + 1;
+        if (spanIndex >= spans.size()) return new TargetRewrite(message, false);
+        CommandSpan targetSpan = spans.get(spanIndex);
+        String token = spanValue(message, targetSpan);
+        if (token.startsWith("@")) return new TargetRewrite(message, false);
+        for (CommandTargetName target : targets) {
+            if (target.technicalName.equalsIgnoreCase(token)) return new TargetRewrite(message, false);
+        }
+
+        CommandTargetName bestTarget = null;
+        int bestEnd = -1;
+        boolean ambiguous = false;
+        for (CommandTargetName target : targets) {
+            int matchEnd = displayNameMatchEnd(message, targetSpan.start, target.displayName);
+            if (matchEnd < 0) continue;
+            if (matchEnd > bestEnd) {
+                bestTarget = target;
+                bestEnd = matchEnd;
+                ambiguous = false;
+            } else if (matchEnd == bestEnd && bestTarget != null
+                && !bestTarget.technicalName.equalsIgnoreCase(target.technicalName)) {
+                ambiguous = true;
+            }
+        }
+        if (bestTarget == null) return new TargetRewrite(message, false);
+        if (ambiguous) return new TargetRewrite(message, true);
+        return new TargetRewrite(
+            message.substring(0, targetSpan.start) + bestTarget.technicalName + message.substring(bestEnd),
+            false
+        );
+    }
+
+    private static int displayNameMatchEnd(String message, int start, String displayName) {
+        String normalizedDisplayName = Normalizer.normalize(displayName, Normalizer.Form.NFC);
+        if (start < message.length() && message.charAt(start) == '"') {
+            int closingQuote = message.indexOf('"', start + 1);
+            if (closingQuote < 0) return -1;
+            String candidate = Normalizer.normalize(message.substring(start + 1, closingQuote), Normalizer.Form.NFC);
+            if (!candidate.equalsIgnoreCase(normalizedDisplayName)) return -1;
+            int end = closingQuote + 1;
+            return end == message.length() || Character.isWhitespace(message.charAt(end)) ? end : -1;
+        }
+
+        int limit = Math.min(message.length(), start + Math.max(64, displayName.length() * 3));
+        for (int end = start + 1; end <= limit; end++) {
+            if (end < message.length() && !Character.isWhitespace(message.charAt(end))) continue;
+            String candidate = Normalizer.normalize(message.substring(start, end), Normalizer.Form.NFC);
+            if (candidate.equalsIgnoreCase(normalizedDisplayName)) return end;
+        }
+        return -1;
+    }
+
+    private static String commandArgument(String message, int argumentIndex) {
+        List<CommandSpan> spans = commandSpans(message);
+        int spanIndex = argumentIndex + 1;
+        return spanIndex < spans.size() ? spanValue(message, spans.get(spanIndex)) : "";
+    }
+
+    private static List<CommandSpan> commandSpans(String message) {
+        List<CommandSpan> spans = new ArrayList<>();
+        int cursor = 0;
+        while (cursor < message.length()) {
+            while (cursor < message.length() && Character.isWhitespace(message.charAt(cursor))) cursor++;
+            if (cursor >= message.length()) break;
+            int start = cursor;
+            if (message.charAt(cursor) == '"') {
+                cursor++;
+                while (cursor < message.length() && message.charAt(cursor) != '"') cursor++;
+                if (cursor < message.length()) cursor++;
+            } else {
+                while (cursor < message.length() && !Character.isWhitespace(message.charAt(cursor))) cursor++;
+            }
+            spans.add(new CommandSpan(start, cursor));
+        }
+        return spans;
+    }
+
+    private static String spanValue(String message, CommandSpan span) {
+        String value = message.substring(span.start, span.end);
+        return value.length() >= 2 && value.charAt(0) == '"' && value.charAt(value.length() - 1) == '"'
+            ? value.substring(1, value.length() - 1)
+            : value;
     }
 
     private void scheduleTeleportExpiration(TeleportRequest request) {
@@ -1421,6 +1581,14 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private record LocatorTarget(Player player, Location location, double distanceSquared) {}
 
     private record PlayerLookup(Player player, boolean duplicateDisplayName) {}
+
+    record CommandTargetName(String displayName, String technicalName) {}
+
+    record CommandRewrite(String message, boolean ambiguousDisplayName) {}
+
+    private record TargetRewrite(String message, boolean ambiguousDisplayName) {}
+
+    private record CommandSpan(int start, int end) {}
 
     private record TeleportRequest(UUID requesterId, UUID targetId, long expiresAt) {}
 
