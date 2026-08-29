@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAdminMutation, useAdminOverview } from "@/features/admin-hooks";
 import type { AdminOverview, AdminUser, BootstrapData, InventoryItem, PlayerDetails, PublicUser } from "@/types";
 
 type AdminTab = "players" | "console";
@@ -21,12 +21,6 @@ interface AdminPanelProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   showTrigger?: boolean;
-}
-
-interface AdminMutationResult {
-  user?: PublicUser;
-  csrf?: string;
-  resetCode?: string;
 }
 
 function itemName(item: InventoryItem) {
@@ -137,95 +131,22 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const [tab, setTab] = useState<AdminTab>("players");
-  const [overview, setOverview] = useState<AdminOverview | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [busyKeys, setBusyKeys] = useState<Set<string>>(() => new Set());
   const [resetConfirming, setResetConfirming] = useState<string | null>(null);
   const [resetCode, setResetCode] = useState<{ userId: string; value: string } | null>(null);
   const [consoleCommand, setConsoleCommand] = useState("");
   const logsRef = useRef<HTMLPreElement>(null);
-  const overviewRequestGenerationRef = useRef(0);
 
-  const loadOverview = useCallback(async (signal?: AbortSignal) => {
-    const generation = ++overviewRequestGenerationRef.current;
-    let result: AdminOverview;
-    try {
-      result = await api<AdminOverview>("/admin/overview", {
-        headers: { "x-spawnpoint-csrf": data.csrf! },
-        signal,
-      });
-    } catch (error) {
-      if (generation !== overviewRequestGenerationRef.current) return null;
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
-        setLoadError(error instanceof Error ? error.message : "관리자 정보를 불러오지 못했어요");
-      }
-      throw error;
-    }
-    if (generation !== overviewRequestGenerationRef.current) return null;
-    setOverview(result);
-    setLoadError(null);
+  const onOverview = useCallback((result: AdminOverview) => {
     setSelectedUserId((current) => current && result.users.some((user) => user.id === current) ? current : (result.users[0]?.id ?? null));
     setResetCode((current) => current && result.users.some((user) => user.id === current.userId && user.resetRequired) ? current : null);
-    return result;
-  }, [data.csrf]);
-
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    let controller: AbortController | null = null;
-    let timer: number | null = null;
-    const poll = async () => {
-      controller = new AbortController();
-      try {
-        await loadOverview(controller.signal);
-      } catch {
-        // The latest request owns the visible error state inside loadOverview.
-      }
-      if (active) timer = window.setTimeout(() => void poll(), 2_000);
-    };
-    void poll();
-    return () => {
-      active = false;
-      controller?.abort();
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [loadOverview, open]);
+  }, []);
+  const { overview, loadError, loadOverview } = useAdminOverview({ open, csrf: data.csrf, onOverview });
+  const { isBusy, mutate } = useAdminMutation({ csrf: data.csrf, onSession, notice, refresh: loadOverview });
 
   useLayoutEffect(() => {
     if (tab === "console" && logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
   }, [overview?.logs.length, tab]);
-
-  const mutate = async (key: string, path: string, options: RequestInit) => {
-    setBusyKeys((current) => {
-      if (current.has(key)) return current;
-      const next = new Set(current);
-      next.add(key);
-      return next;
-    });
-    try {
-      const result = await api<AdminMutationResult>(path, {
-        ...options,
-        headers: { "x-spawnpoint-csrf": data.csrf!, ...options.headers },
-      });
-      if (result?.user && result.csrf) {
-        onSession(result.user, result.csrf);
-      } else {
-        await loadOverview();
-      }
-      return result ?? {};
-    } catch (error) {
-      notice(error instanceof Error ? error.message : "관리자 작업을 완료하지 못했어요");
-      return null;
-    } finally {
-      setBusyKeys((current) => {
-        if (!current.has(key)) return current;
-        const next = new Set(current);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
 
   const selectedUser = overview?.users.find((user) => user.id === selectedUserId) ?? null;
   const onlinePlayersByAccount = useMemo(() => new Map(overview?.players.flatMap((player) => player.accountId ? [[player.accountId, player] as const] : []) ?? []), [overview?.players]);
@@ -256,7 +177,7 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
           <TpaSettingRow
             enabled={overview.tpaEnabled}
             serverOnline={overview.server.phase === "online"}
-            busy={busyKeys.has("tpa")}
+            busy={isBusy("tpa")}
             onChange={(enabled) => {
               void mutate("tpa", "/admin/settings/tpa", {
                 method: "PUT",
@@ -276,14 +197,14 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
             })}
           </div>
           <div className="flex min-w-0 flex-col gap-4 rounded-lg border p-4">{selectedUser ? <>
-            {selectedPlayer && <PlayerPanel player={selectedPlayer} busy={busyKeys.has(`op:${selectedPlayer.accountId}`)} onOperator={async (player) => {
+            {selectedPlayer && <PlayerPanel player={selectedPlayer} busy={isBusy(`op:${selectedPlayer.accountId}`)} onOperator={async (player) => {
               const target = player.accountId ?? player.uuid;
               await mutate(`op:${target}`, `/admin/players/${encodeURIComponent(target)}/operator`, { method: "PUT", body: JSON.stringify({ operator: !player.operator }), headers: { "Content-Type": "application/json" } });
             }} />}
             <UserEditor
             user={selectedUser}
             currentUserId={data.user!.id}
-            busy={busyKeys.has(`user:${selectedUser.id}`)}
+            busy={isBusy(`user:${selectedUser.id}`)}
             resetConfirming={resetConfirming === selectedUser.id}
             resetCode={resetCode?.userId === selectedUser.id ? resetCode.value : null}
             onArmReset={() => setResetConfirming(selectedUser.id)}
@@ -322,8 +243,8 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
             });
             if (sent) setConsoleCommand("");
           }}>
-            <Input value={consoleCommand} onChange={(event) => setConsoleCommand(event.target.value)} maxLength={256} disabled={overview.server.phase !== "online" || busyKeys.has("console")} placeholder={overview.server.phase === "online" ? "명령 입력" : "서버가 온라인일 때 입력할 수 있어요"} aria-label="콘솔 명령" autoComplete="off" />
-            <Button type="submit" size="icon" disabled={overview.server.phase !== "online" || busyKeys.has("console") || !consoleCommand.trim()} aria-label="명령 실행">{busyKeys.has("console") ? <Spinner /> : <CornerDownLeft />}</Button>
+            <Input value={consoleCommand} onChange={(event) => setConsoleCommand(event.target.value)} maxLength={256} disabled={overview.server.phase !== "online" || isBusy("console")} placeholder={overview.server.phase === "online" ? "명령 입력" : "서버가 온라인일 때 입력할 수 있어요"} aria-label="콘솔 명령" autoComplete="off" />
+            <Button type="submit" size="icon" disabled={overview.server.phase !== "online" || isBusy("console") || !consoleCommand.trim()} aria-label="명령 실행">{isBusy("console") ? <Spinner /> : <CornerDownLeft />}</Button>
           </form>
         </div>}
       </div>
