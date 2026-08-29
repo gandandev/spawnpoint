@@ -120,8 +120,10 @@
 :root {
   --resize-dur: 300ms;
   --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --auth-mode-phase-dur: 200ms;
-  --auth-mode-enter-delay: 100ms;
+  --auth-mode-exit-dur: 150ms;
+  --auth-mode-enter-dur: 150ms;
+  --auth-mode-enter-delay: 50ms;
+  --auth-mode-enter-ease: cubic-bezier(0.84, 0, 0.5, 1.28);
 }
 .t-resize {
   transition:
@@ -158,13 +160,13 @@
 }
 
 .auth-mode-panel[data-state="exiting"] {
-  animation: auth-mode-exit var(--auth-mode-phase-dur) ease-in both;
+  animation: auth-mode-exit var(--auth-mode-exit-dur) ease-in both;
   pointer-events: none;
   will-change: transform, opacity, filter;
 }
 
 .auth-mode-panel[data-state="entering"] {
-  animation: auth-mode-enter var(--auth-mode-phase-dur) var(--ease-out) var(--auth-mode-enter-delay) both;
+  animation: auth-mode-enter var(--auth-mode-enter-dur) var(--auth-mode-enter-ease) var(--auth-mode-enter-delay) both;
   pointer-events: none;
   will-change: transform, opacity, filter;
 }
