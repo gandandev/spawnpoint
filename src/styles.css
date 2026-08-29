@@ -5,7 +5,7 @@
 
 @font-face {
   font-family: "Spawnpoint Mark";
-  src: url("../vendor/fonts/galmuri/Galmuri11.ttf") format("truetype");
+  src: url("../vendor/fonts/galmuri/Galmuri11.woff2") format("woff2");
   font-display: swap;
 }
 

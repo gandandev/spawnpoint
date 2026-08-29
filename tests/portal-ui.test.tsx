@@ -438,7 +438,7 @@ describe("server password input", () => {
     await act(async () => root.unmount());
   });
 
-  it("overlaps the old form exit with the new form entry from the opposite side", async () => {
+  it("overlaps the old form exit with the spring entry from the opposite side", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -707,10 +707,42 @@ describe("mobile portal controls", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" />);
+      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={vi.fn()} />);
     });
 
     expect(container.querySelector('[aria-label="게임 종료"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("returns to the portal only for the active game launch", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onExit = vi.fn();
+    await act(async () => {
+      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={onExit} />);
+    });
+    const gameFrame = container.querySelector("iframe")!;
+
+    await act(async () => {
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: window.location.origin,
+        source: gameFrame.contentWindow,
+        data: { type: "spawnpoint:return-to-menu", launchId: "another-launch" },
+      }));
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: window.location.origin,
+        source: window,
+        data: { type: "spawnpoint:return-to-menu", launchId: "launch-123" },
+      }));
+      window.dispatchEvent(new MessageEvent("message", {
+        origin: window.location.origin,
+        source: gameFrame.contentWindow,
+        data: { type: "spawnpoint:return-to-menu", launchId: "launch-123" },
+      }));
+    });
+
+    expect(onExit).toHaveBeenCalledOnce();
     await act(async () => root.unmount());
   });
 

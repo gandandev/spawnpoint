@@ -12,7 +12,6 @@
       : "spawnpoint";
   var storageNamespace = "_spawnpoint_" + account.toLowerCase();
   var profileDismissTimer = null;
-  var autoDismissingProfileEditor = false;
 
   if (!options || !launchId) {
     document.addEventListener("DOMContentLoaded", function () {
@@ -157,33 +156,39 @@
         pointerId: 1,
         pointerType: "mouse",
       };
-      autoDismissingProfileEditor = true;
-      try {
-        if (typeof window.PointerEvent === "function") {
-          canvas.dispatchEvent(new window.PointerEvent("pointerdown", eventInit));
-        }
-        canvas.dispatchEvent(new window.MouseEvent("mousedown", eventInit));
-        eventInit.buttons = 0;
-        if (typeof window.PointerEvent === "function") {
-          canvas.dispatchEvent(new window.PointerEvent("pointerup", eventInit));
-        }
-        canvas.dispatchEvent(new window.MouseEvent("mouseup", eventInit));
-        canvas.dispatchEvent(new window.MouseEvent("click", eventInit));
-      } finally {
-        autoDismissingProfileEditor = false;
+      if (typeof window.PointerEvent === "function") {
+        canvas.dispatchEvent(new window.PointerEvent("pointerdown", eventInit));
       }
+      canvas.dispatchEvent(new window.MouseEvent("mousedown", eventInit));
+      eventInit.buttons = 0;
+      if (typeof window.PointerEvent === "function") {
+        canvas.dispatchEvent(new window.PointerEvent("pointerup", eventInit));
+      }
+      canvas.dispatchEvent(new window.MouseEvent("mouseup", eventInit));
+      canvas.dispatchEvent(new window.MouseEvent("click", eventInit));
     }, 50);
+  }
+
+  function requestPortalMenu() {
+    if (window.parent && window.parent !== window && typeof window.parent.postMessage === "function") {
+      window.parent.postMessage({ type: "spawnpoint:return-to-menu", launchId: launchId }, window.location.origin);
+    } else if (window.location && typeof window.location.replace === "function") {
+      window.location.replace("/");
+    }
   }
 
   existingHooks.screenChanged = function (screenName, scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor) {
     if (existingScreenChangedHook) {
       existingScreenChangedHook.call(this, screenName, scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor);
     }
+    var previousScreenName = currentScreenName;
     currentScreenName = typeof screenName === "string" ? screenName : "";
     // A single Escape can close a client screen and then reach gameplay again
     // during the same browser key press. Undo only that duplicate pause menu.
-    if (uiEscapeSourceScreen && /GuiIngameMenu$/.test(currentScreenName) && !/GuiIngameMenu$/.test(uiEscapeSourceScreen)
-      && Date.now() - uiEscapeHandledAt < 1_000) {
+    var duplicatePauseMenu = uiEscapeSourceScreen && /GuiIngameMenu$/.test(currentScreenName)
+      && !/GuiIngameMenu$/.test(uiEscapeSourceScreen) && Date.now() - uiEscapeHandledAt < 1_000;
+    setDesktopGameCursorHidden(!currentScreenName || duplicatePauseMenu);
+    if (duplicatePauseMenu) {
       clearUiEscapeSuppression();
       setTimeout(function () { dispatchRelayedBackquote(null); }, 0);
     }
@@ -196,7 +201,11 @@
     updateTPAPickerLayout();
     updateMobileControlsVisibility();
     if (typeof screenName === "string" && /GuiScreenEditProfile$/.test(screenName)) {
-      dismissProfileEditor(scaledHeight);
+      // The stock GuiMainMenu button remains the real canvas control. Its
+      // native action opens GuiScreenEditProfile, which is the signal to leave
+      // the embedded client. Other profile-editor paths still close normally.
+      if (/GuiMainMenu$/.test(previousScreenName)) requestPortalMenu();
+      else dismissProfileEditor(scaledHeight);
     }
     if (typeof screenName === "string" && /GuiGameOver$/.test(screenName)) {
       releasePointerLockForDeathScreen();
@@ -227,46 +236,6 @@
   // Keep its older adapter from crashing when only storage hooks are supplied.
   if (typeof existingHooks.crashReportShow !== "function") existingHooks.crashReportShow = function () {};
   options.hooks = existingHooks;
-
-  // The vendored client has no launch option for disabling its profile editor.
-  // Block its canvas button permanently and dismiss the screen if another path
-  // reaches it. Spawnpoint owns the player's name and skin in every session.
-
-  function isEditProfileButton(event) {
-    if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return false;
-    var canvas = document.querySelector && document.querySelector("#game_frame canvas, canvas");
-    if (!canvas || event.target !== canvas) return false;
-
-    var bounds = canvas.getBoundingClientRect();
-    var displayWidth = canvas.width || bounds.width;
-    var displayHeight = canvas.height || bounds.height;
-    var maxScale = 1;
-    while (displayWidth / (maxScale + 1) >= 320 && displayHeight / (maxScale + 1) >= 240) maxScale++;
-
-    for (var scale = 1; scale <= maxScale; scale++) {
-      var scaledWidth = Math.ceil(displayWidth / scale);
-      var scaledHeight = Math.ceil(displayHeight / scale);
-      var x = bounds.left + (Math.floor(scaledWidth / 2) + 2) * scale * bounds.width / displayWidth;
-      var y = bounds.top + (Math.floor(scaledHeight / 4) + 132) * scale * bounds.height / displayHeight;
-      var width = 98 * scale * bounds.width / displayWidth;
-      var height = 20 * scale * bounds.height / displayHeight;
-      if (event.clientX >= x && event.clientX < x + width && event.clientY >= y && event.clientY < y + height) return true;
-    }
-    return false;
-  }
-
-  function blockProfileEditor(event) {
-    if (autoDismissingProfileEditor) return;
-    if (!/GuiMainMenu$/.test(currentScreenName)) return;
-    if (!isEditProfileButton(event)) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }
-
-  if (document.addEventListener) {
-    var profileBlockEvent = typeof window.PointerEvent === "function" ? "pointerdown" : "mousedown";
-    document.addEventListener(profileBlockEvent, blockProfileEditor, true);
-  }
 
   // The WASM runtime already has a hidden input that forwards beforeinput text
   // into Minecraft. Make that input usable on desktop and commit only the final
@@ -319,6 +288,7 @@
   var mobileLookPreviousX = 0;
   var mobileLookPreviousY = 0;
   var mobileLookMoved = false;
+  var mobileLookFromControl = false;
   var mobileGuiTouchActive = false;
   var mobileLookAttackTimer = null;
   var mobileLookAttackHeld = false;
@@ -333,7 +303,11 @@
   var mobileSprintEnabled = false;
   var mobileControlLayoutStorageKey = "spawnpoint_mobile_control_layout_v1";
   var mobileLookSensitivityStorageKey = "spawnpoint_mobile_look_sensitivity";
-  var mobileControlLayout = readMobileControlLayout();
+  var mobileControlLayoutStore = readMobileControlLayoutStore();
+  var mobileControlLayout = findMobileControlLayoutForViewport(mobileControlLayoutStore, mobileViewportDimensions());
+  var mobileControlScale = mobileControlLayout && isFinite(Number(mobileControlLayout.scale))
+    ? clampMobileValue(Number(mobileControlLayout.scale), 0.8, 1.5)
+    : 1;
   var mobileLookSensitivity = readMobileLookSensitivity();
   var mobileEditableControls = [];
   var mobileControlEditMode = false;
@@ -341,6 +315,8 @@
   var mobileControlGesture = null;
   var mobileControlLayoutDirty = false;
   var mobileControlEditorListenersInstalled = false;
+  var mobileScaleDownButton = null;
+  var mobileScaleUpButton = null;
   var mobileEditButton = null;
   var mobileHideButton = null;
   var mobileSensitivityInput = null;
@@ -356,12 +332,12 @@
     var style = document.createElement("style");
     style.id = "spawnpoint-locator-style";
     style.textContent = [
-      "#spawnpoint-player-locator{position:fixed;display:none;pointer-events:none;z-index:2147483000;--sp-locator-pixel:2px;--sp-locator-width:364px}",
+      "#spawnpoint-player-locator{position:fixed;display:none;pointer-events:none;z-index:2147483000;background:none!important;image-rendering:auto!important;--sp-locator-pixel:2px;--sp-locator-width:364px}",
       "#spawnpoint-player-locator .sp-locator-track{position:absolute;left:50%;top:calc(var(--sp-locator-pixel)*8);width:var(--sp-locator-width);height:calc(var(--sp-locator-pixel)*5);transform:translateX(-50%);background:#050505;box-shadow:0 var(--sp-locator-pixel) 0 rgba(0,0,0,.35);image-rendering:pixelated}",
       "#spawnpoint-player-locator .sp-locator-track:before{content:'';position:absolute;inset:var(--sp-locator-pixel);background:#294b31;border-top:var(--sp-locator-pixel) solid #426f48;box-sizing:border-box}",
       "#spawnpoint-player-locator .sp-locator-track:after{content:'';position:absolute;left:50%;top:var(--sp-locator-pixel);width:var(--sp-locator-pixel);height:calc(var(--sp-locator-pixel)*3);transform:translateX(-50%);background:#8eaa7c}",
       "#spawnpoint-player-locator .sp-locator-markers{position:absolute;inset:0;overflow:visible;z-index:1}",
-      "#spawnpoint-player-locator .sp-locator-marker{position:absolute;top:50%;width:calc(var(--sp-locator-pixel)*10);height:calc(var(--sp-locator-pixel)*10);transform:translate(-50%,-50%);transition:left 160ms linear;will-change:left}",
+      "#spawnpoint-player-locator .sp-locator-marker{position:absolute;top:50%;width:calc(var(--sp-locator-pixel)*10);height:calc(var(--sp-locator-pixel)*10);transform:translate(-50%,-50%)}",
       "#spawnpoint-player-locator .sp-locator-marker.is-behind{opacity:.72}",
       "#spawnpoint-player-locator .sp-locator-marker canvas{display:block;width:100%;height:100%;image-rendering:pixelated}",
     ].join("");
@@ -848,6 +824,26 @@
     }
   }
 
+  function setDesktopGameCursorHidden(hidden) {
+    if (mobileTouchCapable) return;
+    var canvas = findMinecraftCanvas();
+    if (canvas && canvas.style) canvas.style.cursor = hidden ? "none" : "";
+  }
+
+  function screenClosesToGameplayWithEscape(screenName) {
+    return /Gui(?:Chat|IngameMenu|ScreenBook|EditSign|ScreenAdvancements)$/.test(screenName)
+      || /\.gui\.inventory\.[^.]+$/.test(screenName);
+  }
+
+  function restoreGameplayForUiEscape() {
+    if (!screenClosesToGameplayWithEscape(currentScreenName)) return;
+    // Pointer lock requests made later from the synthetic Backquote event have
+    // no browser user activation. Arc rejects that request, then the client
+    // retries after 3.1 seconds. Re-lock during the physical Escape instead.
+    setDesktopGameCursorHidden(true);
+    restorePortalGameFocus();
+  }
+
   function releasePointerLockForDeathScreen() {
     var canvas = findMinecraftCanvas();
     if (document.pointerLockElement && typeof document.exitPointerLock === "function") {
@@ -1119,6 +1115,14 @@
     target.canvas.dispatchEvent(moveEvent);
   }
 
+  function mobileHeldMouseButtonMask() {
+    var mask = 0;
+    if (mobileHeldMouseButtons[0]) mask |= 1;
+    if (mobileHeldMouseButtons[1]) mask |= 4;
+    if (mobileHeldMouseButtons[2]) mask |= 2;
+    return mask;
+  }
+
   function releaseMobileHeldControls() {
     cancelMobileForwardPrime();
     clearMobileLookAttack(true, null);
@@ -1145,6 +1149,7 @@
     mobileHotbarSlot = -1;
     mobileLookTouchId = null;
     mobileLookMoved = false;
+    mobileLookFromControl = false;
     mobileGuiTouchActive = false;
   }
 
@@ -1235,12 +1240,31 @@
     return null;
   }
 
+  function mobileLookControlFromTarget(target) {
+    if (!mobileControlsRoot || mobileControlEditMode || !mobileGameplayIsActive()) return null;
+    var node = target;
+    while (node && node !== mobileControlsRoot) {
+      var name = mobileControlName(node);
+      if (/^(forward|left|sprint|right|drop|back|attack|use|jump|sneak)$/.test(name)) return node;
+      if (name) return null;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
   function handleMobileCanvasTouchStart(event) {
     var canvas = findMinecraftCanvas();
-    if (!mobileSessionStarted || !canvas || event.target !== canvas || mobileLookTouchId !== null || mobileHotbarTouchId !== null) return;
+    if (!mobileSessionStarted || !canvas || mobileHotbarTouchId !== null) return;
+    var fromControl = event.target !== canvas && !!mobileLookControlFromTarget(event.target);
+    if (event.target !== canvas && !fromControl) return;
+    if (mobileLookTouchId !== null) {
+      // A second finger on the canvas keeps the usual move-and-look gesture,
+      // even when the first finger is still holding a control button.
+      if (event.target !== canvas || !mobileLookFromControl) return;
+    }
     var touch = event.changedTouches && event.changedTouches[0];
     if (!touch) return;
-    var hotbarSlot = mobileHotbarSlotAt(touch);
+    var hotbarSlot = fromControl ? -1 : mobileHotbarSlotAt(touch);
     if (hotbarSlot >= 0) {
       mobileHotbarTouchId = touch.identifier;
       mobileHotbarSlot = hotbarSlot;
@@ -1251,15 +1275,17 @@
     mobileLookStartX = mobileLookPreviousX = touch.clientX;
     mobileLookStartY = mobileLookPreviousY = touch.clientY;
     mobileLookMoved = false;
-    mobileGuiTouchActive = !mobileGameplayIsActive();
+    mobileLookFromControl = fromControl;
+    mobileGuiTouchActive = !fromControl && !mobileGameplayIsActive();
     if (typeof event.preventDefault === "function") event.preventDefault();
+    if (fromControl) return;
     if (mobileGuiTouchActive) dispatchMobileMouseState(0, true, touch);
     else primeMobileLookAttack(touch);
   }
 
   function handleMobileCanvasTouchMove(event) {
     var canvas = findMinecraftCanvas();
-    if (!canvas || event.target !== canvas) return;
+    if (!canvas || (!mobileLookFromControl && event.target !== canvas)) return;
     if (mobileHotbarTouchId !== null) {
       var hotbarTouch = mobileTouchWithId(event.targetTouches || event.touches, mobileHotbarTouchId);
       if (!hotbarTouch) return;
@@ -1281,7 +1307,7 @@
       touch,
       movementX * mobileLookSensitivity,
       movementY * mobileLookSensitivity,
-      mobileGuiTouchActive || mobileLookAttackHeld ? 1 : 0
+      mobileGuiTouchActive ? 1 : mobileHeldMouseButtonMask()
     );
     mobileLookPreviousX = touch.clientX;
     mobileLookPreviousY = touch.clientY;
@@ -1289,7 +1315,7 @@
 
   function handleMobileCanvasTouchEnd(event) {
     var canvas = findMinecraftCanvas();
-    if (!canvas || event.target !== canvas) return;
+    if (!canvas || (!mobileLookFromControl && event.target !== canvas)) return;
     if (mobileHotbarTouchId !== null) {
       var hotbarTouch = mobileTouchWithId(event.changedTouches, mobileHotbarTouchId);
       if (!hotbarTouch) return;
@@ -1304,7 +1330,10 @@
     var touch = mobileTouchWithId(event.changedTouches, mobileLookTouchId);
     if (!touch) return;
     if (typeof event.preventDefault === "function") event.preventDefault();
-    if (mobileGuiTouchActive) {
+    if (mobileLookFromControl) {
+      // The button's own touchend handler releases its key or mouse button.
+      // This path only owns the camera gesture.
+    } else if (mobileGuiTouchActive) {
       dispatchMobileMouseState(0, false, touch);
       if (event.type !== "touchcancel") {
         var target = mobileMousePoint(touch);
@@ -1332,6 +1361,7 @@
     }
     mobileLookTouchId = null;
     mobileLookMoved = false;
+    mobileLookFromControl = false;
     mobileGuiTouchActive = false;
   }
 
@@ -1355,14 +1385,54 @@
     return Math.max(minimum, Math.min(maximum, value));
   }
 
-  function readMobileControlLayout() {
+  function mobileControlProfileMatchesViewport(profile, viewport) {
+    var width = Number(profile && profile.width);
+    var height = Number(profile && profile.height);
+    if (!isFinite(width) || width <= 0 || !isFinite(height) || height <= 0) return false;
+    if ((width >= height) !== (viewport.width >= viewport.height)) return false;
+    var widthChange = Math.abs(viewport.width - width) / width;
+    var heightChange = Math.abs(viewport.height - height) / height;
+    var aspect = width / height;
+    var aspectChange = Math.abs(viewport.width / viewport.height - aspect) / aspect;
+    // Browser chrome and small viewport changes reuse and scale one layout.
+    // Rotation, tablets, and other materially different screens get a profile.
+    return Math.max(widthChange, heightChange) < 0.25 && aspectChange < 0.18;
+  }
+
+  function findMobileControlLayoutForViewport(store, viewport) {
+    if (!store || !Array.isArray(store.profiles)) return null;
+    var match = null;
+    var bestScore = Infinity;
+    store.profiles.forEach(function (profile) {
+      if (!mobileControlProfileMatchesViewport(profile, viewport)) return;
+      var width = Number(profile.width);
+      var height = Number(profile.height);
+      var score = Math.abs(viewport.width - width) / width + Math.abs(viewport.height - height) / height;
+      if (score < bestScore) {
+        match = profile;
+        bestScore = score;
+      }
+    });
+    return match;
+  }
+
+  function readMobileControlLayoutStore() {
     try {
       var savedLayout = JSON.parse(window.localStorage.getItem(mobileControlLayoutStorageKey) || "null");
-      if (!savedLayout || savedLayout.version !== 1 || !savedLayout.controls || typeof savedLayout.controls !== "object") return null;
-      return savedLayout;
+      if (savedLayout && savedLayout.version === 2 && Array.isArray(savedLayout.profiles)) {
+        return { version: 2, profiles: savedLayout.profiles };
+      }
+      if (savedLayout && savedLayout.version === 1 && savedLayout.controls && typeof savedLayout.controls === "object") {
+        var viewport = mobileViewportDimensions();
+        return {
+          version: 2,
+          profiles: [{ width: viewport.width, height: viewport.height, scale: 1, controls: savedLayout.controls }],
+        };
+      }
     } catch (_error) {
-      return null;
+      // Start from the default layout when stored JSON is invalid.
     }
+    return { version: 2, profiles: [] };
   }
 
   function readMobileLookSensitivity() {
@@ -1375,9 +1445,10 @@
   }
 
   function mobileViewportDimensions() {
-    var viewport = window.visualViewport;
-    var width = viewport && typeof viewport.width === "number" ? viewport.width : window.innerWidth;
-    var height = viewport && typeof viewport.height === "number" ? viewport.height : window.innerHeight;
+    // Use the layout viewport here. visualViewport shrinks for the software
+    // keyboard and must not select a different control profile.
+    var width = window.innerWidth;
+    var height = window.innerHeight;
     if (!isFinite(width) || width <= 0) width = document.documentElement && document.documentElement.clientWidth;
     if (!isFinite(height) || height <= 0) height = document.documentElement && document.documentElement.clientHeight;
     return {
@@ -1431,8 +1502,8 @@
   function setMobileControlFixedRect(button, left, top, width, height) {
     if (!button || !button.style) return;
     var viewport = mobileViewportDimensions();
-    width = clampMobileValue(width, 44, Math.max(44, viewport.width - 8));
-    height = clampMobileValue(height, 44, Math.max(44, viewport.height - 8));
+    width = clampMobileValue(width, 35, Math.max(35, viewport.width - 8));
+    height = clampMobileValue(height, 35, Math.max(35, viewport.height - 8));
     left = clampMobileValue(left, 4, Math.max(4, viewport.width - width - 4));
     top = clampMobileValue(top, 4, Math.max(4, viewport.height - height - 4));
     button.style.position = "fixed";
@@ -1447,19 +1518,80 @@
     if (mobileControlsRoot) mobileControlsRoot.setAttribute("data-sp-custom-layout", "true");
   }
 
-  function applyMobileControlLayout() {
-    if (!mobileControlLayout || !mobileControlLayout.controls) return;
+  function mobileControlLayoutIsDefault() {
+    return !mobileControlLayoutDirty
+      && (!mobileControlLayout || !mobileControlLayout.controls || typeof mobileControlLayout.controls !== "object");
+  }
+
+  function mobileControlViewportScale(profile, viewport) {
+    var width = Number(profile && profile.width);
+    var height = Number(profile && profile.height);
+    if (!isFinite(width) || width <= 0 || !isFinite(height) || height <= 0) return 1;
+    return clampMobileValue(Math.min(viewport.width / width, viewport.height / height), 0.65, 1.75);
+  }
+
+  function applyMobileControlScale() {
+    if (!mobileControlsRoot || !mobileControlsRoot.style) return;
     var viewport = mobileViewportDimensions();
+    var baseSize = clampMobileValue(viewport.height * 0.13, 44, 54);
+    var touchSize = clampMobileValue(baseSize * mobileControlScale, 35, 81);
+    touchSize = Math.round(touchSize * 10) / 10;
+    mobileControlsRoot.style.setProperty("--sp-touch", touchSize + "px");
+    mobileControlsRoot.setAttribute("data-sp-control-scale", String(mobileControlScale));
+  }
+
+  function updateMobileDefaultLayoutState() {
+    var isDefault = mobileControlLayoutIsDefault();
+    if (mobileControlsRoot) mobileControlsRoot.setAttribute("data-sp-default-layout", isDefault ? "true" : "false");
+    if (mobileScaleDownButton) mobileScaleDownButton.disabled = !isDefault || mobileControlScale <= 0.8;
+    if (mobileScaleUpButton) mobileScaleUpButton.disabled = !isDefault || mobileControlScale >= 1.5;
+  }
+
+  function persistMobileControlLayoutStore() {
+    try {
+      if (mobileControlLayoutStore.profiles.length) {
+        window.localStorage.setItem(mobileControlLayoutStorageKey, JSON.stringify(mobileControlLayoutStore));
+      } else {
+        window.localStorage.removeItem(mobileControlLayoutStorageKey);
+      }
+    } catch (_error) {
+      // The current session still keeps every active profile when storage is blocked.
+    }
+  }
+
+  function ensureMobileControlLayoutProfile() {
+    if (mobileControlLayout && mobileControlLayoutStore.profiles.indexOf(mobileControlLayout) !== -1) {
+      return mobileControlLayout;
+    }
+    mobileControlLayout = {};
+    mobileControlLayoutStore.profiles.push(mobileControlLayout);
+    return mobileControlLayout;
+  }
+
+  function removeActiveMobileControlLayoutProfile() {
+    var index = mobileControlLayoutStore.profiles.indexOf(mobileControlLayout);
+    if (index !== -1) mobileControlLayoutStore.profiles.splice(index, 1);
+    mobileControlLayout = null;
+  }
+
+  function applyMobileControlLayout() {
+    applyMobileControlScale();
+    if (mobileControlLayoutIsDefault()) {
+      updateMobileDefaultLayoutState();
+      return;
+    }
+    var viewport = mobileViewportDimensions();
+    var viewportScale = mobileControlViewportScale(mobileControlLayout, viewport);
     mobileEditableControls.forEach(function (button) {
       var item = mobileControlLayout.controls[mobileControlName(button)];
       if (!item) return;
-      var width = Number(item.width);
-      var height = Number(item.height);
+      var width = Number(item.width) * viewportScale;
+      var height = Number(item.height) * viewportScale;
       var x = Number(item.x);
       var y = Number(item.y);
       if (![width, height, x, y].every(function (value) { return isFinite(value); })) return;
-      width = clampMobileValue(width, 44, Math.max(44, viewport.width - 8));
-      height = clampMobileValue(height, 44, Math.max(44, viewport.height - 8));
+      width = clampMobileValue(width, 35, Math.max(35, viewport.width - 8));
+      height = clampMobileValue(height, 35, Math.max(35, viewport.height - 8));
       setMobileControlFixedRect(
         button,
         clampMobileValue(x, 0, 1) * Math.max(0, viewport.width - width),
@@ -1468,6 +1600,7 @@
         height
       );
     });
+    updateMobileDefaultLayoutState();
   }
 
   function saveMobileControlLayout() {
@@ -1484,18 +1617,38 @@
         height: Math.round(bounds.height),
       };
     });
-    mobileControlLayout = { version: 1, controls: controls };
+    var profile = ensureMobileControlLayoutProfile();
+    profile.width = viewport.width;
+    profile.height = viewport.height;
+    profile.scale = mobileControlScale;
+    profile.controls = controls;
     mobileControlLayoutDirty = false;
-    try {
-      window.localStorage.setItem(mobileControlLayoutStorageKey, JSON.stringify(mobileControlLayout));
-    } catch (_error) {
-      // The edited layout still works for this session when storage is blocked.
+    persistMobileControlLayoutStore();
+    updateMobileDefaultLayoutState();
+  }
+
+  function saveMobileDefaultControlScale() {
+    if (!mobileControlLayoutIsDefault()) return;
+    var viewport = mobileViewportDimensions();
+    if (Math.abs(mobileControlScale - 1) < 0.001) {
+      if (mobileControlLayout) removeActiveMobileControlLayoutProfile();
+    } else {
+      var profile = ensureMobileControlLayoutProfile();
+      profile.width = viewport.width;
+      profile.height = viewport.height;
+      profile.scale = mobileControlScale;
+      delete profile.controls;
     }
+    persistMobileControlLayoutStore();
+    updateMobileDefaultLayoutState();
   }
 
   function promoteMobileControlsForEditing() {
-    mobileEditableControls.forEach(function (button) {
-      var bounds = mobileControlRect(button);
+    var boundsByControl = mobileEditableControls.map(function (button) {
+      return mobileControlRect(button);
+    });
+    mobileEditableControls.forEach(function (button, index) {
+      var bounds = boundsByControl[index];
       setMobileControlFixedRect(button, bounds.left, bounds.top, bounds.width, bounds.height);
     });
   }
@@ -1518,8 +1671,12 @@
   function finishMobileControlEditing() {
     mobileControlGesture = null;
     mobileControlEditMode = false;
-    if (!mobileControlLayout) clearMobileControlInlineLayout();
+    if (mobileControlLayoutIsDefault()) {
+      clearMobileControlInlineLayout();
+      applyMobileControlScale();
+    }
     updateMobileEditButton();
+    updateMobileDefaultLayoutState();
   }
 
   function setMobileControlEditMode(editing) {
@@ -1533,13 +1690,15 @@
     mobileControlsHidden = false;
     mobileControlEditMode = true;
     mobileControlLayoutDirty = false;
-    if (mobileControlLayout) applyMobileControlLayout();
+    if (mobileControlLayout && mobileControlLayout.controls) applyMobileControlLayout();
     else {
       clearMobileControlInlineLayout();
+      applyMobileControlScale();
       promoteMobileControlsForEditing();
     }
     updateMobileEditButton();
     updateMobileHideButton();
+    updateMobileDefaultLayoutState();
     updateMobileControlsVisibility();
   }
 
@@ -1552,15 +1711,47 @@
   }
 
   function resetMobileControlLayout() {
-    mobileControlLayout = null;
+    if (mobileControlLayout) removeActiveMobileControlLayoutProfile();
+    mobileControlScale = 1;
     mobileControlLayoutDirty = false;
-    try {
-      window.localStorage.removeItem(mobileControlLayoutStorageKey);
-    } catch (_error) {
-      // The default layout still applies for this session when storage is blocked.
-    }
+    persistMobileControlLayoutStore();
     clearMobileControlInlineLayout();
+    applyMobileControlScale();
     if (mobileControlEditMode) promoteMobileControlsForEditing();
+    updateMobileDefaultLayoutState();
+  }
+
+  function adjustMobileDefaultControlScale(delta) {
+    if (!mobileControlEditMode || !mobileControlLayoutIsDefault()) return;
+    var nextScale = clampMobileValue(Math.round((mobileControlScale + delta) * 10) / 10, 0.8, 1.5);
+    if (nextScale === mobileControlScale) return;
+    mobileControlScale = nextScale;
+    clearMobileControlInlineLayout();
+    applyMobileControlScale();
+    promoteMobileControlsForEditing();
+    saveMobileDefaultControlScale();
+  }
+
+  function syncMobileControlLayoutForViewport() {
+    if (mobileControlGesture) return;
+    var nextLayout = findMobileControlLayoutForViewport(mobileControlLayoutStore, mobileViewportDimensions());
+    if (nextLayout !== mobileControlLayout) {
+      mobileControlGesture = null;
+      mobileControlLayoutDirty = false;
+      mobileControlLayout = nextLayout;
+      mobileControlScale = mobileControlLayout && isFinite(Number(mobileControlLayout.scale))
+        ? clampMobileValue(Number(mobileControlLayout.scale), 0.8, 1.5)
+        : 1;
+      clearMobileControlInlineLayout();
+    }
+    if (mobileControlLayout && mobileControlLayout.controls) {
+      applyMobileControlLayout();
+    } else {
+      clearMobileControlInlineLayout();
+      applyMobileControlScale();
+      if (mobileControlEditMode) promoteMobileControlsForEditing();
+      updateMobileDefaultLayoutState();
+    }
   }
 
   function updateMobileSensitivityDisplay() {
@@ -1620,6 +1811,7 @@
     preventMobileControlDefault(event);
     var deltaX = point.x - mobileControlGesture.startX;
     var deltaY = point.y - mobileControlGesture.startY;
+    if (deltaX === 0 && deltaY === 0) return;
     if (mobileControlGesture.mode === "resize") {
       var viewport = mobileViewportDimensions();
       setMobileControlFixedRect(
@@ -1628,13 +1820,13 @@
         mobileControlGesture.top,
         clampMobileValue(
           mobileControlGesture.width + deltaX,
-          44,
-          Math.max(44, viewport.width - mobileControlGesture.left - 4)
+          35,
+          Math.max(35, viewport.width - mobileControlGesture.left - 4)
         ),
         clampMobileValue(
           mobileControlGesture.height + deltaY,
-          44,
-          Math.max(44, viewport.height - mobileControlGesture.top - 4)
+          35,
+          Math.max(35, viewport.height - mobileControlGesture.top - 4)
         )
       );
     } else {
@@ -1647,6 +1839,7 @@
       );
     }
     mobileControlLayoutDirty = true;
+    updateMobileDefaultLayoutState();
   }
 
   function endMobileControlGesture(event) {
@@ -1815,7 +2008,7 @@
     if (actionName === "forward") return mobileForwardPixelRows;
     if (actionName === "right") return rotateMobilePixelRows(mobileForwardPixelRows);
     if (actionName === "back") return rotateMobilePixelRows(rotateMobilePixelRows(mobileForwardPixelRows));
-    if (actionName === "left" || actionName === "menu-back") {
+    if (actionName === "left") {
       return rotateMobilePixelRows(rotateMobilePixelRows(rotateMobilePixelRows(mobileForwardPixelRows)));
     }
     return mobilePixelRowsByAction[actionName] || null;
@@ -1842,9 +2035,6 @@
     var rows = mobileControlPixelRows(actionName);
     if (rows) {
       return '<svg class="sp-mobile-icon sp-mobile-pixel-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" shape-rendering="crispEdges">' + mobilePixelIconBody(rows) + '</svg>';
-    }
-    if (actionName === "keyboard") {
-      return '<svg class="sp-mobile-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>';
     }
     if (actionName === "edit-controls") {
       return '<svg class="sp-mobile-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
@@ -2157,15 +2347,16 @@
     var style = document.createElement("style");
     style.id = "spawnpoint-mobile-control-style";
     style.textContent = [
-      "@font-face{font-family:\"Spawnpoint Mark\";src:url(\"/game/fonts/Galmuri11.ttf\") format(\"truetype\");font-display:swap}",
+      "@font-face{font-family:\"Spawnpoint Mark\";src:url(\"/game/fonts/Galmuri11.woff2\") format(\"woff2\");font-display:swap}",
       "#spawnpoint-mobile-controls{position:fixed;inset:0;display:none;z-index:2147483200;pointer-events:none;--sp-touch:clamp(44px,13dvh,54px);--sp-press-duration:150ms;--sp-press-ease:cubic-bezier(.22,1,.36,1);font:700 12px/1 \"Spawnpoint Mark\",monospace;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}",
-      "#spawnpoint-mobile-controls .sp-mobile-gameplay,#spawnpoint-mobile-controls .sp-mobile-menu{pointer-events:none}",
-      "#spawnpoint-mobile-controls.is-gameplay .sp-mobile-menu,#spawnpoint-mobile-controls.is-menu .sp-mobile-gameplay{display:none}",
+      "#spawnpoint-mobile-controls .sp-mobile-gameplay{pointer-events:none}",
+      "#spawnpoint-mobile-controls.is-menu .sp-mobile-gameplay{display:none}",
       "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-chat-only{display:none}",
-      "#spawnpoint-mobile-controls.is-chat .sp-mobile-gameplay,#spawnpoint-mobile-controls.is-chat .sp-mobile-menu{display:none}",
-      "#spawnpoint-mobile-controls.is-chat .sp-mobile-chat-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid;width:56px;height:44px;border:1px solid rgba(255,255,255,.32);border-radius:0;background:rgba(3,6,4,.72);font:400 14px/1 \"Spawnpoint Mark\",monospace}",
-      "#spawnpoint-mobile-controls .sp-mobile-menu{position:absolute;top:max(8px,env(safe-area-inset-top));left:50%;display:flex;gap:6px;transform:translateX(-50%)}",
+      "#spawnpoint-mobile-controls.is-chat .sp-mobile-gameplay{display:none}",
+      "#spawnpoint-mobile-controls.is-chat .sp-mobile-button.sp-mobile-chat-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid}",
       "#spawnpoint-mobile-controls .sp-mobile-tools{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));display:flex;gap:5px}",
+      "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-default-scale{display:none}",
+      "#spawnpoint-mobile-controls.is-editing[data-sp-default-layout=true] .sp-mobile-button.sp-mobile-default-scale{display:grid}",
       "#spawnpoint-mobile-controls .sp-mobile-editor{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:none;align-items:center;gap:7px;box-sizing:border-box;min-height:44px;padding:6px 7px;pointer-events:auto;color:#fff;background:rgba(3,6,4,.78);border:1px solid rgba(255,255,255,.32);border-radius:6px;font:700 11px/1.1 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-controls.is-editing .sp-mobile-editor{display:flex}",
       "#spawnpoint-mobile-controls .sp-mobile-sensitivity{display:grid;grid-template-columns:auto auto;align-items:center;gap:4px 7px;white-space:nowrap}",
@@ -2175,12 +2366,13 @@
       "#spawnpoint-mobile-controls .sp-mobile-move{position:absolute;left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(3,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
       "#spawnpoint-mobile-controls .sp-mobile-actions{position:absolute;right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(2,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
       "#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-move,#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-actions{display:none}",
-      "#spawnpoint-mobile-controls .sp-mobile-button,#spawnpoint-mobile-chat .sp-mobile-button{box-sizing:border-box;display:grid;place-items:center;width:var(--sp-touch);height:var(--sp-touch);min-width:44px;min-height:44px;margin:0;padding:4px;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;border:0;border-radius:6px;outline:0;color:#fff;background:rgba(8,12,10,.46);box-shadow:none;font:inherit;text-align:center;transform:scale(1);transform-origin:center;transition:transform var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1)),background-color var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1));will-change:transform,background-color}",
+      "#spawnpoint-mobile-controls .sp-mobile-button,#spawnpoint-mobile-chat .sp-mobile-button{box-sizing:border-box;display:grid;place-items:center;width:var(--sp-touch,44px);height:var(--sp-touch,44px);min-width:35px;min-height:35px;margin:0;padding:4px;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;border:0;border-radius:6px;outline:0;color:#fff;background:rgba(8,12,10,.46);box-shadow:none;font:inherit;text-align:center;transform:scale(1);transform-origin:center;transition:transform var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1)),background-color var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1));will-change:transform,background-color}",
       "#spawnpoint-mobile-controls .sp-mobile-icon,#spawnpoint-mobile-chat .sp-mobile-icon{display:block;width:24px;height:24px;pointer-events:none}",
       "#spawnpoint-mobile-controls .sp-mobile-pixel-icon{fill:currentColor;stroke:none;image-rendering:pixelated}",
       "#spawnpoint-mobile-controls .sp-mobile-key-label{font-weight:900;text-shadow:1px 0 0 currentColor}",
       "#spawnpoint-mobile-controls .sp-mobile-tools .sp-mobile-button{width:44px;height:44px;min-width:44px;min-height:44px}",
       "#spawnpoint-mobile-controls .sp-mobile-tools .sp-mobile-icon{width:20px;height:20px}",
+      "#spawnpoint-mobile-controls .sp-mobile-default-scale:disabled{opacity:.42}",
       "#spawnpoint-mobile-controls .sp-mobile-button.is-toggled{background:rgba(5,9,7,.74)}",
       "#spawnpoint-mobile-controls .sp-mobile-button.is-pressed,#spawnpoint-mobile-controls .sp-mobile-button:active,#spawnpoint-mobile-chat .sp-mobile-button.is-pressed,#spawnpoint-mobile-chat .sp-mobile-button:active{background:rgba(2,5,3,.82);transform:scale(.94)}",
       "#spawnpoint-mobile-controls .sp-mobile-button.is-toggled.is-pressed,#spawnpoint-mobile-controls .sp-mobile-button.is-toggled:active{background:rgba(0,3,1,.92)}",
@@ -2192,7 +2384,7 @@
       "#spawnpoint-mobile-chat{position:fixed;left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));z-index:2147483300;display:none;align-items:stretch;gap:6px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;pointer-events:auto;font:400 16px/1.2 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-chat input{box-sizing:border-box;min-width:0;min-height:44px;flex:1;margin:0;padding:9px 11px;border:1px solid rgba(255,255,255,.32);border-radius:0;outline:none;color:#fff;background:rgba(3,6,4,.72);caret-color:#fff;font:400 16px/1.35 \"Spawnpoint Mark\",monospace;-webkit-user-select:text;user-select:text}",
       "#spawnpoint-mobile-chat input:focus{border-color:rgba(231,247,222,.78);box-shadow:inset 0 0 0 1px rgba(121,168,111,.38)}",
-      "#spawnpoint-mobile-chat .sp-mobile-button{flex:0 0 auto;width:64px;height:auto;border:1px solid rgba(255,255,255,.32);border-radius:0;background:rgba(3,6,4,.72);font:400 16px/1 \"Spawnpoint Mark\",monospace}",
+      "#spawnpoint-mobile-chat .sp-mobile-button{flex:0 0 auto;width:64px;height:auto;min-width:64px;min-height:44px;border:1px solid rgba(255,255,255,.32);border-radius:0;background:rgba(3,6,4,.72);font:400 16px/1 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-chat .sp-mobile-button:disabled{opacity:.55;cursor:wait}",
       "#spawnpoint-mobile-chat .sp-chat-status{position:absolute;left:0;right:0;bottom:calc(100% + 6px);display:none;box-sizing:border-box;padding:7px 9px;color:#eef7e9;background:rgba(28,46,31,.84);border:1px solid rgba(255,255,255,.32);border-radius:0;font:400 13px/1.3 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-chat .sp-chat-status[data-error=true]{color:#fff1ef;background:rgba(104,28,24,.97);border-color:rgba(255,177,169,.72)}",
@@ -2231,7 +2423,7 @@
     mobileControlsRoot.id = "spawnpoint-mobile-controls";
 
     var chatExitButton = createMobileButton("ESC", "채팅 닫기", "chat-exit");
-    chatExitButton.className += " sp-mobile-chat-only";
+    chatExitButton.className += " sp-mobile-chat-only sp-mobile-key-label";
     bindMobilePulseButton(chatExitButton, dispatchMobileBackAction);
     mobileControlsRoot.appendChild(chatExitButton);
 
@@ -2239,6 +2431,14 @@
     tools.className = "sp-mobile-gameplay sp-mobile-tools";
     tools.setAttribute("role", "group");
     tools.setAttribute("aria-label", "컨트롤 설정");
+    mobileScaleDownButton = createMobileButton("−", "전체 컨트롤 축소", "scale-down");
+    mobileScaleDownButton.className += " sp-mobile-default-scale";
+    bindMobilePulseButton(mobileScaleDownButton, function () { adjustMobileDefaultControlScale(-0.1); });
+    tools.appendChild(mobileScaleDownButton);
+    mobileScaleUpButton = createMobileButton("+", "전체 컨트롤 확대", "scale-up");
+    mobileScaleUpButton.className += " sp-mobile-default-scale";
+    bindMobilePulseButton(mobileScaleUpButton, function () { adjustMobileDefaultControlScale(0.1); });
+    tools.appendChild(mobileScaleUpButton);
     mobileEditButton = createMobileButton("편집", "컨트롤 편집", "edit-controls");
     bindMobilePulseButton(mobileEditButton, function () { setMobileControlEditMode(!mobileControlEditMode); });
     tools.appendChild(mobileEditButton);
@@ -2331,26 +2531,9 @@
     appendMobileKeyButton(actions, "숙이기", "웅크리기", "sneak", "Shift", "ShiftLeft", 16);
     mobileControlsRoot.appendChild(actions);
 
-    var menu = document.createElement("div");
-    menu.className = "sp-mobile-menu";
-    var backButton = createMobileButton("뒤로", "이전 화면으로", "menu-back");
-    bindMobilePulseButton(backButton, dispatchMobileBackAction);
-    menu.appendChild(backButton);
-    var keyboardButton = createMobileButton("키보드", "화면 키보드 열기", "keyboard");
-    bindMobilePulseButton(keyboardButton, function () {
-      if (/GuiChat$/.test(currentScreenName) || desktopChatInputActive || mobileChatComposerIsVisible()) {
-        showMobileChatComposer(chatDraft, true);
-      } else if (!currentScreenName) {
-        openClientChat("", true);
-      } else {
-        enableClientTextInput(true);
-      }
-    });
-    menu.appendChild(keyboardButton);
-    mobileControlsRoot.appendChild(menu);
-
     document.body.appendChild(mobileControlsRoot);
-    if (mobileControlLayout) applyMobileControlLayout();
+    applyMobileControlLayout();
+    updateMobileDefaultLayoutState();
     installMobileControlEditorInteractions();
     prepareMobileCanvasPointerLock();
     updateMobileControlsVisibility();
@@ -2528,11 +2711,13 @@
       if (isClientTextInput(sourceTarget) && document.activeElement === sourceTarget && typeof sourceTarget.blur === "function") {
         sourceTarget.blur();
       }
+      restoreGameplayForUiEscape();
       return;
     }
     if (currentScreenName && !/GuiIngameMenu$/.test(currentScreenName)) markUiEscape(currentScreenName);
     else clearUiEscapeSuppression();
     dispatchRelayedBackquote(sourceTarget);
+    restoreGameplayForUiEscape();
   }
 
   function blockClientBackquote(event) {
@@ -2808,7 +2993,7 @@
   if (typeof window.addEventListener === "function") window.addEventListener("resize", function () {
     updateLocatorHudLayout();
     updateTPAPickerLayout();
-    if (mobileControlLayout) applyMobileControlLayout();
+    syncMobileControlLayoutForViewport();
     prepareMobileCanvasPointerLock();
     updateMobileControlsVisibility();
     updateMobileChatComposerLayout();

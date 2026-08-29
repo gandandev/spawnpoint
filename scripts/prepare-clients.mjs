@@ -34,10 +34,16 @@ window.addEventListener("load", function () {
 
 await fs.mkdir(path.join(root, "public/game"), { recursive: true });
 await fs.mkdir(path.join(root, "public/game/fonts"), { recursive: true });
-await fs.copyFile(
-  path.join(root, "vendor/fonts/galmuri/Galmuri11.ttf"),
-  path.join(root, "public/game/fonts/Galmuri11.ttf"),
-);
+await Promise.all([
+  fs.copyFile(
+    path.join(root, "vendor/fonts/galmuri/Galmuri11.ttf"),
+    path.join(root, "public/game/fonts/Galmuri11.ttf"),
+  ),
+  fs.copyFile(
+    path.join(root, "vendor/fonts/galmuri/Galmuri11.woff2"),
+    path.join(root, "public/game/fonts/Galmuri11.woff2"),
+  ),
+]);
 const patchedEpw = await fs.readFile(path.join(root, "vendor/clients/stable-galmuri.epw"));
 const epwHash = createHash("sha256").update(patchedEpw).digest("hex").slice(0, 16);
 const epwFileName = `stable-${epwHash}.epw`;

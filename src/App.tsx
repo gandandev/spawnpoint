@@ -171,7 +171,7 @@ export function App() {
   </main>;
   return <>
     {game
-      ? <GameScreen game={game} gameUrl={gameUrl} />
+      ? <GameScreen game={game} gameUrl={gameUrl} onExit={() => setGame(null)} />
       : data.user
         ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={openAdmin} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
         : <AuthScreen data={data} mode={authMode} onAuth={auth} onModeChange={changeAuthMode} onOpenAdmin={openAdmin} notice={notice} />}

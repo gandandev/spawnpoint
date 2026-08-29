@@ -5,6 +5,14 @@ import { describe, expect, it } from "vitest";
 const fontRoot = path.join(process.cwd(), "public/fonts/minecraft-1.12");
 
 describe("Minecraft 1.12 name-tag font", () => {
+  it("ships the full browser mark font in compressed WOFF2 form", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "vendor/fonts/galmuri/Galmuri11.ttf"));
+    const compressed = fs.readFileSync(path.join(process.cwd(), "vendor/fonts/galmuri/Galmuri11.woff2"));
+
+    expect(compressed.subarray(0, 4).toString("ascii")).toBe("wOF2");
+    expect(compressed.length).toBeLessThan(source.length / 5);
+  });
+
   it("contains the exact bitmap pages and widths needed for Korean names", () => {
     const sizes = fs.readFileSync(path.join(fontRoot, "glyph_sizes.bin"));
     expect(sizes).toHaveLength(65_536);
