@@ -71,10 +71,10 @@ recommended watch paths:
 create a second service from the same repository and use `Dockerfile.frontend`. set its health check to `/frontend-healthz` and set:
 
 ```text
-BACKEND_ORIGIN=http://${{spawnpoint-web.RAILWAY_PRIVATE_DOMAIN}}:${{spawnpoint-web.PORT}}
+BACKEND_ORIGIN=http://${{spawnpoint-server.RAILWAY_PRIVATE_DOMAIN}}:8080
 ```
 
-replace `spawnpoint-web` if the backend service has another name. keep this service in the same Railway project and environment because private DNS does not cross either boundary.
+replace `spawnpoint-server` if the backend service has another name. keep this service in the same Railway project and environment because private DNS does not cross either boundary.
 
 recommended watch paths:
 
@@ -96,10 +96,10 @@ recommended watch paths:
 
 ### safe cutover
 
-1. deploy the new frontend on a temporary Railway domain and verify login, the status stream, a game launch, `/game/stable.html`, and `/frontend-healthz`.
-2. move the public and custom domains from the old combined service to the frontend service.
-3. change the existing backend service from `Dockerfile` to `Dockerfile.backend`. `.railway/railway.ts` keeps both service definitions and existing secrets in sync.
-4. apply the watch paths above. frontend-only commits then replace only the small Caddy service and leave the Node and Java processes running.
+1. create `spawnpoint-server`, copy the existing backend variables to it, and deploy `Dockerfile.backend`.
+2. move the existing `/data` volume to `spawnpoint-server` and verify `/healthz` before changing public traffic.
+3. keep the existing public service and its domains in place, then switch that service to `Dockerfile.frontend` with `BACKEND_ORIGIN` pointing at `spawnpoint-server`.
+4. apply the watch paths above. frontend-only commits then replace only the small Caddy service and leave the Node and Java processes running. `.railway/railway.ts` records this final layout without storing secret values.
 
 do not make the backend public after the cutover. the frontend proxy is the only public entry point.
 
