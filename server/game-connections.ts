@@ -9,6 +9,7 @@ interface GameConnection {
 }
 
 const LAUNCH_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RETRYABLE_STATES = new Set<GameConnectionState>(["waiting", "failed"]);
 
 export function isLaunchId(value: unknown): value is string {
   return typeof value === "string" && LAUNCH_ID_PATTERN.test(value);
@@ -23,7 +24,7 @@ export class GameConnectionTracker {
   ) {}
 
   create(launchId: string, userId: string): void {
-    this.delete(launchId);
+    this.remove(launchId);
     this.connections.set(launchId, {
       userId,
       state: "waiting",
@@ -52,8 +53,7 @@ export class GameConnectionTracker {
   closed(launchId: string, userId: string): void {
     const connection = this.connections.get(launchId);
     if (!connection || connection.userId !== userId || (connection.state !== "connecting" && connection.state !== "connected")) return;
-    if (connection.readyTimer) clearTimeout(connection.readyTimer);
-    connection.readyTimer = null;
+    this.clearReadyTimer(connection);
     connection.disconnect = null;
     connection.state = "waiting";
     connection.expiresAt = Date.now() + this.lifetimeMs;
@@ -70,8 +70,7 @@ export class GameConnectionTracker {
     let disconnected = 0;
     for (const [launchId, connection] of this.connections) {
       if (connection.userId !== userId) continue;
-      const close = connection.disconnect;
-      this.delete(launchId);
+      const close = this.remove(launchId);
       close?.();
       disconnected += 1;
     }
@@ -81,14 +80,22 @@ export class GameConnectionTracker {
   private cleanup(): void {
     const now = Date.now();
     for (const [launchId, connection] of this.connections) {
-      if ((connection.state === "waiting" || connection.state === "failed") && connection.expiresAt <= now) this.delete(launchId);
+      if (RETRYABLE_STATES.has(connection.state) && connection.expiresAt <= now) this.remove(launchId);
     }
   }
 
-  private delete(launchId: string): void {
+  private clearReadyTimer(connection: GameConnection): void {
+    if (connection.readyTimer) clearTimeout(connection.readyTimer);
+    connection.readyTimer = null;
+  }
+
+  private remove(launchId: string): (() => void) | null {
     const connection = this.connections.get(launchId);
-    if (connection?.readyTimer) clearTimeout(connection.readyTimer);
-    if (connection) connection.disconnect = null;
+    if (!connection) return null;
+    this.clearReadyTimer(connection);
     this.connections.delete(launchId);
+    const disconnect = connection.disconnect;
+    connection.disconnect = null;
+    return disconnect;
   }
 }

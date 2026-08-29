@@ -22,6 +22,14 @@ interface UserRow {
   skin_updated_at: number;
 }
 
+const LEGACY_USER_COLUMNS = [
+  ["game_username", "TEXT NOT NULL DEFAULT ''"],
+  ["display_name", "TEXT NOT NULL DEFAULT ''"],
+  ["password_reset_digest", "BLOB"],
+  ["password_reset_expires_at", "INTEGER"],
+  ["session_version", "INTEGER NOT NULL DEFAULT 0"],
+] as const;
+
 function mapUser(row: UserRow | undefined): UserRecord | null {
   if (!row) return null;
   return {
@@ -40,6 +48,18 @@ function mapUser(row: UserRow | undefined): UserRecord | null {
     skinModel: row.skin_model,
     skinLabel: row.skin_label,
     skinUpdatedAt: row.skin_updated_at,
+  };
+}
+
+function mapAdminUser(row: UserRow): AdminUser {
+  return {
+    id: row.id,
+    username: row.username,
+    gameUsername: row.game_username,
+    displayName: row.display_name,
+    createdAt: row.created_at,
+    passwordResetPending: row.password_reset_digest !== null,
+    passwordResetExpiresAt: row.password_reset_expires_at,
   };
 }
 
@@ -85,11 +105,9 @@ export class AppDatabase {
     const columns = new Set(
       (this.db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>).map((column) => column.name),
     );
-    if (!columns.has("game_username")) this.db.exec("ALTER TABLE users ADD COLUMN game_username TEXT NOT NULL DEFAULT ''");
-    if (!columns.has("display_name")) this.db.exec("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
-    if (!columns.has("password_reset_digest")) this.db.exec("ALTER TABLE users ADD COLUMN password_reset_digest BLOB");
-    if (!columns.has("password_reset_expires_at")) this.db.exec("ALTER TABLE users ADD COLUMN password_reset_expires_at INTEGER");
-    if (!columns.has("session_version")) this.db.exec("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0");
+    for (const [name, definition] of LEGACY_USER_COLUMNS) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+    }
     this.db.exec("UPDATE users SET game_username = username WHERE game_username = ''");
     this.db.exec("UPDATE users SET display_name = username WHERE display_name = ''");
     this.db.exec("UPDATE users SET password_reset_expires_at = NULL WHERE password_reset_digest IS NULL");
@@ -169,6 +187,12 @@ export class AppDatabase {
     return mapUser(this.byId.get(id));
   }
 
+  private requireUser(id: string, operation: string): UserRecord {
+    const user = this.getUserById(id);
+    if (!user) throw new Error(`User disappeared while ${operation}`);
+    return user;
+  }
+
   createUser(username: string, passwordHash: Buffer, passwordSalt: Buffer): UserRecord {
     const now = Date.now();
     const id = crypto.randomUUID();
@@ -191,30 +215,22 @@ export class AppDatabase {
       skinLabel,
       skinUpdatedAt: Date.now(),
     });
-    const updated = this.getUserById(id);
-    if (!updated) throw new Error("User disappeared while updating skin");
-    return updated;
+    return this.requireUser(id, "updating skin");
   }
 
   updateIdentity(id: string, username: string, displayName: string): UserRecord {
     this.updateIdentityStatement.run({ id, username, displayName });
-    const updated = this.getUserById(id);
-    if (!updated) throw new Error("User disappeared while updating identity");
-    return updated;
+    return this.requireUser(id, "updating identity");
   }
 
   updatePassword(id: string, passwordHash: Buffer, passwordSalt: Buffer): UserRecord {
     this.updatePasswordStatement.run({ id, passwordHash, passwordSalt });
-    const updated = this.getUserById(id);
-    if (!updated) throw new Error("User disappeared while updating password");
-    return updated;
+    return this.requireUser(id, "updating password");
   }
 
   requestPasswordReset(id: string, digest: Buffer, expiresAt: number): UserRecord {
     this.requestPasswordResetStatement.run({ id, digest, expiresAt });
-    const updated = this.getUserById(id);
-    if (!updated) throw new Error("User disappeared while requesting a password reset");
-    return updated;
+    return this.requireUser(id, "requesting a password reset");
   }
 
   completePasswordReset(
@@ -233,15 +249,7 @@ export class AppDatabase {
   }
 
   listUsers(): AdminUser[] {
-    return (this.listUsersStatement.all() as UserRow[]).map((row) => ({
-      id: row.id,
-      username: row.username,
-      gameUsername: row.game_username,
-      displayName: row.display_name,
-      createdAt: row.created_at,
-      passwordResetPending: row.password_reset_digest !== null,
-      passwordResetExpiresAt: row.password_reset_expires_at,
-    }));
+    return (this.listUsersStatement.all() as UserRow[]).map(mapAdminUser);
   }
 
   close(): void {

@@ -29,6 +29,10 @@ const MANAGED_FILES = [
   "plugins/EaglercraftXServer/settings.yml",
   "plugins/EaglercraftXServer/listener.yml",
 ];
+const MAX_LOG_LINES = 500;
+const FINAL_LOG_LINES = 12;
+const HARD_STOP_DELAY_MS = 20_000;
+const READY_LOG_PATTERNS = [/Done \([\d.]+s\)!/, /For help, type "help"/];
 
 export class ServerStartError extends Error {
   constructor(public readonly code: "EULA_REQUIRED" | "COOLDOWN" | "MISSING_RUNTIME" | "START_FAILED", message: string) {
@@ -42,6 +46,8 @@ export class MinecraftServerManager extends EventEmitter {
   private idleTimer: NodeJS.Timeout;
   private expectedExit = false;
   private mockStartTimer: NodeJS.Timeout | null = null;
+  private hardStopTimer: NodeJS.Timeout | null = null;
+  private readonly outputReaders = new Set<readline.Interface>();
   private recentOutput: string[] = [];
   private state: ServerStatus;
 
@@ -74,8 +80,7 @@ export class MinecraftServerManager extends EventEmitter {
 
   async sendCommand(command: string): Promise<void> {
     if (this.state.phase !== "online") throw new Error("게임 서버가 온라인일 때만 명령을 실행할 수 있어요.");
-    this.recentOutput.push(`> ${command}`);
-    if (this.recentOutput.length > 500) this.recentOutput.shift();
+    this.appendLog(`> ${command}`);
     if (this.options.mockServer) return;
     if (command.toLowerCase() === "stop") {
       await this.stop();
@@ -91,6 +96,15 @@ export class MinecraftServerManager extends EventEmitter {
   private publish(patch: Partial<ServerStatus>): void {
     this.state = { ...this.state, ...patch };
     this.emit("status", this.getStatus());
+  }
+
+  private appendLog(line: string): void {
+    this.recentOutput.push(line);
+    if (this.recentOutput.length > MAX_LOG_LINES) this.recentOutput.shift();
+  }
+
+  private setOffline(): void {
+    this.publish({ phase: "off", players: [], startedAt: null, readyAt: null, idleShutdownAt: null });
   }
 
   private async prepareRuntime(): Promise<void> {
@@ -196,14 +210,25 @@ export class MinecraftServerManager extends EventEmitter {
 
   private attachOutput(stream: NodeJS.ReadableStream): void {
     const lines = readline.createInterface({ input: stream });
+    this.outputReaders.add(lines);
+    lines.once("close", () => this.outputReaders.delete(lines));
     lines.on("line", (line) => this.handleLogLine(line));
+  }
+
+  private closeOutputReaders(): void {
+    for (const reader of this.outputReaders) reader.close();
+    this.outputReaders.clear();
+  }
+
+  private clearHardStopTimer(): void {
+    if (this.hardStopTimer) clearTimeout(this.hardStopTimer);
+    this.hardStopTimer = null;
   }
 
   private handleLogLine(line: string): void {
     console.log(`[minecraft] ${line}`);
-    this.recentOutput.push(line.replace(/\x1b\[[0-9;]*m/g, ""));
-    if (this.recentOutput.length > 500) this.recentOutput.shift();
-    if (/Done \([\d.]+s\)!/.test(line) || /For help, type "help"/.test(line)) {
+    this.appendLog(line.replace(/\x1b\[[0-9;]*m/g, ""));
+    if (READY_LOG_PATTERNS.some((pattern) => pattern.test(line))) {
       const readyAt = Date.now();
       this.publish({
         phase: "online",
@@ -215,20 +240,25 @@ export class MinecraftServerManager extends EventEmitter {
     }
     const join = line.match(/: ([A-Za-z0-9_]{3,16})(?: joined the game|\[[^\]]+\] logged in with entity id)/);
     if (join) {
-      const players = new Set(this.state.players);
-      players.add(join[1]);
-      this.publish({ players: [...players].sort(), idleShutdownAt: null });
+      this.updatePlayerPresence(join[1], true);
       return;
     }
     const leave = line.match(/: ([A-Za-z0-9_]{3,16})(?: left the game| lost connection(?::|$))/);
     if (leave) {
-      const players = new Set(this.state.players);
-      players.delete(leave[1]);
-      this.publish({
-        players: [...players].sort(),
-        idleShutdownAt: players.size === 0 ? Date.now() + this.options.idleMinutes * 60_000 : null,
-      });
+      this.updatePlayerPresence(leave[1], false);
     }
+  }
+
+  private updatePlayerPresence(player: string, connected: boolean): void {
+    const players = new Set(this.state.players);
+    if (connected) players.add(player);
+    else players.delete(player);
+    this.publish({
+      players: [...players].sort(),
+      idleShutdownAt: players.size === 0
+        ? (connected ? null : Date.now() + this.options.idleMinutes * 60_000)
+        : null,
+    });
   }
 
   private handleFailure(error: Error): void {
@@ -236,9 +266,11 @@ export class MinecraftServerManager extends EventEmitter {
   }
 
   private handleExit(code: number | null, signal: NodeJS.Signals | null): void {
+    this.clearHardStopTimer();
+    this.closeOutputReaders();
     this.child = null;
     if (this.expectedExit) {
-      this.publish({ phase: "off", players: [], startedAt: null, readyAt: null, idleShutdownAt: null });
+      this.setOffline();
       return;
     }
     this.publish({
@@ -249,7 +281,7 @@ export class MinecraftServerManager extends EventEmitter {
       lastError: `Minecraft exited unexpectedly (${signal ?? code ?? "unknown"}).`,
     });
     if (this.recentOutput.length > 0) {
-      console.error(`[minecraft] final output before exit:\n${this.recentOutput.slice(-12).join("\n")}`);
+      console.error(`[minecraft] final output before exit:\n${this.recentOutput.slice(-FINAL_LOG_LINES).join("\n")}`);
     }
   }
 
@@ -264,21 +296,24 @@ export class MinecraftServerManager extends EventEmitter {
       this.mockStartTimer = null;
     }
     if (this.options.mockServer) {
-      this.publish({ phase: "off", players: [], startedAt: null, readyAt: null, idleShutdownAt: null });
+      this.setOffline();
       return;
     }
     const child = this.child;
     if (!child) {
-      this.publish({ phase: "off", players: [], startedAt: null, readyAt: null, idleShutdownAt: null });
+      this.clearHardStopTimer();
+      this.closeOutputReaders();
+      this.setOffline();
       return;
     }
     this.expectedExit = true;
     this.publish({ phase: "stopping", idleShutdownAt: null });
     child.stdin.write("save-all\nstop\n");
-    const hardStop = setTimeout(() => {
+    this.clearHardStopTimer();
+    this.hardStopTimer = setTimeout(() => {
       if (this.child === child) child.kill("SIGKILL");
-    }, 20_000);
-    hardStop.unref();
+    }, HARD_STOP_DELAY_MS);
+    this.hardStopTimer.unref();
   }
 
   async shutdown(): Promise<void> {

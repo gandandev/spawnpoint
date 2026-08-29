@@ -65,6 +65,22 @@ type CatalogSkinSource =
   | { kind: "preset"; ref: string; model: SkinModel }
   | { kind: "remote"; url: string; model: SkinModel };
 
+function cachedPromise<T>(cache: Map<string, Promise<T>>, key: string, factory: () => Promise<T>, maxEntries?: number): Promise<T> {
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const pending = factory();
+  cache.set(key, pending);
+  pending.catch(() => {
+    if (cache.get(key) === pending) cache.delete(key);
+  });
+  if (maxEntries !== undefined && cache.size > maxEntries) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  return pending;
+}
+
 const CATALOG_SKIN_SOURCES: Readonly<Record<string, CatalogSkinSource>> = {
   spawnpoint: { kind: "preset", ref: "spawnpoint", model: "steve" },
   "famous-1": { kind: "remote", url: "https://s.namemc.com/i/5b3eacb5eae8cc05.png", model: "steve" },
@@ -234,11 +250,7 @@ export class SkinService {
   async applyUpload(user: UserRecord, file: Express.Multer.File | undefined): Promise<UserRecord> {
     if (!file) throw new Error("Choose a PNG skin first.");
     if (file.size > 256 * 1024) throw new Error("Skin PNG must be smaller than 256KB.");
-    const model = await detectSkinModel(file.buffer);
-    const destination = this.skinFile(user.id);
-    if (!destination) throw new Error("Invalid user ID.");
-    await normalizeSkin(file.buffer, destination);
-    return this.database.updateSkin(user.id, "upload", user.id, model, "uploaded png");
+    return this.applySkinBuffer(user, file.buffer, "upload", "steve", "uploaded png");
   }
 
   async applyMinecraftUsername(user: UserRecord, usernameInput: unknown): Promise<UserRecord> {
@@ -302,14 +314,9 @@ export class SkinService {
   }
 
   private catalogSkinBuffer(skinId: string, source: CatalogSkinSource): Promise<Buffer> {
-    const cached = this.catalogSkinCache.get(skinId);
-    if (cached) return cached;
-    const skin = source.kind === "preset"
+    return cachedPromise(this.catalogSkinCache, skinId, () => source.kind === "preset"
       ? fs.readFile(path.join(this.clientDir, "assets", "skins", `${source.ref}.png`))
-      : this.loadCachedCatalogSkin(skinId, new URL(source.url));
-    this.catalogSkinCache.set(skinId, skin);
-    skin.catch(() => this.catalogSkinCache.delete(skinId));
-    return skin;
+      : this.loadCachedCatalogSkin(skinId, new URL(source.url)));
   }
 
   private async loadCachedCatalogSkin(skinId: string, url: URL): Promise<Buffer> {
@@ -344,26 +351,16 @@ export class SkinService {
   }
 
   private async applySkinBuffer(user: UserRecord, body: Buffer, skinType: SkinType, model: SkinModel, label: string): Promise<UserRecord> {
-    const detectedModel = await detectSkinModel(body);
+    const resolvedModel = skinType === "upload" ? await detectSkinModel(body) : model;
     const destination = this.skinFile(user.id);
     if (!destination) throw new Error("Invalid user ID.");
     await normalizeSkin(body, destination);
-    return this.database.updateSkin(user.id, skinType, user.id, skinType === "upload" ? detectedModel : model, label);
+    return this.database.updateSkin(user.id, skinType, user.id, resolvedModel, label);
   }
 
   createClientProfile(user: UserRecord): Promise<string> {
     const cacheKey = `${user.id}:${user.gameUsername}:${user.skinType}:${user.skinRef}:${user.skinModel}:${user.skinUpdatedAt}`;
-    const cached = this.profileCache.get(cacheKey);
-    if (cached) return cached;
-
-    const profile = this.buildClientProfile(user);
-    this.profileCache.set(cacheKey, profile);
-    profile.catch(() => this.profileCache.delete(cacheKey));
-    if (this.profileCache.size > 256) {
-      const oldest = this.profileCache.keys().next().value;
-      if (oldest) this.profileCache.delete(oldest);
-    }
-    return profile;
+    return cachedPromise(this.profileCache, cacheKey, () => this.buildClientProfile(user), 256);
   }
 
   private async buildClientProfile(user: UserRecord): Promise<string> {

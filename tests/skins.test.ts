@@ -118,6 +118,27 @@ describe("account skin storage", () => {
     reopened.close();
   });
 
+  it("persists uploaded skins through the same normalized buffer path", async () => {
+    const database = createDatabase();
+    const user = database.createUser("uploadplayer", Buffer.from("hash"), Buffer.from("salt"));
+    const service = new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public"));
+    const skin = await sharp({
+      create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    }).png().toBuffer();
+
+    const updated = await service.applyUpload(user, { buffer: skin, size: skin.length } as Express.Multer.File);
+    const saved = await sharp(path.join(dataDirectories[0], "skins", `${user.id}.png`)).metadata();
+
+    expect(updated.skinType).toBe("upload");
+    expect(updated.skinRef).toBe(user.id);
+    expect(updated.skinModel).toBe("alex");
+    expect(updated.skinLabel).toBe("uploaded png");
+    expect(saved.format).toBe("png");
+    expect(saved.width).toBe(64);
+    expect(saved.height).toBe(64);
+    database.close();
+  });
+
   it("creates the Eagler profile with the saved username and custom skin", async () => {
     const database = createDatabase();
     const user = database.createUser("mossrunner", Buffer.from("hash"), Buffer.from("salt"));
