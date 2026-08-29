@@ -218,13 +218,15 @@ server.on("upgrade", (request, socket, head) => {
       return;
     }
     const launchId = parsed.searchParams.get("launch");
-    const tracked = isLaunchId(launchId) && gameConnections.begin(launchId, user.id, () => socket.destroy());
-    if (!tracked) {
+    const closeTrackedConnection = isLaunchId(launchId)
+      ? gameConnections.begin(launchId, user.id, () => socket.destroy())
+      : null;
+    if (!closeTrackedConnection) {
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
     }
-    socket.once("close", () => gameConnections.closed(launchId, user.id));
+    socket.once("close", closeTrackedConnection);
     const ticket = createGameTicket(user, skinPathForUser(user), sessionSecret, config.gameTicketMinutes);
     parsed.searchParams.set("ticket", ticket);
     request.url = `${parsed.pathname}${parsed.search}`;

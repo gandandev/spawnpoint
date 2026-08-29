@@ -40,20 +40,39 @@ export function useAdminOverview({ open, csrf, onOverview }: UseAdminOverviewOpt
     let active = true;
     let controller: AbortController | null = null;
     let timer: number | null = null;
+    let cycle = 0;
+    const stopCycle = () => {
+      cycle += 1;
+      controller?.abort();
+      controller = null;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+    };
     const poll = async () => {
-      controller = new AbortController();
+      if (!active || document.hidden) return;
+      const pollCycle = ++cycle;
+      const requestController = new AbortController();
+      controller = requestController;
       try {
-        await loadOverview(controller.signal);
+        await loadOverview(requestController.signal);
       } catch {
         // The latest request owns the visible error state inside loadOverview.
       }
-      if (active) timer = window.setTimeout(() => void poll(), 2_000);
+      if (controller === requestController) controller = null;
+      if (active && !document.hidden && cycle === pollCycle) {
+        timer = window.setTimeout(() => void poll(), 2_000);
+      }
     };
-    void poll();
+    const handleVisibilityChange = () => {
+      stopCycle();
+      if (!document.hidden) void poll();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    if (!document.hidden) void poll();
     return () => {
       active = false;
-      controller?.abort();
-      if (timer !== null) window.clearTimeout(timer);
+      stopCycle();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [loadOverview, open]);
 

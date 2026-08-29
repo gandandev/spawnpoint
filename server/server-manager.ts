@@ -32,6 +32,7 @@ const MANAGED_FILES = [
 const MAX_LOG_LINES = 500;
 const FINAL_LOG_LINES = 12;
 const HARD_STOP_DELAY_MS = 20_000;
+const SHUTDOWN_EXIT_GRACE_MS = HARD_STOP_DELAY_MS + 5_000;
 const READY_LOG_PATTERNS = [/Done \([\d.]+s\)!/, /For help, type "help"/];
 
 export class ServerStartError extends Error {
@@ -308,16 +309,42 @@ export class MinecraftServerManager extends EventEmitter {
     }
     this.expectedExit = true;
     this.publish({ phase: "stopping", idleShutdownAt: null });
-    child.stdin.write("save-all\nstop\n");
     this.clearHardStopTimer();
     this.hardStopTimer = setTimeout(() => {
       if (this.child === child) child.kill("SIGKILL");
     }, HARD_STOP_DELAY_MS);
     this.hardStopTimer.unref();
+    if (child.stdin.destroyed || !child.stdin.writable) {
+      child.kill("SIGKILL");
+      return;
+    }
+    try {
+      child.stdin.write("save-all\nstop\n", (error) => {
+        if (error && this.child === child) child.kill("SIGKILL");
+      });
+    } catch {
+      if (this.child === child) child.kill("SIGKILL");
+    }
   }
 
   async shutdown(): Promise<void> {
     clearInterval(this.idleTimer);
+    const child = this.child;
+    const waitForExit = child ? new Promise<void>((resolve) => {
+      let settled = false;
+      let timer: NodeJS.Timeout;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.off("exit", finish);
+        resolve();
+      };
+      child.once("exit", finish);
+      timer = setTimeout(finish, SHUTDOWN_EXIT_GRACE_MS);
+      if (child.exitCode !== null || child.signalCode !== null) finish();
+    }) : null;
     await this.stop();
+    await waitForExit;
   }
 }

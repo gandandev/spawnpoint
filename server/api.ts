@@ -65,26 +65,34 @@ const STANDALONE_ADMIN = {
   sessionVersion: 0,
 } as const;
 
-class MemoryRateLimiter {
+export class MemoryRateLimiter {
   private readonly buckets = new Map<string, number[]>();
 
-  constructor(private readonly limit: number, private readonly windowMs: number) {}
+  constructor(
+    private readonly limit: number,
+    private readonly windowMs: number,
+    private readonly maxBuckets = 5_000,
+  ) {}
+
+  private setBucket(key: string, entries: number[]): void {
+    this.buckets.delete(key);
+    this.buckets.set(key, entries);
+  }
 
   take(key: string): boolean {
     const now = Date.now();
     const cutoff = now - this.windowMs;
+    if (!this.buckets.has(key) && this.buckets.size >= this.maxBuckets) {
+      const oldest = this.buckets.keys().next().value;
+      if (oldest !== undefined) this.buckets.delete(oldest);
+    }
     const recent = (this.buckets.get(key) ?? []).filter((timestamp) => timestamp > cutoff);
     if (recent.length >= this.limit) {
-      this.buckets.set(key, recent);
+      this.setBucket(key, recent);
       return false;
     }
     recent.push(now);
-    this.buckets.set(key, recent);
-    if (this.buckets.size > 5_000) {
-      for (const [bucketKey, entries] of this.buckets) {
-        if (entries.every((timestamp) => timestamp <= cutoff)) this.buckets.delete(bucketKey);
-      }
-    }
+    this.setBucket(key, recent);
     return true;
   }
 

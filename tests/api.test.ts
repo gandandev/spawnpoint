@@ -363,7 +363,7 @@ describe("game chat API", () => {
     const harness = await createHarness({ bridgeOrigin });
     const launchId = crypto.randomUUID();
     harness.gameConnections.create(launchId, harness.admin.id);
-    expect(harness.gameConnections.begin(launchId, harness.admin.id)).toBe(true);
+    expect(harness.gameConnections.begin(launchId, harness.admin.id)).not.toBeNull();
 
     const response = await fetch(`${harness.origin}/api/game/chat`, {
       method: "POST",

@@ -24,7 +24,7 @@ export class GameConnectionTracker {
   ) {}
 
   create(launchId: string, userId: string): void {
-    this.remove(launchId);
+    this.remove(launchId)?.();
     this.connections.set(launchId, {
       userId,
       state: "waiting",
@@ -35,10 +35,10 @@ export class GameConnectionTracker {
     this.cleanup();
   }
 
-  begin(launchId: string, userId: string, disconnect: () => void = () => {}): boolean {
+  begin(launchId: string, userId: string, disconnect: () => void = () => {}): (() => void) | null {
     this.cleanup();
     const connection = this.connections.get(launchId);
-    if (!connection || connection.userId !== userId || connection.state !== "waiting" || connection.expiresAt <= Date.now()) return false;
+    if (!connection || connection.userId !== userId || connection.state !== "waiting" || connection.expiresAt <= Date.now()) return null;
     connection.state = "connecting";
     connection.expiresAt = Date.now() + this.lifetimeMs;
     connection.disconnect = disconnect;
@@ -47,12 +47,19 @@ export class GameConnectionTracker {
       connection.readyTimer = null;
     }, this.loginGraceMs);
     connection.readyTimer.unref();
-    return true;
+    return () => {
+      if (this.connections.get(launchId) !== connection) return;
+      this.markClosed(connection);
+    };
   }
 
   closed(launchId: string, userId: string): void {
     const connection = this.connections.get(launchId);
     if (!connection || connection.userId !== userId || (connection.state !== "connecting" && connection.state !== "connected")) return;
+    this.markClosed(connection);
+  }
+
+  private markClosed(connection: GameConnection): void {
     this.clearReadyTimer(connection);
     connection.disconnect = null;
     connection.state = "waiting";

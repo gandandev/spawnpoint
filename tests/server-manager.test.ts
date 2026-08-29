@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MinecraftServerManager } from "../server/server-manager.js";
 
 const managers: MinecraftServerManager[] = [];
 
-function manager() {
+function manager(mockServer = true) {
   const instance = new MinecraftServerManager({
     dataDir: "/tmp/spawnpoint-server-manager-test",
     seedDir: "/tmp/spawnpoint-server-manager-test-seed",
@@ -15,7 +16,7 @@ function manager() {
     startCooldownSeconds: 45,
     maxPlayers: 12,
     eulaAccepted: false,
-    mockServer: true,
+    mockServer,
   });
   managers.push(instance);
   return instance;
@@ -65,5 +66,41 @@ describe("MinecraftServerManager player tracking", () => {
     await instance.sendCommand("say 안녕하세요");
 
     expect(instance.getRecentLogs()).toContain("> say 안녕하세요");
+  });
+
+  it("waits for Minecraft to exit before shutdown completes", async () => {
+    const instance = manager(false);
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      stdin: {
+        destroyed: false,
+        writable: true,
+        write: vi.fn((_command: string, callback: (error?: Error | null) => void) => {
+          callback(null);
+          return true;
+        }),
+      },
+      kill: vi.fn(),
+    });
+    const internal = instance as unknown as {
+      child: typeof child | null;
+      state: { phase: string };
+      handleExit: (code: number | null, signal: NodeJS.Signals | null) => void;
+    };
+    internal.child = child;
+    internal.state.phase = "online";
+    child.once("exit", (code, signal) => internal.handleExit(code as number | null, signal as NodeJS.Signals | null));
+
+    let completed = false;
+    const shutdown = instance.shutdown().then(() => { completed = true; });
+    await Promise.resolve();
+
+    expect(child.stdin.write).toHaveBeenCalledWith("save-all\nstop\n", expect.any(Function));
+    expect(completed).toBe(false);
+
+    child.emit("exit", 0, null);
+    await shutdown;
+    expect(completed).toBe(true);
   });
 });
