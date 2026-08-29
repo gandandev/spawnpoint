@@ -38,10 +38,10 @@ describe("account skin storage", () => {
   it("adds the default skin to the stable catalog choices", () => {
     expect(SKIN_CATALOG).toHaveLength(1);
     expect(SKIN_CATALOG[0].label).toBe("유명");
-    expect(SKIN_CATALOG[0].skins).toHaveLength(26);
+    expect(SKIN_CATALOG[0].skins).toHaveLength(60);
     expect(SKIN_CATALOG[0].skins[0].id).toBe("famous-1");
-    expect(SKIN_CATALOG[0].skins.at(-1)?.id).toBe("saved-16");
-    expect(new Set(SKIN_CATALOG[0].skins.map((skin) => skin.id)).size).toBe(26);
+    expect(SKIN_CATALOG[0].skins.at(-1)?.id).toBe("saved-50");
+    expect(new Set(SKIN_CATALOG[0].skins.map((skin) => skin.id)).size).toBe(60);
     expect(SKIN_CATALOG[0].skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);
   });
 
@@ -61,7 +61,7 @@ describe("account skin storage", () => {
     const database = createDatabase();
     const service = new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public"));
 
-    for (let index = 1; index <= 16; index += 1) {
+    for (let index = 1; index <= 50; index += 1) {
       const texture = await service.catalogTexture(`saved-${String(index).padStart(2, "0")}`);
       const metadata = await sharp(texture).metadata();
       expect(metadata.format).toBe("png");
