@@ -27,7 +27,17 @@ import {
   verifyPasswordResetCode,
 } from "./security.js";
 import { SKIN_CATALOG, SkinService, skinPathForUser, toPublicUser } from "./skins.js";
-import type { BridgeSettings, LocatorSnapshot, LocatorTargetDetails, PlayerDetails, UserRecord } from "./types.js";
+import type {
+  AdminActor,
+  AdminAuthorization,
+  BridgeSettings,
+  LocatorSnapshot,
+  LocatorTargetDetails,
+  PlayerDetails,
+  PublicUser,
+  UserAuthentication,
+  UserRecord,
+} from "./types.js";
 
 export interface ApiContext {
   database: AppDatabase;
@@ -56,8 +66,6 @@ const STANDALONE_ADMIN = {
   username: "admin",
   sessionVersion: 0,
 } as const;
-
-type AdminActor = Pick<UserRecord, "id" | "username" | "sessionVersion">;
 
 class MemoryRateLimiter {
   private readonly buckets = new Map<string, number[]>();
@@ -91,6 +99,14 @@ function fail(response: Response, status: number, message: string, code = "REQUE
   response.status(status).json({ error: { code, message } });
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function failFromError(response: Response, status: number, error: unknown, fallback: string, code = "REQUEST_FAILED"): void {
+  fail(response, status, errorMessage(error, fallback), code);
+}
+
 function requestIp(request: Request): string {
   return request.ip || request.socket.remoteAddress || "unknown";
 }
@@ -101,7 +117,7 @@ function requireSameOrigin(request: Request, response: Response): boolean {
   return false;
 }
 
-function userForRequest(request: Request, context: ApiContext): { user: UserRecord; csrf: string; adminExpiresAt: number | null } | null {
+function userForRequest(request: Request, context: ApiContext): UserAuthentication | null {
   const session = sessionFromRequest(request, context.sessionSecret);
   if (!session?.csrf) return null;
   const user = context.database.getUserById(session.sub);
@@ -159,7 +175,7 @@ function safeSecretEqual(actual: unknown, expected: string): boolean {
   return actualBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
-function publicUser(user: UserRecord, context: ApiContext, adminExpiresAt: number | null = null) {
+function publicUser(user: UserRecord, context: ApiContext, adminExpiresAt: number | null = null): PublicUser {
   return {
     ...toPublicUser(user),
     displayName: user.displayName,
@@ -194,31 +210,52 @@ function requireUser(request: Request, response: Response, context: ApiContext, 
     fail(response, 401, "먼저 로그인하세요.", "AUTH_REQUIRED");
     return null;
   }
-  if (csrf && request.headers["x-spawnpoint-csrf"] !== authenticated.csrf) {
-    fail(response, 403, "페이지를 새로고침한 뒤 다시 시도하세요.", "BAD_CSRF");
-    return null;
-  }
+  if (csrf && !requireCsrf(request, response, authenticated.csrf)) return null;
   return authenticated.user;
 }
 
-function requireAdmin(request: Request, response: Response, context: ApiContext): AdminActor | null {
-  const authenticated = userForRequest(request, context);
+function requireCsrf(request: Request, response: Response, csrf: string): boolean {
+  if (request.headers["x-spawnpoint-csrf"] === csrf) return true;
+  fail(response, 403, "페이지를 새로고침한 뒤 다시 시도하세요.", "BAD_CSRF");
+  return false;
+}
+
+function requireAdmin(
+  request: Request,
+  response: Response,
+  context: ApiContext,
+  authenticated: UserAuthentication | null = userForRequest(request, context),
+): AdminActor | null {
   const standaloneAdmin = authenticated ? null : standaloneAdminForRequest(request, context);
   const csrf = authenticated?.csrf ?? standaloneAdmin?.csrf;
   if (!csrf) {
     fail(response, 401, "관리자 인증이 필요해요.", "AUTH_REQUIRED");
     return null;
   }
-  if (request.headers["x-spawnpoint-csrf"] !== csrf) {
-    fail(response, 403, "페이지를 새로고침한 뒤 다시 시도하세요.", "BAD_CSRF");
-    return null;
-  }
+  if (!requireCsrf(request, response, csrf)) return null;
   if (standaloneAdmin) return standaloneAdmin.user;
   if (!isAdmin(authenticated!.user, context) && !(authenticated!.adminExpiresAt && authenticated!.adminExpiresAt > Date.now())) {
     fail(response, 403, "관리자 권한이 필요해요.", "ADMIN_REQUIRED");
     return null;
   }
   return authenticated!.user;
+}
+
+function requireAdminMutation(
+  request: Request,
+  response: Response,
+  context: ApiContext,
+  limiter: MemoryRateLimiter,
+): AdminAuthorization | null {
+  if (!requireSameOrigin(request, response)) return null;
+  const authenticated = userForRequest(request, context);
+  const admin = requireAdmin(request, response, context, authenticated);
+  if (!admin) return null;
+  if (!limiter.take(`${admin.id}:mutation`)) {
+    fail(response, 429, "관리자 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
+    return null;
+  }
+  return { admin, authenticated };
 }
 
 function validatePlayerTarget(input: unknown): string {
@@ -317,7 +354,7 @@ async function bridgeSettings(context: ApiContext, init?: RequestInit, timeoutMs
 function requireServerPassword(request: Request, response: Response, context: ApiContext): boolean {
   if (!context.serverPassword) return true;
   const provided = typeof request.body?.serverPassword === "string" ? request.body.serverPassword : "";
-  if (provided === context.serverPassword) return true;
+  if (safeSecretEqual(provided, context.serverPassword)) return true;
   fail(response, 401, "서버 비밀번호가 올바르지 않아요.", "INVALID_SERVER_PASSWORD");
   return false;
 }
@@ -401,10 +438,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       fail(response, 401, "먼저 로그인하세요.", "AUTH_REQUIRED");
       return;
     }
-    if (request.headers["x-spawnpoint-csrf"] !== authenticated.csrf) {
-      fail(response, 403, "페이지를 새로고침한 뒤 다시 시도하세요.", "BAD_CSRF");
-      return;
-    }
+    if (!requireCsrf(request, response, authenticated.csrf)) return;
     clearAdminCookie(response, context.secureCookies);
     response.json({ user: publicUser(authenticated.user, context), csrf: authenticated.csrf, adminExpiresAt: null });
   });
@@ -418,7 +452,7 @@ export function createApiRouter(context: ApiContext): express.Router {
         resetRequired: user ? hasActivePasswordReset(user) : false,
       });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "플레이어 ID를 확인할 수 없어요.", "INVALID_USERNAME");
+      failFromError(response, 400, error, "플레이어 ID를 확인할 수 없어요.", "INVALID_USERNAME");
     }
   });
 
@@ -465,7 +499,7 @@ export function createApiRouter(context: ApiContext): express.Router {
     try {
       message = validateGameChatMessage(request.body?.message);
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "채팅 내용을 확인하세요.", "INVALID_CHAT");
+      failFromError(response, 400, error, "채팅 내용을 확인하세요.", "INVALID_CHAT");
       return;
     }
     if (!gameChatLimiter.take(user.id)) {
@@ -481,7 +515,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       if (result.sent !== true || typeof result.command !== "boolean") throw new Error("브리지의 채팅 응답이 올바르지 않아요.");
       response.json({ sent: true, command: result.command });
     } catch (error) {
-      fail(response, 503, error instanceof Error ? error.message : "채팅을 보내지 못했어요.", "BRIDGE_UNAVAILABLE");
+      failFromError(response, 503, error, "채팅을 보내지 못했어요.", "BRIDGE_UNAVAILABLE");
     }
   });
 
@@ -551,7 +585,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.status(201).json({ user: publicUser(user, context), csrf: session.csrf, created: true });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "회원가입에 실패했어요.", "INVALID_CREDENTIALS");
+      failFromError(response, 400, error, "회원가입에 실패했어요.", "INVALID_CREDENTIALS");
     }
   });
 
@@ -580,7 +614,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({ user: publicUser(user, context), csrf: session.csrf, created: false });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "로그인에 실패했어요.", "INVALID_CREDENTIALS");
+      failFromError(response, 400, error, "로그인에 실패했어요.", "INVALID_CREDENTIALS");
     }
   });
 
@@ -648,7 +682,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({ user: publicUser(user, context), csrf: session.csrf, created });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "계속할 수 없어요.", "INVALID_CREDENTIALS");
+      failFromError(response, 400, error, "계속할 수 없어요.", "INVALID_CREDENTIALS");
     }
   });
 
@@ -689,7 +723,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({ user: publicUser(updated, context), csrf: session.csrf });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "계정 정보를 변경하지 못했어요.", "INVALID_PROFILE");
+      failFromError(response, 400, error, "계정 정보를 변경하지 못했어요.", "INVALID_PROFILE");
     }
   });
 
@@ -714,7 +748,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({ user: publicUser(updated, context), csrf: session.csrf });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "비밀번호를 변경하지 못했어요.", "INVALID_PASSWORD");
+      failFromError(response, 400, error, "비밀번호를 변경하지 못했어요.", "INVALID_PASSWORD");
     }
   });
 
@@ -749,7 +783,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       const updated = await context.skins.applyUpload(user, request.file);
       response.json({ user: publicUser(updated, context) });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "스킨 업로드에 실패했어요.");
+      failFromError(response, 400, error, "스킨 업로드에 실패했어요.");
     }
   });
 
@@ -765,7 +799,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       const updated = await context.skins.applyMinecraftUsername(user, request.body?.username);
       response.json({ user: publicUser(updated, context) });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "스킨을 찾지 못했어요.");
+      failFromError(response, 400, error, "스킨을 찾지 못했어요.");
     }
   });
 
@@ -781,7 +815,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       const updated = await context.skins.applyCatalogSkin(user, request.body?.skinId);
       response.json({ user: publicUser(updated, context) });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "스킨을 적용하지 못했어요.");
+      failFromError(response, 400, error, "스킨을 적용하지 못했어요.");
     }
   });
 
@@ -818,7 +852,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       });
       response.json({ active: locator.active, targets });
     } catch (error) {
-      fail(response, 503, error instanceof Error ? error.message : "위치 표시 정보를 불러오지 못했어요.", "BRIDGE_UNAVAILABLE");
+      failFromError(response, 503, error, "위치 표시 정보를 불러오지 못했어요.", "BRIDGE_UNAVAILABLE");
     }
   });
 
@@ -852,18 +886,12 @@ export function createApiRouter(context: ApiContext): express.Router {
         server: context.serverManager.getStatus(),
       });
     } catch (error) {
-      fail(response, 500, error instanceof Error ? error.message : "관리자 정보를 불러오지 못했어요.", "ADMIN_OVERVIEW_FAILED");
+      failFromError(response, 500, error, "관리자 정보를 불러오지 못했어요.", "ADMIN_OVERVIEW_FAILED");
     }
   });
 
   router.put("/admin/settings/tpa", async (request, response) => {
-    if (!requireSameOrigin(request, response)) return;
-    const admin = requireAdmin(request, response, context);
-    if (!admin) return;
-    if (!adminLimiter.take(`${admin.id}:mutation`)) {
-      fail(response, 429, "관리자 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
-      return;
-    }
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
     if (typeof request.body?.enabled !== "boolean") {
       fail(response, 400, "TPA 설정 값이 올바르지 않아요.", "INVALID_TPA_SETTING");
       return;
@@ -875,42 +903,31 @@ export function createApiRouter(context: ApiContext): express.Router {
       }, 4_000);
       response.json(settings);
     } catch (error) {
-      fail(response, 503, error instanceof Error ? error.message : "TPA 설정을 변경하지 못했어요.", "BRIDGE_UNAVAILABLE");
+      failFromError(response, 503, error, "TPA 설정을 변경하지 못했어요.", "BRIDGE_UNAVAILABLE");
     }
   });
 
   router.post("/admin/console", async (request, response) => {
-    if (!requireSameOrigin(request, response)) return;
-    const admin = requireAdmin(request, response, context);
-    if (!admin) return;
-    if (!adminLimiter.take(`${admin.id}:mutation`)) {
-      fail(response, 429, "관리자 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
-      return;
-    }
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
     let command: string;
     try {
       command = validateConsoleCommand(request.body?.command);
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "콘솔 명령을 확인하세요.", "INVALID_CONSOLE_COMMAND");
+      failFromError(response, 400, error, "콘솔 명령을 확인하세요.", "INVALID_CONSOLE_COMMAND");
       return;
     }
     try {
       await context.serverManager.sendCommand(command);
       response.status(204).end();
     } catch (error) {
-      fail(response, 409, error instanceof Error ? error.message : "콘솔 명령을 실행하지 못했어요.", "CONSOLE_UNAVAILABLE");
+      failFromError(response, 409, error, "콘솔 명령을 실행하지 못했어요.", "CONSOLE_UNAVAILABLE");
     }
   });
 
   router.patch("/admin/users/:id/profile", (request, response) => {
-    if (!requireSameOrigin(request, response)) return;
-    const authenticated = userForRequest(request, context);
-    const admin = requireAdmin(request, response, context);
-    if (!admin) return;
-    if (!adminLimiter.take(`${admin.id}:mutation`)) {
-      fail(response, 429, "관리자 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
-      return;
-    }
+    const authorization = requireAdminMutation(request, response, context, adminLimiter);
+    if (!authorization) return;
+    const { admin, authenticated } = authorization;
     const target = context.database.getUserById(request.params.id);
     if (!target) {
       fail(response, 404, "사용자를 찾을 수 없어요.", "USER_NOT_FOUND");
@@ -950,18 +967,14 @@ export function createApiRouter(context: ApiContext): express.Router {
       }
       response.json({ user: publicUser(updated, context) });
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "사용자 정보를 변경하지 못했어요.", "INVALID_PROFILE");
+      failFromError(response, 400, error, "사용자 정보를 변경하지 못했어요.", "INVALID_PROFILE");
     }
   });
 
   router.post("/admin/users/:id/password-reset", async (request, response) => {
-    if (!requireSameOrigin(request, response)) return;
-    const admin = requireAdmin(request, response, context);
-    if (!admin) return;
-    if (!adminLimiter.take(`${admin.id}:mutation`)) {
-      fail(response, 429, "관리자 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
-      return;
-    }
+    const authorization = requireAdminMutation(request, response, context, adminLimiter);
+    if (!authorization) return;
+    const { admin } = authorization;
     if (admin.id === request.params.id) {
       fail(response, 400, "내 비밀번호는 계정 설정에서 변경하세요.", "SELF_RESET_NOT_ALLOWED");
       return;
@@ -995,19 +1008,13 @@ export function createApiRouter(context: ApiContext): express.Router {
   });
 
   router.put("/admin/players/:player/operator", async (request, response) => {
-    if (!requireSameOrigin(request, response)) return;
-    const admin = requireAdmin(request, response, context);
-    if (!admin) return;
-    if (!adminLimiter.take(`${admin.id}:mutation`)) {
-      fail(response, 429, "관리자 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
-      return;
-    }
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
     let player: string;
     try {
       player = validatePlayerTarget(request.params.player);
       if (typeof request.body?.operator !== "boolean") throw new Error("OP 상태를 선택하세요.");
     } catch (error) {
-      fail(response, 400, error instanceof Error ? error.message : "OP 상태를 확인하세요.", "INVALID_OPERATOR_REQUEST");
+      failFromError(response, 400, error, "OP 상태를 확인하세요.", "INVALID_OPERATOR_REQUEST");
       return;
     }
     try {
@@ -1017,7 +1024,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       });
       response.status(204).end();
     } catch (error) {
-      fail(response, 503, error instanceof Error ? error.message : "OP 상태를 변경하지 못했어요.", "BRIDGE_UNAVAILABLE");
+      failFromError(response, 503, error, "OP 상태를 변경하지 못했어요.", "BRIDGE_UNAVAILABLE");
     }
   });
 
@@ -1047,7 +1054,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       context.gameConnections.create(launchId, user.id);
       response.json({ ticket, username: user.gameUsername, displayName: user.displayName, profile });
     } catch (error) {
-      fail(response, 500, error instanceof Error ? error.message : "저장된 프로필을 불러오지 못했어요.", "PROFILE_LOAD_FAILED");
+      failFromError(response, 500, error, "저장된 프로필을 불러오지 못했어요.", "PROFILE_LOAD_FAILED");
     }
   });
 

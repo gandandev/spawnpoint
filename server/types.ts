@@ -32,6 +32,19 @@ export interface PublicUser {
   };
 }
 
+export type AdminActor = Pick<UserRecord, "id" | "username" | "sessionVersion">;
+
+export interface UserAuthentication {
+  user: UserRecord;
+  csrf: string;
+  adminExpiresAt: number | null;
+}
+
+export interface AdminAuthorization {
+  admin: AdminActor;
+  authenticated: UserAuthentication | null;
+}
+
 export interface AdminUser {
   id: string;
   username: string;

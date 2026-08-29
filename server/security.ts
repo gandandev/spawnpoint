@@ -198,18 +198,26 @@ export function createGameTicket(
   }, secret);
 }
 
+function tokenFromCookieHeader(
+  cookieHeader: string | undefined,
+  cookieName: string,
+  secret: string,
+  audience: TokenEnvelope["aud"],
+): TokenEnvelope | null {
+  const cookies = parseCookie(cookieHeader ?? "");
+  return verifyToken(cookies[cookieName], secret, audience);
+}
+
 export function sessionFromRequest(request: Request, secret: string): TokenEnvelope | null {
   return sessionFromCookieHeader(request.headers.cookie, secret);
 }
 
 export function sessionFromCookieHeader(cookieHeader: string | undefined, secret: string): TokenEnvelope | null {
-  const cookies = parseCookie(cookieHeader ?? "");
-  return verifyToken(cookies[SESSION_COOKIE], secret, "session");
+  return tokenFromCookieHeader(cookieHeader, SESSION_COOKIE, secret, "session");
 }
 
 export function adminFromRequest(request: Request, secret: string): TokenEnvelope | null {
-  const cookies = parseCookie(request.headers.cookie ?? "");
-  return verifyToken(cookies[ADMIN_COOKIE], secret, "admin");
+  return tokenFromCookieHeader(request.headers.cookie, ADMIN_COOKIE, secret, "admin");
 }
 
 export function setSessionCookie(response: Response, token: string, days: number, secure: boolean): void {
