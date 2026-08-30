@@ -3003,7 +3003,7 @@
     window.visualViewport.addEventListener("scroll", updateMobileChatComposerLayout);
   }
 
-  options.servers = [{ addr: gateway, name: siteName, hideAddress: true }];
+  options.servers = [{ addr: gateway, name: "대 미 덕 마크서버", hideAddress: true }];
   options.joinServer = gateway;
   options.relays = [];
   options.checkRelaysForUpdates = false;

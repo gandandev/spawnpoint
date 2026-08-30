@@ -238,7 +238,7 @@ def apply_font(entries: list[EpkEntry], font_path: Path, license_path: Path) -> 
     if language.count(edit_profile) != 1:
         raise ValueError("Base client does not contain exactly one Edit Profile label")
     entries[by_name[EN_US_LANG]].data = language.replace(
-        edit_profile, "eaglercraft.menu.editProfile=메뉴"
+        edit_profile, "eaglercraft.menu.editProfile=포탈로 돌아가기"
     ).encode("utf-8")
     entries[by_name[SPLASHES]].data = "대미덕에디션\n".encode("utf-8")
 

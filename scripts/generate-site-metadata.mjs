@@ -1,0 +1,46 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const clientDir = path.join(process.cwd(), "dist", "client");
+const source = await fs.readFile(path.join(clientDir, "index.html"), "utf8");
+
+const sites = [
+  {
+    title: "예게.서버.한국",
+    origin: "https://xn--o79a769b.xn--hk3b17f.xn--3e0b707e",
+    image: "og-image-yege.jpg",
+    output: "index-yege.html",
+  },
+  {
+    title: "베이컨.서버.한국",
+    origin: "https://xn--9k3b21rt2f.xn--hk3b17f.xn--3e0b707e",
+    image: "og-image-bacon.jpg",
+    output: "index-bacon.html",
+  },
+];
+
+function replaceMeta(html, attribute, key, value) {
+  const pattern = new RegExp(`(<meta ${attribute}="${key}" content=")[^"]*("\\s*/?>)`);
+  if (!pattern.test(html)) throw new Error(`Missing ${key} metadata in built index`);
+  return html.replace(pattern, `$1${value}$2`);
+}
+
+function insertAfter(html, marker, value) {
+  if (!html.includes(marker)) throw new Error(`Missing metadata marker: ${marker}`);
+  return html.replace(marker, `${marker}\n    ${value}`);
+}
+
+for (const site of sites) {
+  let html = source.replace(/<title>[^<]*<\/title>/, `<title>${site.title}</title>`);
+  const imageAlt = `초록빛 검정 배경 위에 로고와 ${site.title}이 가로로 놓인 이미지`;
+  html = insertAfter(html, '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />', `<link rel="canonical" href="${site.origin}/" />`);
+  html = insertAfter(html, '<meta property="og:type" content="website" />', `<meta property="og:url" content="${site.origin}/" />`);
+  html = replaceMeta(html, "property", "og:site_name", site.title);
+  html = replaceMeta(html, "property", "og:title", site.title);
+  html = replaceMeta(html, "property", "og:image", `${site.origin}/${site.image}`);
+  html = replaceMeta(html, "property", "og:image:alt", imageAlt);
+  html = replaceMeta(html, "name", "twitter:title", site.title);
+  html = replaceMeta(html, "name", "twitter:image", `${site.origin}/${site.image}`);
+  html = replaceMeta(html, "name", "twitter:image:alt", imageAlt);
+  await fs.writeFile(path.join(clientDir, site.output), html);
+}

@@ -22,6 +22,7 @@ interface ServerManagerOptions {
 
 const MANAGED_FILES = [
   "paper-1.12.2.jar",
+  "server-icon.png",
   "server.properties",
   "bukkit.yml",
   "plugins/EaglerXServer.jar",

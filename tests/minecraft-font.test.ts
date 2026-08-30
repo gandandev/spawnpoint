@@ -2,9 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const fontRoot = path.join(process.cwd(), "public/fonts/minecraft-1.12");
-
-describe("Minecraft 1.12 name-tag font", () => {
+describe("Skin preview name-tag font", () => {
   it("ships the full browser mark font in compressed WOFF2 form", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "vendor/fonts/galmuri/Galmuri11.ttf"));
     const compressed = fs.readFileSync(path.join(process.cwd(), "vendor/fonts/galmuri/Galmuri11.woff2"));
@@ -13,18 +11,13 @@ describe("Minecraft 1.12 name-tag font", () => {
     expect(compressed.length).toBeLessThan(source.length / 5);
   });
 
-  it("contains the exact bitmap pages and widths needed for Korean names", () => {
-    const sizes = fs.readFileSync(path.join(fontRoot, "glyph_sizes.bin"));
-    expect(sizes).toHaveLength(65_536);
+  it("uses the browser Galmuri face for the skin preview name tag", () => {
+    const renderer = fs.readFileSync(path.join(process.cwd(), "src/minecraft-name-tag.ts"), "utf8");
 
-    for (const character of "텔레그램") {
-      const codePoint = character.codePointAt(0)!;
-      const size = sizes[codePoint];
-      expect(size).not.toBe(0);
-      expect((size & 0x0f) + 1 - (size >>> 4)).toBe(15);
-      const page = (codePoint >>> 8).toString(16).padStart(2, "0");
-      const png = fs.readFileSync(path.join(fontRoot, `unicode_page_${page}.png`));
-      expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-    }
+    expect(renderer).toContain('"Spawnpoint Mark"');
+    expect(renderer).toContain("document.fonts.load(FONT, text)");
+    expect(renderer).toContain("metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight");
+    expect(renderer).toContain("metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent");
+    expect(renderer).not.toContain("/fonts/minecraft-1.12");
   });
 });

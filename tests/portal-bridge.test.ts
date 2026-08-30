@@ -452,10 +452,10 @@ describe("domain site name", () => {
     ["xn--o79a769b.xn--hk3b17f.xn--3e0b707e", "예게.서버.한국"],
     ["xn--9k3b21rt2f.xn--hk3b17f.xn--3e0b707e", "베이컨.서버.한국"],
     ["spawnpoint.test", "spawnpoint"],
-  ])("uses the name for %s in the game client", (hostname, expected) => {
+  ])("uses the branded server name for %s in the game client", (hostname, expected) => {
     const client = loadBridge(undefined, true, undefined, { hostname });
     expect(client.options.servers).toEqual([
-      { addr: `wss://${hostname}/gateway?launch=launch-123`, name: expected, hideAddress: true },
+      { addr: `wss://${hostname}/gateway?launch=launch-123`, name: "대 미 덕 마크서버", hideAddress: true },
     ]);
     expect(client.documentObject.title).toBe(`${expected}, mossrunner`);
   });

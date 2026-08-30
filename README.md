@@ -84,6 +84,8 @@ recommended watch paths:
 /vendor/**
 /scripts/prepare-clients.mjs
 /scripts/generate-presets.mjs
+/scripts/generate-og-images.mjs
+/scripts/generate-site-metadata.mjs
 /scripts/compress-client-assets.mjs
 /index.html
 /vite.config.ts

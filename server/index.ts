@@ -10,6 +10,7 @@ import { createGameTicket, isSameOriginHeaders, loadOrCreateSecret, sessionFromC
 import { MinecraftServerManager } from "./server-manager.js";
 import { SkinService, skinPathForUser } from "./skins.js";
 import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
+import { siteIndexForHostname } from "./site-index.js";
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 const sessionSecret = loadOrCreateSecret(config.dataDir, config.sessionSecret);
@@ -170,7 +171,7 @@ if (config.serveClient) {
       next();
       return;
     }
-    response.sendFile(path.join(config.clientDir, "index.html"));
+    response.sendFile(path.join(config.clientDir, siteIndexForHostname(request.hostname)));
   });
 }
 

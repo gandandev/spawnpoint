@@ -3,6 +3,12 @@
 }
 
 :{$PORT:3000} {
+	map {host} {site_index} {
+		xn--o79a769b.xn--hk3b17f.xn--3e0b707e /index-yege.html
+		xn--9k3b21rt2f.xn--hk3b17f.xn--3e0b707e /index-bacon.html
+		default /index.html
+	}
+
 	@frontendHealth path /frontend-healthz
 	handle @frontendHealth {
 		header Content-Type application/json
@@ -79,7 +85,9 @@
 			Cache-Control "no-cache"
 		}
 		root * {$FRONTEND_ROOT:/srv}
-		try_files {path} /index.html
+		@siteRoot path /
+		rewrite @siteRoot {site_index}
+		try_files {path} {site_index}
 		file_server {
 			precompressed br gzip
 		}

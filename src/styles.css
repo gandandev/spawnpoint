@@ -120,10 +120,9 @@
 :root {
   --resize-dur: 300ms;
   --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --auth-mode-exit-dur: 150ms;
-  --auth-mode-enter-dur: 150ms;
-  --auth-mode-enter-delay: 50ms;
-  --auth-mode-enter-ease: cubic-bezier(0.84, 0, 0.5, 1.28);
+  --auth-mode-dur: 200ms;
+  --auth-mode-distance: 24px;
+  --auth-mode-ease: cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 .t-resize {
   transition:
@@ -137,6 +136,8 @@
 }
 
 .auth-mode-container {
+  --resize-dur: var(--auth-mode-dur);
+  --resize-ease: var(--auth-mode-ease);
   overflow: visible;
 }
 
@@ -145,13 +146,13 @@
 }
 
 .auth-mode-panel {
-  --auth-mode-enter-x: var(--distance-medium);
-  --auth-mode-exit-x: calc(-1 * var(--distance-medium));
+  --auth-mode-enter-x: var(--auth-mode-distance);
+  --auth-mode-exit-x: calc(-1 * var(--auth-mode-distance));
 }
 
 .auth-mode-panel[data-direction="from-left"] {
-  --auth-mode-enter-x: calc(-1 * var(--distance-medium));
-  --auth-mode-exit-x: var(--distance-medium);
+  --auth-mode-enter-x: calc(-1 * var(--auth-mode-distance));
+  --auth-mode-exit-x: var(--auth-mode-distance);
 }
 
 .auth-mode-panel[data-layer="outgoing"] {
@@ -160,13 +161,13 @@
 }
 
 .auth-mode-panel[data-state="exiting"] {
-  animation: auth-mode-exit var(--auth-mode-exit-dur) ease-in both;
+  animation: auth-mode-exit var(--auth-mode-dur) var(--auth-mode-ease) both;
   pointer-events: none;
   will-change: transform, opacity, filter;
 }
 
 .auth-mode-panel[data-state="entering"] {
-  animation: auth-mode-enter var(--auth-mode-enter-dur) var(--auth-mode-enter-ease) var(--auth-mode-enter-delay) both;
+  animation: auth-mode-enter var(--auth-mode-dur) var(--auth-mode-ease) both;
   pointer-events: none;
   will-change: transform, opacity, filter;
 }

@@ -114,7 +114,7 @@ print(json.dumps({
   "verbose_fps_count": wasm.count(b"fps | C: "),
   "fps_only_count": wasm.count(b"fps\\xc2\\xa7r\\xc2\\xa7r"),
   "old_edit_profile_count": assets.count(b"eaglercraft.menu.editProfile=Edit Profile"),
-  "menu_label_count": assets.count("eaglercraft.menu.editProfile=메뉴".encode()),
+  "portal_return_label_count": assets.count("eaglercraft.menu.editProfile=포탈로 돌아가기".encode()),
   "splash_count": assets.count("대미덕에디션\\n".encode()),
 }))
 `, path.join(clients, "stable-galmuri.epw")], { encoding: "utf8" }));
@@ -124,7 +124,7 @@ print(json.dumps({
       verbose_fps_count: 1,
       fps_only_count: 0,
       old_edit_profile_count: 0,
-      menu_label_count: 1,
+      portal_return_label_count: 1,
       splash_count: 1,
     });
   });
