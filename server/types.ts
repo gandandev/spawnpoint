@@ -1,5 +1,7 @@
 export type SkinModel = "steve" | "alex";
 export type SkinType = "preset" | "upload" | "mojang";
+export type ResourcePackPreference = "new-default" | "programmer-art";
+export type TitleColor = "white" | "gray" | "red" | "gold" | "yellow" | "green" | "aqua" | "blue" | "light_purple";
 
 export interface UserRecord {
   id: string;
@@ -17,6 +19,7 @@ export interface UserRecord {
   skinModel: SkinModel;
   skinLabel: string;
   skinUpdatedAt: number;
+  resourcePackPreference: ResourcePackPreference;
 }
 
 export interface PublicUser {
@@ -76,6 +79,14 @@ export interface PlayerDetails {
 
 export interface BridgeSettings {
   tpaEnabled: boolean;
+}
+
+export interface BridgeTitleRequest {
+  title: string;
+  subtitle: string;
+  color: TitleColor;
+  audience: "all" | "selected";
+  targets: string[];
 }
 
 export interface LocatorTargetDetails {

@@ -978,9 +978,22 @@ describe("administrator TPA setting", () => {
 
 describe("administrator console and account actions", () => {
   it("shows console output and sends a command from the console tab", async () => {
+    vi.useFakeTimers();
     const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       if (String(input) === "/api/admin/overview") {
-        return Promise.resolve(jsonResponse({ ...adminOverview(true), logs: ["Done (1.234s)!"] }));
+        return Promise.resolve(jsonResponse(adminOverview(true)));
+      }
+      if (String(input) === "/api/admin/logs?offset=0") {
+        return Promise.resolve(jsonResponse({
+          entries: [{ source: "2026-08-29-1.log.gz", line: "Done (1.234s)!" }],
+          nextOffset: null,
+        }));
+      }
+      if (String(input) === "/api/admin/logs?offset=0&q=joined") {
+        return Promise.resolve(jsonResponse({
+          entries: [{ source: "2026-07-11-3.log.gz", line: "friend joined the game" }],
+          nextOffset: null,
+        }));
       }
       if (String(input) === "/api/admin/console" && options?.method === "POST") {
         return Promise.resolve(new Response(null, { status: 204 }));
@@ -1000,10 +1013,26 @@ describe("administrator console and account actions", () => {
       await Promise.resolve();
     });
     const consoleTab = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "콘솔") as HTMLButtonElement;
-    await act(async () => consoleTab.click());
+    await act(async () => {
+      consoleTab.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
 
     expect(document.body.querySelector('[aria-label="서버 콘솔 출력"]')?.textContent).toContain("Done (1.234s)!");
+    expect(document.body.querySelector('[aria-label="서버 콘솔 출력"]')?.textContent).toContain("2026-08-29-1");
     expect(document.body.textContent).not.toContain("서버 로그를 실시간으로");
+    const searchInput = document.body.querySelector('[aria-label="콘솔 로그 검색"]') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(searchInput, "joined");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.body.querySelector('[aria-label="서버 콘솔 출력"]')?.textContent).toContain("friend joined the game");
+    expect(document.body.querySelector('[aria-label="서버 콘솔 출력"]')?.textContent).toContain("2026-07-11-3");
     const input = document.body.querySelector('[aria-label="콘솔 명령"]') as HTMLInputElement;
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -1020,6 +1049,69 @@ describe("administrator console and account actions", () => {
       method: "POST",
       body: JSON.stringify({ command: "say 안녕하세요" }),
     }));
+    await act(async () => root.unmount());
+  });
+
+  it("sends a colored title to one or more selected online players", async () => {
+    const overview = adminOverview(true, [
+      { ...testPlayer, accountId: "00000000-0000-4000-8000-000000000101", displayName: "관리자", username: "qaadmin" },
+      { ...testPlayer, accountId: "00000000-0000-4000-8000-000000000102", uuid: "00000000-0000-4000-8000-000000000002", displayName: "친구", username: "friend" },
+    ]);
+    let submitted: unknown = null;
+    const notice = vi.fn();
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      if (String(input) === "/api/admin/overview") return Promise.resolve(jsonResponse(overview));
+      if (String(input) === "/api/admin/title" && options?.method === "POST") {
+        submitted = JSON.parse(String(options.body));
+        return Promise.resolve(jsonResponse({ sent: 1 }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${String(input)}`));
+    }));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AdminPanel data={adminData} onSession={vi.fn()} notice={notice} />);
+    });
+    await act(async () => {
+      (container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const titleTab = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "타이틀") as HTMLButtonElement;
+    await act(async () => titleTab.click());
+
+    const titleInput = document.body.querySelector("#admin-title-text") as HTMLInputElement;
+    const subtitleInput = document.body.querySelector("#admin-subtitle-text") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(titleInput, "서버 공지");
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+      setter.call(subtitleInput, "곧 저장합니다");
+      subtitleInput.dispatchEvent(new Event("input", { bubbles: true }));
+      (document.body.querySelector('[aria-label="타이틀 색깔 빨강"]') as HTMLButtonElement).click();
+      ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "직접 선택") as HTMLButtonElement).click();
+    });
+    const playerChoices = [...document.body.querySelectorAll('[role="checkbox"]')] as HTMLButtonElement[];
+    expect(playerChoices).toHaveLength(2);
+    await act(async () => playerChoices[0].click());
+    const submit = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "타이틀 띄우기") as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    await act(async () => {
+      submit.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(submitted).toEqual({
+      title: "서버 공지",
+      subtitle: "곧 저장합니다",
+      color: "red",
+      audience: "selected",
+      targets: ["00000000-0000-4000-8000-000000000101"],
+    });
+    expect(notice).toHaveBeenCalledWith("1명에게 타이틀을 띄웠어요.");
     await act(async () => root.unmount());
   });
 

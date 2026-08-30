@@ -106,6 +106,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private static final long COMMAND_IDENTITY_REFRESH_TICKS = 10L * 20L;
     private static final int IDENTITY_RESOLVE_ATTEMPTS = 40;
     private static final Pattern TECHNICAL_GAME_USERNAME = Pattern.compile("(?i)sp_[a-f0-9]{13}");
+    private static final Pattern PLAYER_KEY = Pattern.compile("(?i)(?:[a-z0-9_]{3,16}|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})");
+    private static final Set<String> TITLE_COLORS = Set.of(
+        "white", "gray", "red", "gold", "yellow", "green", "aqua", "blue", "light_purple"
+    );
 
     private byte[] secret;
     private String portalOrigin;
@@ -147,6 +151,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         registerCommand("tpa");
         registerCommand("tpaccept");
         registerCommand("tpdeny");
+        registerCommand("spawnpointtell");
         this.portalOrigin = env("PORTAL_INTERNAL_ORIGIN", "http://127.0.0.1:3000").replaceAll("/+$", "");
         getServer().getPluginManager().registerEvents(this, this);
         enableKeepInventory();
@@ -213,8 +218,26 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             case "tpa" -> handleTpa(sender, args);
             case "tpaccept" -> handleTpaResponse(sender, args, true);
             case "tpdeny" -> handleTpaResponse(sender, args, false);
+            case "spawnpointtell" -> handleTellAlias(sender, args);
             default -> false;
         };
+    }
+
+    private boolean handleTellAlias(CommandSender sender, String[] args) {
+        if (args.length < 2) return false;
+        CommandRewrite rewrite = rewriteTellAliasCommand(args, commandTargets);
+        if (rewrite.ambiguousDisplayName) {
+            sender.sendMessage("같은 이름을 쓰는 플레이어가 여러 명이에요. 정확한 게임 ID를 입력하세요.");
+            return true;
+        }
+        if (!getServer().dispatchCommand(sender, rewrite.message.substring(1))) {
+            sender.sendMessage("귓속말을 보내지 못했어요. 받는 사람과 문구를 확인하세요.");
+        }
+        return true;
+    }
+
+    static CommandRewrite rewriteTellAliasCommand(String[] args, List<CommandTargetName> targets) {
+        return rewriteDisplayNameCommand("/minecraft:tell " + String.join(" ", args), targets);
     }
 
     private boolean handleTpa(CommandSender sender, String[] args) {
@@ -814,6 +837,52 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 sendJson(exchange, 200, onMainThread(() -> setTpaEnabled(enabled)));
                 return;
             }
+            if ("POST".equals(method) && "/v1/titles".equals(path)) {
+                JsonObject request = parseRequestObject(exchange);
+                if (request == null || request.entrySet().size() != 5
+                    || !request.has("title") || !request.get("title").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("title").isString()
+                    || !request.has("subtitle") || !request.get("subtitle").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("subtitle").isString()
+                    || !request.has("color") || !request.get("color").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("color").isString()
+                    || !request.has("audience") || !request.get("audience").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("audience").isString()
+                    || !request.has("targets") || !request.get("targets").isJsonArray()) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                String title = request.get("title").getAsString().trim();
+                String subtitle = request.get("subtitle").getAsString().trim();
+                String color = request.get("color").getAsString().toLowerCase(Locale.ROOT);
+                String audience = request.get("audience").getAsString();
+                if (!isSafeTitleText(title, 64) || !isSafeTitleText(subtitle, 128)
+                    || (title.isEmpty() && subtitle.isEmpty()) || !TITLE_COLORS.contains(color)
+                    || !("all".equals(audience) || "selected".equals(audience))) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                JsonArray targetValues = request.getAsJsonArray("targets");
+                if (targetValues.size() > 100 || ("selected".equals(audience) && targetValues.size() == 0)) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                List<String> targets = new ArrayList<>();
+                for (JsonElement value : targetValues) {
+                    if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+                        sendError(exchange, 400, "invalid_request");
+                        return;
+                    }
+                    String target = value.getAsString();
+                    if (!PLAYER_KEY.matcher(target).matches()) {
+                        sendError(exchange, 400, "invalid_request");
+                        return;
+                    }
+                    if (!targets.contains(target)) targets.add(target);
+                }
+                sendJson(exchange, 200, onMainThread(() -> showTitle(audience, targets, title, subtitle, color)));
+                return;
+            }
             String chatPrefix = "/v1/chat/";
             if ("POST".equals(method) && path.startsWith(chatPrefix)) {
                 String encodedAccountId = path.substring(chatPrefix.length());
@@ -1069,6 +1138,31 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         player.setOp(operator);
         JsonObject result = playerIdentity(player);
         result.addProperty("operator", player.isOp());
+        return result;
+    }
+
+    private JsonObject showTitle(String audience, List<String> targets, String title, String subtitle, String color) {
+        Set<Player> recipients = new HashSet<>();
+        if ("all".equals(audience)) {
+            recipients.addAll(getServer().getOnlinePlayers());
+        } else {
+            for (String target : targets) {
+                Player player = resolvePlayer(target);
+                if (player != null && player.isOnline()) recipients.add(player);
+            }
+        }
+        String colorPrefix = ChatColor.valueOf(color.toUpperCase(Locale.ROOT)).toString();
+        for (Player player : recipients) {
+            player.sendTitle(
+                title.isEmpty() ? "" : colorPrefix + title,
+                subtitle.isEmpty() ? "" : colorPrefix + subtitle,
+                10,
+                70,
+                20
+            );
+        }
+        JsonObject result = new JsonObject();
+        result.addProperty("sent", recipients.size());
         return result;
     }
 
@@ -1638,6 +1732,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private static boolean isSafeDisplayName(String value) {
         if (value == null || value.trim().isEmpty() || value.length() > 16) return false;
         return value.codePoints().noneMatch(codePoint -> Character.isISOControl(codePoint) || codePoint == '\u00a7');
+    }
+
+    private static boolean isSafeTitleText(String value, int maxLength) {
+        return value != null && value.length() <= maxLength
+            && value.codePoints().noneMatch(codePoint -> Character.isISOControl(codePoint) || codePoint == '\u00a7');
     }
 
     private static String string(JsonObject json, String key) {

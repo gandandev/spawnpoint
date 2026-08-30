@@ -1,4 +1,5 @@
 export type ServerPhase = "off" | "preparing" | "starting" | "online" | "stopping" | "error";
+export type ResourcePackPreference = "new-default" | "programmer-art";
 
 export interface ServerStatus {
   phase: ServerPhase;
@@ -90,6 +91,16 @@ export interface AdminOverview {
   tpaEnabled: boolean | null;
   logs: string[];
   server: ServerStatus;
+}
+
+export interface AdminLogEntry {
+  source: string;
+  line: string;
+}
+
+export interface AdminLogPage {
+  entries: AdminLogEntry[];
+  nextOffset: number | null;
 }
 
 export interface ClientChoice {

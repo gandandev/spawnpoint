@@ -4,6 +4,8 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
+import { promisify } from "node:util";
+import { gunzip as gunzipCallback } from "node:zlib";
 import type { ServerStatus } from "./types.js";
 
 interface ServerManagerOptions {
@@ -29,12 +31,25 @@ const MANAGED_FILES = [
   "plugins/SpawnpointBridge.jar",
   "plugins/EaglercraftXServer/settings.yml",
   "plugins/EaglercraftXServer/listener.yml",
+  "plugins/EaglercraftXServer/ice_servers.yml",
 ];
 const MAX_LOG_LINES = 500;
 const FINAL_LOG_LINES = 12;
 const HARD_STOP_DELAY_MS = 20_000;
 const SHUTDOWN_EXIT_GRACE_MS = HARD_STOP_DELAY_MS + 5_000;
 const READY_LOG_PATTERNS = [/Done \([\d.]+s\)!/, /For help, type "help"/];
+const PAPER_LOG_ARCHIVE = /^\d{4}-\d{2}-\d{2}-\d+\.log(?:\.gz)?$/;
+const gunzip = promisify(gunzipCallback);
+
+export interface ConsoleLogEntry {
+  source: string;
+  line: string;
+}
+
+export interface ConsoleLogPage {
+  entries: ConsoleLogEntry[];
+  nextOffset: number | null;
+}
 
 export class ServerStartError extends Error {
   constructor(public readonly code: "EULA_REQUIRED" | "COOLDOWN" | "MISSING_RUNTIME" | "START_FAILED", message: string) {
@@ -78,6 +93,66 @@ export class MinecraftServerManager extends EventEmitter {
   getRecentLogs(limit = 200): string[] {
     const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
     return this.recentOutput.slice(-safeLimit);
+  }
+
+  async getLogHistory(options: { query?: string; offset?: number; limit?: number } = {}): Promise<ConsoleLogPage> {
+    const query = (options.query ?? "").trim().toLocaleLowerCase("ko-KR");
+    const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+    const limit = Math.max(1, Math.min(Math.trunc(options.limit ?? 500), 500));
+    const logsDir = path.join(this.minecraftDir, "logs");
+    let fileNames: string[] = [];
+    try {
+      fileNames = (await fs.readdir(logsDir, { withFileTypes: true }))
+        .filter((entry) => entry.isFile() && (entry.name === "latest.log" || PAPER_LOG_ARCHIVE.test(entry.name)))
+        .map((entry) => entry.name)
+        .sort((left, right) => {
+          if (left === "latest.log") return -1;
+          if (right === "latest.log") return 1;
+          return right.localeCompare(left, "en", { numeric: true });
+        });
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error;
+    }
+
+    const newestFirst: ConsoleLogEntry[] = [];
+    let skipped = 0;
+    let hasMore = false;
+    const visit = (source: string, lines: string[]) => {
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        const line = lines[index];
+        if (!line || (query && !line.toLocaleLowerCase("ko-KR").includes(query))) continue;
+        if (skipped < offset) {
+          skipped += 1;
+          continue;
+        }
+        if (newestFirst.length < limit) {
+          newestFirst.push({ source, line });
+          continue;
+        }
+        hasMore = true;
+        return false;
+      }
+      return true;
+    };
+
+    for (const fileName of fileNames) {
+      let contents: Buffer;
+      try {
+        const stored = await fs.readFile(path.join(logsDir, fileName));
+        contents = fileName.endsWith(".gz") ? await gunzip(stored) : stored;
+      } catch (error) {
+        // Paper can rotate latest.log while this request is reading it. Skip only that vanished file.
+        if (isMissingFileError(error)) continue;
+        throw error;
+      }
+      if (!visit(fileName, contents.toString("utf8").split(/\r?\n/))) break;
+    }
+
+    if (fileNames.length === 0) visit("현재 실행", this.recentOutput);
+    return {
+      entries: newestFirst.reverse(),
+      nextOffset: hasMore ? offset + newestFirst.length : null,
+    };
   }
 
   async sendCommand(command: string): Promise<void> {
@@ -348,4 +423,8 @@ export class MinecraftServerManager extends EventEmitter {
     await this.stop();
     await waitForExit;
   }
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }

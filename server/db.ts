@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
-import type { AdminUser, SkinModel, SkinType, UserRecord } from "./types.js";
+import type { AdminUser, ResourcePackPreference, SkinModel, SkinType, UserRecord } from "./types.js";
 
 interface UserRow {
   id: string;
@@ -20,6 +20,7 @@ interface UserRow {
   skin_model: SkinModel;
   skin_label: string;
   skin_updated_at: number;
+  resource_pack: ResourcePackPreference;
 }
 
 const LEGACY_USER_COLUMNS = [
@@ -28,6 +29,7 @@ const LEGACY_USER_COLUMNS = [
   ["password_reset_digest", "BLOB"],
   ["password_reset_expires_at", "INTEGER"],
   ["session_version", "INTEGER NOT NULL DEFAULT 0"],
+  ["resource_pack", "TEXT NOT NULL DEFAULT 'new-default'"],
 ] as const;
 
 function mapUser(row: UserRow | undefined): UserRecord | null {
@@ -48,6 +50,7 @@ function mapUser(row: UserRow | undefined): UserRecord | null {
     skinModel: row.skin_model,
     skinLabel: row.skin_label,
     skinUpdatedAt: row.skin_updated_at,
+    resourcePackPreference: row.resource_pack === "programmer-art" ? "programmer-art" : "new-default",
   };
 }
 
@@ -72,6 +75,7 @@ export class AppDatabase {
   private readonly updateSkinStatement: Database.Statement;
   private readonly updateIdentityStatement: Database.Statement;
   private readonly updatePasswordStatement: Database.Statement;
+  private readonly updateResourcePackStatement: Database.Statement;
   private readonly requestPasswordResetStatement: Database.Statement;
   private readonly completePasswordResetStatement: Database.Statement;
   private readonly clearPasswordResetStatement: Database.Statement;
@@ -99,7 +103,8 @@ export class AppDatabase {
         skin_ref TEXT NOT NULL DEFAULT 'spawnpoint',
         skin_model TEXT NOT NULL DEFAULT 'steve',
         skin_label TEXT NOT NULL DEFAULT 'spawnpoint',
-        skin_updated_at INTEGER NOT NULL
+        skin_updated_at INTEGER NOT NULL,
+        resource_pack TEXT NOT NULL DEFAULT 'new-default'
       );
     `);
     const columns = new Set(
@@ -146,6 +151,11 @@ export class AppDatabase {
           password_reset_digest = NULL,
           password_reset_expires_at = NULL,
           session_version = session_version + 1
+      WHERE id = @id
+    `);
+    this.updateResourcePackStatement = this.db.prepare(`
+      UPDATE users
+      SET resource_pack = @resourcePackPreference
       WHERE id = @id
     `);
     this.requestPasswordResetStatement = this.db.prepare(`
@@ -226,6 +236,11 @@ export class AppDatabase {
   updatePassword(id: string, passwordHash: Buffer, passwordSalt: Buffer): UserRecord {
     this.updatePasswordStatement.run({ id, passwordHash, passwordSalt });
     return this.requireUser(id, "updating password");
+  }
+
+  updateResourcePack(id: string, resourcePackPreference: ResourcePackPreference): UserRecord {
+    this.updateResourcePackStatement.run({ id, resourcePackPreference });
+    return this.requireUser(id, "updating resource pack preference");
   }
 
   requestPasswordReset(id: string, digest: Buffer, expiresAt: number): UserRecord {

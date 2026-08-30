@@ -30,10 +30,13 @@ import type {
   AdminActor,
   AdminAuthorization,
   BridgeSettings,
+  BridgeTitleRequest,
   LocatorSnapshot,
   LocatorTargetDetails,
   PlayerDetails,
   PublicUser,
+  ResourcePackPreference,
+  TitleColor,
   UserAuthentication,
   UserRecord,
 } from "./types.js";
@@ -59,6 +62,7 @@ const PASSWORD_RESET_WINDOW_MS = 15 * 60_000;
 const ADMIN_UNLOCK_MINUTES = 10;
 const ADMIN_OVERVIEW_RATE_LIMIT = 1_200;
 const ADMIN_OVERVIEW_RATE_WINDOW_MS = 10 * 60_000;
+const TITLE_COLORS = new Set<TitleColor>(["white", "gray", "red", "gold", "yellow", "green", "aqua", "blue", "light_purple"]);
 const STANDALONE_ADMIN = {
   id: "spawnpoint-standalone-admin",
   username: "admin",
@@ -282,7 +286,58 @@ function validateConsoleCommand(input: unknown): string {
   if (!command || command.length > 256 || /[\r\n\0]/.test(command)) {
     throw new Error("콘솔 명령은 줄바꿈 없이 1~256자로 입력하세요.");
   }
-  return command;
+  const normalized = command.startsWith("/") ? command.slice(1).trimStart() : command;
+  if (!normalized) throw new Error("콘솔 명령을 입력하세요.");
+  return normalized;
+}
+
+function validateLogSearch(input: unknown): string {
+  if (input === undefined) return "";
+  if (typeof input !== "string" || input.length > 100 || /[\r\n\0]/.test(input)) {
+    throw new Error("로그 검색어는 줄바꿈 없이 100자까지 입력하세요.");
+  }
+  return input.trim();
+}
+
+function validateLogOffset(input: unknown): number {
+  if (input === undefined) return 0;
+  if (typeof input !== "string" || !/^\d{1,7}$/.test(input)) throw new Error("로그 위치가 올바르지 않아요.");
+  return Number(input);
+}
+
+function validateTitleText(input: unknown, label: string, maxLength: number): string {
+  if (typeof input !== "string") throw new Error(`${label} 문구를 입력하세요.`);
+  const text = input.trim();
+  if (text.length > maxLength || /[\r\n\0\u00a7]/.test(text)) {
+    throw new Error(`${label} 문구는 줄바꿈 없이 ${maxLength}자까지 입력하세요.`);
+  }
+  return text;
+}
+
+function validateTitleRequest(input: unknown): BridgeTitleRequest {
+  if (!input || typeof input !== "object") throw new Error("타이틀 설정이 올바르지 않아요.");
+  const value = input as Record<string, unknown>;
+  const title = validateTitleText(value.title, "제목", 64);
+  const subtitle = validateTitleText(value.subtitle, "부제목", 128);
+  if (!title && !subtitle) throw new Error("제목이나 부제목을 하나 이상 입력하세요.");
+  if (typeof value.color !== "string" || !TITLE_COLORS.has(value.color as TitleColor)) {
+    throw new Error("타이틀 색깔이 올바르지 않아요.");
+  }
+  if (value.audience !== "all" && value.audience !== "selected") {
+    throw new Error("타이틀을 받을 사용자를 선택하세요.");
+  }
+  if (!Array.isArray(value.targets) || value.targets.length > 100) {
+    throw new Error("타이틀을 받을 사용자 목록이 올바르지 않아요.");
+  }
+  const targets = [...new Set(value.targets.map(validatePlayerTarget))];
+  if (value.audience === "selected" && targets.length === 0) throw new Error("타이틀을 받을 사용자를 선택하세요.");
+  return {
+    title,
+    subtitle,
+    color: value.color as TitleColor,
+    audience: value.audience,
+    targets: value.audience === "all" ? [] : targets,
+  };
 }
 
 function validateGameChatMessage(input: unknown): string {
@@ -359,6 +414,16 @@ async function bridgeSettings(context: ApiContext, init?: RequestInit, timeoutMs
   const body = await response.json() as Partial<BridgeSettings>;
   if (typeof body.tpaEnabled !== "boolean") throw new Error("브리지의 TPA 설정 응답이 올바르지 않아요.");
   return { tpaEnabled: body.tpaEnabled };
+}
+
+async function bridgeTitle(context: ApiContext, request: BridgeTitleRequest): Promise<{ sent: number }> {
+  const response = await bridgeRequest(context, "/v1/titles", {
+    method: "POST",
+    body: JSON.stringify(request),
+  }, 4_000);
+  const body = await response.json() as { sent?: unknown };
+  if (!Number.isInteger(body.sent) || (body.sent as number) < 0) throw new Error("브리지의 타이틀 응답이 올바르지 않아요.");
+  return { sent: body.sent as number };
 }
 
 function requireServerPassword(request: Request, response: Response, context: ApiContext): boolean {
@@ -784,6 +849,23 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
   });
 
+  router.put("/account/resource-pack", (request, response) => {
+    if (!requireSameOrigin(request, response)) return;
+    const user = requireUser(request, response, context, true);
+    if (!user) return;
+    if (!accountLimiter.take(`${user.id}:resource-pack`)) {
+      fail(response, 429, "리소스팩 변경 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
+      return;
+    }
+    const resourcePackPreference = request.body?.resourcePackPreference as unknown;
+    if (resourcePackPreference !== "new-default" && resourcePackPreference !== "programmer-art") {
+      fail(response, 400, "리소스팩 선택이 올바르지 않아요.", "INVALID_RESOURCE_PACK");
+      return;
+    }
+    const updated = context.database.updateResourcePack(user.id, resourcePackPreference as ResourcePackPreference);
+    response.json({ resourcePackPreference: updated.resourcePackPreference });
+  });
+
   router.get("/skin/catalog", (_request, response) => {
     response.json({ categories: SKIN_CATALOG });
   });
@@ -922,6 +1004,30 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
   });
 
+  router.get("/admin/logs", async (request, response) => {
+    const admin = requireAdmin(request, response, context);
+    if (!admin) return;
+    if (!adminReadLimiter.take(`${admin.id}:logs`)) {
+      fail(response, 429, "로그 새로고침 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
+      return;
+    }
+    let query: string;
+    let offset: number;
+    try {
+      query = validateLogSearch(request.query.q);
+      offset = validateLogOffset(request.query.offset);
+    } catch (error) {
+      failFromError(response, 400, error, "로그를 불러오지 못했어요.", "INVALID_LOG_QUERY");
+      return;
+    }
+    try {
+      response.setHeader("Cache-Control", "no-store");
+      response.json(await context.serverManager.getLogHistory({ query, offset, limit: 500 }));
+    } catch (error) {
+      failFromError(response, 500, error, "저장된 로그를 읽지 못했어요.", "LOG_READ_FAILED");
+    }
+  });
+
   router.put("/admin/settings/tpa", async (request, response) => {
     if (!requireAdminMutation(request, response, context, adminLimiter)) return;
     if (typeof request.body?.enabled !== "boolean") {
@@ -953,6 +1059,31 @@ export function createApiRouter(context: ApiContext): express.Router {
       response.status(204).end();
     } catch (error) {
       failFromError(response, 409, error, "콘솔 명령을 실행하지 못했어요.", "CONSOLE_UNAVAILABLE");
+    }
+  });
+
+  router.post("/admin/title", async (request, response) => {
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
+    if (context.serverManager.getStatus().phase !== "online") {
+      fail(response, 409, "서버가 온라인일 때만 타이틀을 띄울 수 있어요.", "SERVER_OFFLINE");
+      return;
+    }
+    let titleRequest: BridgeTitleRequest;
+    try {
+      titleRequest = validateTitleRequest(request.body);
+    } catch (error) {
+      failFromError(response, 400, error, "타이틀 설정을 확인하세요.", "INVALID_TITLE");
+      return;
+    }
+    try {
+      const result = await bridgeTitle(context, titleRequest);
+      if (result.sent === 0) {
+        fail(response, 409, "타이틀을 받을 온라인 사용자가 없어요.", "NO_TITLE_RECIPIENTS");
+        return;
+      }
+      response.json(result);
+    } catch (error) {
+      failFromError(response, 503, error, "타이틀을 띄우지 못했어요.", "BRIDGE_UNAVAILABLE");
     }
   });
 
@@ -1080,7 +1211,12 @@ export function createApiRouter(context: ApiContext): express.Router {
     try {
       const profile = await context.skins.createClientProfile(user);
       context.gameConnections.create(launchId, user.id);
-      response.json({ username: user.gameUsername, displayName: user.displayName, profile });
+      response.json({
+        username: user.gameUsername,
+        displayName: user.displayName,
+        profile,
+        resourcePackPreference: user.resourcePackPreference,
+      });
     } catch (error) {
       failFromError(response, 500, error, "저장된 프로필을 불러오지 못했어요.", "PROFILE_LOAD_FAILED");
     }

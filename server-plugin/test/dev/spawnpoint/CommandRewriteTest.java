@@ -18,6 +18,8 @@ public final class CommandRewriteTest {
     public static void main(String[] args) {
         assertRewrite("/tell " + FRIEND + " 안녕 친구", "/tell 친구 안녕 친구");
         assertRewrite("/minecraft:msg " + FRIEND + " 반가워", "/minecraft:msg 친구 반가워");
+        assertTellAlias("/minecraft:tell " + FRIEND + " 안녕 친구", "친구", "안녕", "친구");
+        assertTellAlias("/minecraft:tell " + MOSS_RUNNER + " 반가워", "이끼", "러너", "반가워");
         assertRewrite("/ban " + FRIEND, "/ban 친구");
         assertRewrite("/tell " + MOSS_RUNNER + " 안녕", "/tell 이끼 러너 안녕");
         assertRewrite("/tell " + MOSS + " 러너 안녕", "/tell \"이끼\" 러너 안녕");
@@ -54,6 +56,13 @@ public final class CommandRewriteTest {
 
     private static void assertRewrite(String expected, String input) {
         SpawnpointBridgePlugin.CommandRewrite rewrite = SpawnpointBridgePlugin.rewriteDisplayNameCommand(input, TARGETS);
+        if (rewrite.ambiguousDisplayName() || !expected.equals(rewrite.message())) {
+            throw new AssertionError("expected <" + expected + "> but got <" + rewrite.message() + ">");
+        }
+    }
+
+    private static void assertTellAlias(String expected, String... args) {
+        SpawnpointBridgePlugin.CommandRewrite rewrite = SpawnpointBridgePlugin.rewriteTellAliasCommand(args, TARGETS);
         if (rewrite.ambiguousDisplayName() || !expected.equals(rewrite.message())) {
             throw new AssertionError("expected <" + expected + "> but got <" + rewrite.message() + ">");
         }

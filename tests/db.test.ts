@@ -18,6 +18,20 @@ afterEach(() => {
 });
 
 describe("account database migrations", () => {
+  it("defaults to New Default V2 and keeps a resource-pack choice after reopening", () => {
+    const dataDir = temporaryDataDirectory();
+    const database = new AppDatabase(dataDir);
+    const created = database.createUser("textureplayer", Buffer.from("hash"), Buffer.from("salt"));
+
+    expect(created.resourcePackPreference).toBe("new-default");
+    expect(database.updateResourcePack(created.id, "programmer-art").resourcePackPreference).toBe("programmer-art");
+    database.close();
+
+    const reopened = new AppDatabase(dataDir);
+    expect(reopened.getUserById(created.id)?.resourcePackPreference).toBe("programmer-art");
+    reopened.close();
+  });
+
   it("preserves the original Minecraft identity when an account is renamed", () => {
     const database = new AppDatabase(temporaryDataDirectory());
     const created = database.createUser("oldplayer", Buffer.from("hash"), Buffer.from("salt"));
@@ -88,6 +102,7 @@ describe("account database migrations", () => {
     expect(user?.displayName).toBe("legacyplayer");
     expect(user?.passwordResetDigest).toBeNull();
     expect(user?.sessionVersion).toBe(0);
+    expect(user?.resourcePackPreference).toBe("new-default");
     migrated.close();
   });
 

@@ -9,7 +9,7 @@ import { createApiRouter } from "../server/api.js";
 import { AppDatabase } from "../server/db.js";
 import { GameConnectionTracker } from "../server/game-connections.js";
 import { createSessionToken, hashPassword, verifyPassword } from "../server/security.js";
-import type { MinecraftServerManager } from "../server/server-manager.js";
+import type { ConsoleLogPage, MinecraftServerManager } from "../server/server-manager.js";
 import { SkinService, skinPathForUser } from "../server/skins.js";
 import type { ServerStatus } from "../server/types.js";
 
@@ -29,10 +29,19 @@ const serverStatus: ServerStatus = {
   version: "Paper 1.12.2",
 };
 
-function fakeServerManager(status = serverStatus, consoleCommands: string[] = []): MinecraftServerManager {
+function fakeServerManager(
+  status = serverStatus,
+  consoleCommands: string[] = [],
+  logHistory: ConsoleLogPage = { entries: [], nextOffset: null },
+  logRequests: Array<{ query?: string; offset?: number; limit?: number }> = [],
+): MinecraftServerManager {
   return {
     getStatus: () => ({ ...status, players: [...status.players] }),
     getRecentLogs: () => [],
+    getLogHistory: async (options) => {
+      logRequests.push(options);
+      return logHistory;
+    },
     sendCommand: async (command: string) => {
       if (status.phase !== "online") throw new Error("게임 서버가 온라인일 때만 명령을 실행할 수 있어요.");
       consoleCommands.push(command);
@@ -52,7 +61,15 @@ async function listen(server: Server): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-async function createHarness(options: { bridgeOrigin?: string; adminUserIds?: string[]; adminUsernames?: string[]; serverStatus?: ServerStatus; consoleCommands?: string[] } = {}) {
+async function createHarness(options: {
+  bridgeOrigin?: string;
+  adminUserIds?: string[];
+  adminUsernames?: string[];
+  serverStatus?: ServerStatus;
+  consoleCommands?: string[];
+  logHistory?: ConsoleLogPage;
+  logRequests?: Array<{ query?: string; offset?: number; limit?: number }>;
+} = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "spawnpoint-api-"));
   const database = new AppDatabase(dataDir);
   cleanups.push(() => {
@@ -69,7 +86,7 @@ async function createHarness(options: { bridgeOrigin?: string; adminUserIds?: st
   app.use("/api", createApiRouter({
     database,
     skins: new SkinService(database, dataDir, path.join(process.cwd(), "public")),
-    serverManager: fakeServerManager(options.serverStatus, options.consoleCommands),
+    serverManager: fakeServerManager(options.serverStatus, options.consoleCommands, options.logHistory, options.logRequests),
     sessionSecret: secret,
     serverPassword: sharedServerPassword,
     secureCookies: false,
@@ -480,7 +497,47 @@ describe("game launch", () => {
 
     expect(response.status).toBe(200);
     expect(body.profile).toEqual(expect.any(String));
+    expect(body.resourcePackPreference).toBe("new-default");
     expect(body).not.toHaveProperty("ticket");
+  });
+
+  it("returns the account resource-pack choice on a later game launch", async () => {
+    const harness = await createHarness({ serverStatus: { ...serverStatus, phase: "online" } });
+    const changed = await fetch(`${harness.origin}/api/account/resource-pack`, {
+      method: "PUT",
+      headers: {
+        ...harness.adminHeaders,
+        Origin: harness.origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ resourcePackPreference: "programmer-art" }),
+    });
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toEqual({ resourcePackPreference: "programmer-art" });
+
+    const launched = await fetch(`${harness.origin}/api/game-ticket`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ launchId: crypto.randomUUID() }),
+    });
+    expect(launched.status).toBe(200);
+    expect(await launched.json()).toMatchObject({ resourcePackPreference: "programmer-art" });
+  });
+
+  it("rejects unknown resource-pack choices", async () => {
+    const harness = await createHarness();
+    const response = await fetch(`${harness.origin}/api/account/resource-pack`, {
+      method: "PUT",
+      headers: {
+        ...harness.adminHeaders,
+        Origin: harness.origin,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ resourcePackPreference: "xray" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(harness.database.getUserById(harness.admin.id)?.resourcePackPreference).toBe("new-default");
   });
 });
 
@@ -800,13 +857,21 @@ describe("administrator console", () => {
     expect(response.status).toBe(204);
     expect(consoleCommands).toEqual(["say 안녕하세요"]);
 
+    const slashCommand = await fetch(`${harness.origin}/api/admin/console`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ command: "/help" }),
+    });
+    expect(slashCommand.status).toBe(204);
+    expect(consoleCommands).toEqual(["say 안녕하세요", "help"]);
+
     const injected = await fetch(`${harness.origin}/api/admin/console`, {
       method: "POST",
       headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
       body: JSON.stringify({ command: "say hello\nstop" }),
     });
     expect(injected.status).toBe(400);
-    expect(consoleCommands).toEqual(["say 안녕하세요"]);
+    expect(consoleCommands).toEqual(["say 안녕하세요", "help"]);
   });
 
   it("rejects commands while the game server is offline", async () => {
@@ -818,5 +883,80 @@ describe("administrator console", () => {
     });
 
     expect(response.status).toBe(409);
+  });
+
+  it("returns searchable console history with an older-page offset", async () => {
+    const logRequests: Array<{ query?: string; offset?: number; limit?: number }> = [];
+    const logHistory: ConsoleLogPage = {
+      entries: [{ source: "2026-08-29-1.log.gz", line: "친구 joined the game" }],
+      nextOffset: 501,
+    };
+    const harness = await createHarness({ logHistory, logRequests });
+    const response = await fetch(`${harness.origin}/api/admin/logs?q=${encodeURIComponent("친구")}&offset=1`, {
+      headers: harness.adminHeaders,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(logHistory);
+    expect(logRequests).toEqual([{ query: "친구", offset: 1, limit: 500 }]);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+describe("administrator titles", () => {
+  it("sends a validated title to selected players through the loopback bridge", async () => {
+    let bridgeRequest: { authorization?: string; body?: unknown } = {};
+    const bridgeOrigin = await listen(http.createServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        bridgeRequest = { authorization: request.headers.authorization, body: JSON.parse(body) };
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({ sent: 1 }));
+      });
+    }));
+    const harness = await createHarness({
+      bridgeOrigin,
+      serverStatus: { ...serverStatus, phase: "online", readyAt: Date.now() },
+    });
+    const target = "00000000-0000-4000-8000-000000000001";
+    const response = await fetch(`${harness.origin}/api/admin/title`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "서버 공지",
+        subtitle: "곧 저장합니다",
+        color: "gold",
+        audience: "selected",
+        targets: [target, target],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ sent: 1 });
+    expect(bridgeRequest).toEqual({
+      authorization: `Bearer ${secret}`,
+      body: {
+        title: "서버 공지",
+        subtitle: "곧 저장합니다",
+        color: "gold",
+        audience: "selected",
+        targets: [target],
+      },
+    });
+  });
+
+  it("rejects an empty title or invalid color before calling the bridge", async () => {
+    const harness = await createHarness({
+      serverStatus: { ...serverStatus, phase: "online", readyAt: Date.now() },
+    });
+    const response = await fetch(`${harness.origin}/api/admin/title`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "", subtitle: "", color: "rainbow", audience: "all", targets: [] }),
+    });
+
+    expect(response.status).toBe(400);
   });
 });

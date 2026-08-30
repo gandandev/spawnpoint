@@ -1,12 +1,17 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MinecraftServerManager } from "../server/server-manager.js";
 
 const managers: MinecraftServerManager[] = [];
+const temporaryDirectories: string[] = [];
 
-function manager(mockServer = true) {
+function manager(mockServer = true, dataDir = "/tmp/spawnpoint-server-manager-test") {
   const instance = new MinecraftServerManager({
-    dataDir: "/tmp/spawnpoint-server-manager-test",
+    dataDir,
     seedDir: "/tmp/spawnpoint-server-manager-test-seed",
     portalPort: 3000,
     bridgePort: 25566,
@@ -28,6 +33,7 @@ function log(instance: MinecraftServerManager, line: string) {
 
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((instance) => instance.shutdown()));
+  for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
 });
 
 describe("MinecraftServerManager player tracking", () => {
@@ -66,6 +72,32 @@ describe("MinecraftServerManager player tracking", () => {
     await instance.sendCommand("say 안녕하세요");
 
     expect(instance.getRecentLogs()).toContain("> say 안녕하세요");
+  });
+
+  it("reads and searches current and compressed logs from earlier server runs", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "spawnpoint-log-history-"));
+    temporaryDirectories.push(dataDir);
+    const logsDir = path.join(dataDir, "minecraft", "logs");
+    fs.mkdirSync(logsDir, { recursive: true });
+    fs.writeFileSync(path.join(logsDir, "latest.log"), "현재 준비\n현재 접속\n", "utf8");
+    fs.writeFileSync(path.join(logsDir, "2026-08-29-2.log.gz"), gzipSync("이전 준비\n친구 joined the game\n"));
+    fs.writeFileSync(path.join(logsDir, "2026-08-28-1.log.gz"), gzipSync("아주 이전 기록\n"));
+    const instance = manager(true, dataDir);
+
+    const latest = await instance.getLogHistory({ limit: 3 });
+    expect(latest.entries).toEqual([
+      { source: "2026-08-29-2.log.gz", line: "친구 joined the game" },
+      { source: "latest.log", line: "현재 준비" },
+      { source: "latest.log", line: "현재 접속" },
+    ]);
+    expect(latest.nextOffset).toBe(3);
+
+    const older = await instance.getLogHistory({ offset: latest.nextOffset!, limit: 3 });
+    expect(older.entries.map((entry) => entry.line)).toEqual(["아주 이전 기록", "이전 준비"]);
+    expect(older.nextOffset).toBeNull();
+
+    const search = await instance.getLogHistory({ query: "친구", limit: 10 });
+    expect(search.entries).toEqual([{ source: "2026-08-29-2.log.gz", line: "친구 joined the game" }]);
   });
 
   it("waits for Minecraft to exit before shutdown completes", async () => {
