@@ -711,6 +711,7 @@ describe("mobile portal controls", () => {
     });
 
     expect(container.querySelector('[aria-label="게임 종료"]')).toBeNull();
+    expect(container.querySelector("iframe")?.getAttribute("allow")).toContain("microphone");
     await act(async () => root.unmount());
   });
 

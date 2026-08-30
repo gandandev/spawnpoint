@@ -11,7 +11,7 @@ import gameClient from "@/game-client.json";
 import { AuthScreen } from "@/screens/AuthScreen";
 import { Dashboard } from "@/screens/Dashboard";
 import { GameScreen, type GameSession } from "@/screens/GameScreen";
-import type { BootstrapData, ClientChoice, PublicUser, ServerStatus, SessionUpdate } from "@/types";
+import type { BootstrapData, ClientChoice, PublicUser, ResourcePackPreference, ServerStatus, SessionUpdate } from "@/types";
 
 const AdminPanel = lazy(() => import("@/features/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 
@@ -144,12 +144,17 @@ export function App() {
 
   const play = async (client: ClientChoice["id"]) => {
     const launchId = crypto.randomUUID();
-    const result = await api<{ username: string; profile: string }>("/game-ticket", {
+    const result = await api<{ username: string; profile: string; resourcePackPreference: ResourcePackPreference }>("/game-ticket", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-spawnpoint-csrf": data!.csrf! },
       body: JSON.stringify({ launchId }),
     });
-    window.localStorage.setItem(`_spawnpoint_${result.username.toLowerCase()}.p`, result.profile);
+    const storageNamespace = `_spawnpoint_${result.username.toLowerCase()}`;
+    window.localStorage.setItem(`${storageNamespace}.p`, result.profile);
+    window.localStorage.setItem(`${storageNamespace}.launch`, JSON.stringify({
+      csrf: data!.csrf,
+      resourcePackPreference: result.resourcePackPreference,
+    }));
     setGame({ client, username: result.username, launchId });
   };
 

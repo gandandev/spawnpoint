@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import io
 import lzma
@@ -25,6 +26,7 @@ DEFAULT_BASE = ROOT / "vendor/clients/stable-locale-fixed.epw"
 DEFAULT_OUTPUT = ROOT / "vendor/clients/stable-galmuri.epw"
 DEFAULT_FONT = ROOT / "vendor/fonts/galmuri/Galmuri11.ttf"
 DEFAULT_LICENSE = ROOT / "vendor/fonts/galmuri/LICENSE.txt"
+DEFAULT_FINAL_LOAD_SCREEN = ROOT / "public/og-image-bacon.jpg"
 
 EPW_MAGIC = b"EAG$WASM"
 EPW_EPK_COUNT_OFFSET = 96
@@ -50,6 +52,8 @@ CREDITS = "assets/eagler/credits.txt"
 FONT_LICENSE = "assets/spawnpoint/fonts/OFL-Galmuri.txt"
 EN_US_LANG = "assets/minecraft/lang/en_us.lang"
 SPLASHES = "assets/minecraft/texts/splashes.txt"
+UNDERWATER_TEXTURE = "assets/minecraft/textures/misc/underwater.png"
+FINAL_LOAD_SCREEN = "assets/eagler/eagtek.png"
 UNICODE_PAGE = "assets/minecraft/textures/font/unicode_page_{page:02x}.png"
 
 MAIN_MENU_PATCH_RANGES = (
@@ -60,6 +64,140 @@ MAIN_MENU_PATCH_RANGES = (
     ("bottom-right credits", 0x389076, 0x389098, "2f0c4a04f9674d9f34bca94df342d34fa422766bddd57967812330245a1aeaf8"),
 )
 BASE_MAIN_WASM_SHA256 = "d3a20d5f95932bc10ef244debb4058e3716e703329adda3204e9491637348b48"
+# GuiMainMenu renders the panorama into a framebuffer, then runs six linear
+# ping-pong passes before presenting that framebuffer. The final presentation
+# already reads the original panorama texture, so the blur chain can be removed
+# without touching panorama rendering, shaders, or the general video pipeline.
+PANORAMA_BLUR_PASS_RANGE = (
+    0x4DF28A,
+    0x4DF43A,
+    "9f9875363805aeb23658d2a7e38316d09e22d5b0dfe984f71a55705cad7859a4",
+)
+# The stock title path renders into a 256x256 framebuffer with sixteen jittered
+# samples. Upscaling that tiny result is still visibly soft after removing the
+# blur passes. Render one 1024x1024 sample instead: it keeps roughly the same
+# fragment workload, matches the supplied 1080px panorama faces, and remains
+# isolated from gameplay shaders and the general video pipeline.
+PANORAMA_RENDER_PATCHES = (
+    ("title framebuffer width", 0x388851, b"\x41\x80\x02", b"\x41\x80\x08"),
+    ("title framebuffer height", 0x388854, b"\x41\x80\x02", b"\x41\x80\x08"),
+    ("title viewport width", 0x4DF257, b"\x41\x80\x02", b"\x41\x80\x08"),
+    ("title viewport height", 0x4DF25A, b"\x41\x80\x02", b"\x41\x80\x08"),
+    ("title panorama sample count", 0x5080B9, b"\x41\x10", b"\x41\x01"),
+)
+# Close Screen stays available only to the bridge's marked synthetic Backquote
+# event, which preserves Escape and mobile menu behavior. Real Backquote input
+# is blocked before it reaches the runtime. The hidden cinematic-camera slot is
+# reused for Fullbright on B, which is otherwise unbound in this client.
+CONTROL_KEYCODE_PATCHES = (
+    ("fullbright", 0x2D050B, 50, 48),
+    ("save toolbar", 0x2D0708, 46, 0),
+    ("load toolbar", 0x2D072F, 45, 0),
+)
+HIDDEN_CONTROL_ROW_PATCH_RANGES = (
+    (
+        "cinematic camera control",
+        0x2D0929,
+        0x2D0937,
+        "b9c017b9a9c88e1026e740b3ced92c8c81f8910766714cf2e6f1992a39c3bbe4",
+    ),
+    (
+        "spectator outline control",
+        0x2D0937,
+        0x2D0945,
+        "6c3043d984df02d7596a3027e25a8702209654a163607b26ba44146218858a7b",
+    ),
+    (
+        "save toolbar control",
+        0x2D0953,
+        0x2D0961,
+        "1b740471142024287beda12c6f68085be9d7a8f3c847de81522cade162174b36",
+    ),
+    (
+        "load toolbar control",
+        0x2D0961,
+        0x2D096F,
+        "c002ffb48b4a37890fd870ddedade3b780457857e6fff48df951465c0c49c286",
+    ),
+    (
+        "close screen control",
+        0x2D098B,
+        0x2D0999,
+        "020da62eb5f33ee58d55b851f1c6b3a65b65d15d649c4c24aa8ce3a5dab5275b",
+    ),
+)
+CONTROL_ARRAY_LENGTH_PATCH = (0x2D082C, 25, 20)
+CONTROL_ARRAY_INDEX_PATCHES = (
+    ("swap hands", 0x2D0947, 19, 17),
+    ("advancements", 0x2D0971, 22, 18),
+    ("zoom", 0x2D097F, 23, 19),
+)
+FULLBRIGHT_TOGGLE_RANGE = (
+    0x31F766,
+    0x31F7C3,
+    "b145922de2de303cc5db5efbc87beed7b14250d52c6d535468cf21d56aac011d",
+)
+# Replaces Minecraft.processKeyBinds' cinematic-camera toggle with a real
+# GameSettings.gammaSetting toggle. Normal video brightness tops out at 1.0;
+# the high value follows the conventional fullbright-mod behavior.
+FULLBRIGHT_TOGGLE_WASM = bytes.fromhex(
+    """
+    02 40 03 40 02 63 92 0f 02 63 bf 0f 20 00 fb 02 ce 0f 27 d6 00
+    10 8d 02 08 00 0b 22 02 fb 02 bf 0f 3d d6 00 10 8d 02 08 00 0b
+    10 cc 0e 45 0d 01 20 02 20 02 fb 02 bf 0f 51 43 00 00 80 3f 5e
+    04 7d 43 00 00 80 3f 05 43 00 00 7a 44 0b fb 05 bf 0f 51 0c 00
+    01 01 01 01 01 01 01 0b 0b
+    """
+)
+VOICE_WARNING_CLINIT_RANGE = (
+    0x45B006,
+    0x45B048,
+    "90396c552a19053120e634455e1e6c67fe4e7ee09ee0fc2f97252ab607186e2a",
+)
+VOICE_WARNING_FLAG_OFFSETS = (0x45B032, 0x45B03C)
+NOTIFICATION_BUTTON_PATCH_RANGE = (
+    0x45A91F,
+    0x45A9D8,
+    "ac3c44883a63d88d7abe728a27479475367cc75214a920aa51e0a4af350fd53a",
+)
+FNAW_SKIN_OPTION_PATCH_RANGES = (
+    (
+        "FNAW skin option setup",
+        0x5BFEC3,
+        0x5BFEFE,
+        "05024d40a0c8bf5610c29e9a39de6182e985475af414b380e56d3c0de54535c4",
+    ),
+    (
+        "FNAW skin option button",
+        0x5BFF08,
+        0x5BFFC2,
+        "481a0041309689d9895396fa7bf6eeef9da8c6e05de2d11fc7670622b987d780",
+    ),
+)
+FNAW_DONE_BUTTON_Y_PATCH = (0x5BFFF8, 40, 10)
+COMPACT_HUD_RENDER_RANGE = (
+    0x3240BF,
+    0x3245F5,
+    "b8576ef882878399351ed8aeefccf88560a66063b36496b356115f8fe91ea2a5",
+)
+# Keeps the short HUD on one row by measuring the rendered FPS prefix before
+# drawing XYZ. The source function hash above prevents applying it to drifted WASM.
+COMPACT_HUD_RENDER_ZLIB = base64.b64decode(
+    b"eNq1Uztv1EAQ9o7X+LG2dxIh5XSKlFlcAAUdXZqzIA1E/ASucHfhD1DxKigiRAGER0Cioj0FkQMlRZQiBRQREhJQ8g/oaLY4"
+    b"Zu2cTyciSEMx653Zmd35vvmci+pQi2pPi1uiGuei2tKSdzsd57M7cpbVW995wOnkWdjW/lcPH0DkKQPA9QQWDvXZNuiTb+We"
+    b"vrIieyUYyRY2keuy11wgTQD8XFOo28JTUEmohppOWdjSOIlbGOpw6kiw2oSlZyK2mC2B6iBpauJp2kEijYSe36OE5LVMQLXb"
+    b"gWp9sbE/CijBQ992fM9fX8SHLjK9igumzm4nMKr4uHR6MyNVfFr6wjCBWaO2wChSVu50JJ9QVIqBiSiun+TynU5gFw6SmT4H"
+    b"JlbcgMtMUk8pvH/epE1/FxhD9StvnHOTKry9bDIrRrmZp/lC2GCUezRvcsrxCVBOKQ6hS3mxsSnwEXSBx0tBizTHx3AGL3me"
+    b"16uXcjweh/g26lJAiG/8EgY8MY8Evut33QSVm/Ix458Zuxtw3w2YQpK43VcBfmd5jDLycNS3C6Os5UeTLhJ86Rr7970TOV1d"
+    b"kVVeDC8HxauLymATXJ0J/oWS4llDBZODzbd43kay+qtrYlxb3N4LPuQdqyutNZSStjDKGiHlnJviFtRyyRu1cEeId5ZrMTDb"
+    b"jcxbDAEFFsa5b+QRxyxgIEnpDRZHKZxK1jgQDlgDFJEcOP/z6/27N/GpPOZCQs6Oyh/790L8KbuKUiee1ImH6X7fN3N15479"
+    b"uVnq/xMaqDY0iTZDkLCwofnfX6NwjSFOwMY1VIrdEh3hjU+Cl7PjY/HiNzipPFedPPFDXyn1G1chHBU="
+)
+VERBOSE_FPS_LITERAL = b"\x09fps | C: "
+# The prefix stores the decoded character count, not the UTF-8 byte count.
+# Section sign is two bytes but one character, so this replacement has eight
+# characters while keeping the original ten-byte binary layout.
+COMPACT_FPS_LITERAL = b"\x08fps | \xc2\xa7r"
 OLD_VERSION_STRING = b"\x10Minecraft 1.12.2\x05 Demo"
 SPAWNPOINT_VERSION_STRING = b"\x10spawnpoint v1.12\x05 Demo"
 
@@ -227,9 +365,22 @@ def render_glyph(
     return glyph_left, glyph_right - 1
 
 
-def apply_font(entries: list[EpkEntry], font_path: Path, license_path: Path) -> dict[str, int]:
+def apply_font(
+    entries: list[EpkEntry],
+    font_path: Path,
+    license_path: Path,
+    final_load_screen_path: Path,
+) -> dict[str, int]:
     by_name = {entry.name: index for index, entry in enumerate(entries)}
-    for required in (ASCII_TEXTURE, GLYPH_SIZES, CREDITS, EN_US_LANG, SPLASHES):
+    for required in (
+        ASCII_TEXTURE,
+        GLYPH_SIZES,
+        CREDITS,
+        EN_US_LANG,
+        SPLASHES,
+        UNDERWATER_TEXTURE,
+        FINAL_LOAD_SCREEN,
+    ):
         if required not in by_name:
             raise ValueError(f"Base client is missing required asset: {required}")
 
@@ -241,6 +392,26 @@ def apply_font(entries: list[EpkEntry], font_path: Path, license_path: Path) -> 
         edit_profile, "eaglercraft.menu.editProfile=포탈로 돌아가기"
     ).encode("utf-8")
     entries[by_name[SPLASHES]].data = "대미덕에디션\n".encode("utf-8")
+
+    underwater_index = by_name[UNDERWATER_TEXTURE]
+    underwater = Image.open(io.BytesIO(entries[underwater_index].data))
+    if underwater.size != (16, 16):
+        raise ValueError("Minecraft underwater overlay must be 16 by 16 pixels")
+    entries[underwater_index].data = png_bytes(
+        Image.new("RGBA", underwater.size, (255, 255, 255, 0))
+    )
+
+    final_load_screen = Image.open(final_load_screen_path).convert("RGB")
+    final_load_screen.thumbnail((256, 256), Image.Resampling.LANCZOS)
+    branded_load_screen = Image.new("RGB", (256, 256), (11, 17, 12))
+    branded_load_screen.paste(
+        final_load_screen,
+        (
+            (branded_load_screen.width - final_load_screen.width) // 2,
+            (branded_load_screen.height - final_load_screen.height) // 2,
+        ),
+    )
+    entries[by_name[FINAL_LOAD_SCREEN]].data = png_bytes(branded_load_screen)
 
     font = ImageFont.truetype(
         str(font_path), FONT_SIZE, layout_engine=ImageFont.Layout.BASIC
@@ -539,6 +710,88 @@ def patch_main_menu(epw: bytes) -> bytes:
         if hashlib.sha256(current).hexdigest() != expected_hash:
             raise ValueError(f"EPW main program has an unexpected {name} implementation")
         wasm[start:end] = b"\x01" * (end - start)
+    blur_start, blur_end, expected_blur_hash = PANORAMA_BLUR_PASS_RANGE
+    if hashlib.sha256(wasm[blur_start:blur_end]).hexdigest() != expected_blur_hash:
+        raise ValueError("EPW main program has an unexpected title panorama blur chain")
+    wasm[blur_start:blur_end] = b"\x01" * (blur_end - blur_start)
+    for name, offset, expected, replacement in PANORAMA_RENDER_PATCHES:
+        if wasm[offset : offset + len(expected)] != expected:
+            raise ValueError(f"EPW main program has an unexpected {name}")
+        if len(replacement) != len(expected):
+            raise ValueError(f"Replacement for {name} must preserve the WASM byte layout")
+        wasm[offset : offset + len(expected)] = replacement
+    for name, offset, expected_keycode, replacement_keycode in CONTROL_KEYCODE_PATCHES:
+        if wasm[offset : offset + 2] != bytes((0x41, expected_keycode)):
+            raise ValueError(f"EPW main program has an unexpected {name} key mapping")
+        wasm[offset + 1] = replacement_keycode
+    array_offset, expected_length, replacement_length = CONTROL_ARRAY_LENGTH_PATCH
+    if wasm[array_offset : array_offset + 2] != bytes((0x41, expected_length)):
+        raise ValueError("EPW main program has an unexpected controls array length")
+    wasm[array_offset + 1] = replacement_length
+    for name, offset, expected_index, replacement_index in CONTROL_ARRAY_INDEX_PATCHES:
+        if wasm[offset : offset + 2] != bytes((0x41, expected_index)):
+            raise ValueError(f"EPW main program has an unexpected {name} control index")
+        wasm[offset + 1] = replacement_index
+    for name, start, end, expected_hash in HIDDEN_CONTROL_ROW_PATCH_RANGES:
+        current = bytes(wasm[start:end])
+        if hashlib.sha256(current).hexdigest() != expected_hash:
+            raise ValueError(f"EPW main program has an unexpected {name} row")
+        wasm[start:end] = b"\x01" * (end - start)
+    fullbright_start, fullbright_end, expected_fullbright_hash = FULLBRIGHT_TOGGLE_RANGE
+    if (
+        hashlib.sha256(wasm[fullbright_start:fullbright_end]).hexdigest()
+        != expected_fullbright_hash
+    ):
+        raise ValueError("EPW main program has an unexpected cinematic-camera toggle")
+    if len(FULLBRIGHT_TOGGLE_WASM) != fullbright_end - fullbright_start:
+        raise ValueError("Fullbright toggle must preserve the WASM byte layout")
+    wasm[fullbright_start:fullbright_end] = FULLBRIGHT_TOGGLE_WASM
+    voice_start, voice_end, expected_voice_hash = VOICE_WARNING_CLINIT_RANGE
+    if hashlib.sha256(wasm[voice_start:voice_end]).hexdigest() != expected_voice_hash:
+        raise ValueError("EPW main program has an unexpected voice warning initializer")
+    for offset in VOICE_WARNING_FLAG_OFFSETS:
+        if wasm[offset] != 1:
+            raise ValueError("EPW main program has an unexpected voice warning flag")
+        wasm[offset] = 0
+    notification_start, notification_end, expected_notification_hash = (
+        NOTIFICATION_BUTTON_PATCH_RANGE
+    )
+    if (
+        hashlib.sha256(wasm[notification_start:notification_end]).hexdigest()
+        != expected_notification_hash
+    ):
+        raise ValueError("EPW main program has an unexpected notification button implementation")
+    wasm[notification_start:notification_end] = b"\x01" * (
+        notification_end - notification_start
+    )
+    for name, start, end, expected_hash in FNAW_SKIN_OPTION_PATCH_RANGES:
+        current = bytes(wasm[start:end])
+        if hashlib.sha256(current).hexdigest() != expected_hash:
+            raise ValueError(f"EPW main program has an unexpected {name} implementation")
+        wasm[start:end] = b"\x01" * (end - start)
+    done_y_offset, expected_done_y, replacement_done_y = FNAW_DONE_BUTTON_Y_PATCH
+    if wasm[done_y_offset] != expected_done_y:
+        raise ValueError("EPW main program has an unexpected skin menu Done button position")
+    wasm[done_y_offset] = replacement_done_y
+    hud_start, hud_end, expected_hud_hash = COMPACT_HUD_RENDER_RANGE
+    if hashlib.sha256(wasm[hud_start:hud_end]).hexdigest() != expected_hud_hash:
+        raise ValueError("EPW main program has an unexpected compact HUD renderer")
+    compact_hud = zlib.decompress(COMPACT_HUD_RENDER_ZLIB)
+    if compact_hud[-1:] != b"\x0b" or len(compact_hud) > hud_end - hud_start:
+        raise ValueError("Compact HUD renderer has an invalid function body")
+    compact_hud = (
+        compact_hud[:-1]
+        + b"\x01" * (hud_end - hud_start - len(compact_hud))
+        + compact_hud[-1:]
+    )
+    wasm[hud_start:hud_end] = compact_hud
+    if (
+        wasm.count(VERBOSE_FPS_LITERAL) != 1
+        or wasm.count(COMPACT_FPS_LITERAL) != 0
+    ):
+        raise ValueError("EPW main program has an unexpected FPS label")
+    fps_offset = wasm.index(VERBOSE_FPS_LITERAL)
+    wasm[fps_offset : fps_offset + len(VERBOSE_FPS_LITERAL)] = COMPACT_FPS_LITERAL
     patched_wasm = patch_wasm_data_string(bytes(wasm))
     compressed = lzma.compress(
         patched_wasm,
@@ -579,9 +832,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--font", type=Path, default=DEFAULT_FONT)
     parser.add_argument("--license", type=Path, default=DEFAULT_LICENSE)
+    parser.add_argument(
+        "--final-load-screen", type=Path, default=DEFAULT_FINAL_LOAD_SCREEN
+    )
     args = parser.parse_args()
 
-    for source in (args.base, args.font, args.license):
+    for source in (args.base, args.font, args.license, args.final_load_screen):
         if not source.is_file():
             raise SystemExit(f"Missing input file: {source}")
 
@@ -597,7 +853,7 @@ def main() -> None:
         raise ValueError("Embedded asset package has an unexpected uncompressed length")
 
     prefix, compression, entries = parse_epk(base_epk)
-    stats = apply_font(entries, args.font, args.license)
+    stats = apply_font(entries, args.font, args.license, args.final_load_screen)
     new_epk = build_epk(prefix, compression, entries)
     output = patch_main_menu(patch_runtime(patch_epw(base_epw, new_epk)))
     args.output.parent.mkdir(parents=True, exist_ok=True)

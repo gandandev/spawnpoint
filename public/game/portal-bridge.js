@@ -11,6 +11,8 @@
       ? "베이컨.서버.한국"
       : "spawnpoint";
   var storageNamespace = "_spawnpoint_" + account.toLowerCase();
+  var resourcePackPreference = "new-default";
+  var resourcePackSyncCsrf = "";
   var profileDismissTimer = null;
 
   if (!options || !launchId) {
@@ -22,6 +24,14 @@
 
   var websocketProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   var gateway = websocketProtocol + "//" + window.location.host + "/gateway?launch=" + encodeURIComponent(launchId);
+
+  try {
+    var launchConfig = JSON.parse(window.localStorage.getItem(storageNamespace + ".launch") || "{}");
+    if (launchConfig.resourcePackPreference === "programmer-art") resourcePackPreference = "programmer-art";
+    if (typeof launchConfig.csrf === "string") resourcePackSyncCsrf = launchConfig.csrf;
+  } catch (_error) {
+    // The server-backed default still applies if the launch handoff is unavailable.
+  }
 
   function decodeBase64(value) {
     var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -63,15 +73,21 @@
     return gameSettings + key + ":" + value + "\n";
   }
 
+  function isGzipGameSettings(binary) {
+    return binary.length >= 2 && binary.charCodeAt(0) === 31 && binary.charCodeAt(1) === 139;
+  }
+
   function applySpawnpointGameSettings(encodedGameSettings) {
     var gameSettings = encodedGameSettings
       ? (typeof window.atob === "function" ? window.atob(encodedGameSettings) : decodeBase64(encodedGameSettings))
       : "";
+    if (isGzipGameSettings(gameSettings)) return encodedGameSettings;
     gameSettings = setGameSetting(gameSettings, "lang", "ko_kr", true);
     gameSettings = setGameSetting(gameSettings, "autoJump", "false", false);
     gameSettings = setGameSetting(gameSettings, "fov", "0.5", false);
     gameSettings = setGameSetting(gameSettings, "enableDynamicLights", "true", false);
     gameSettings = setGameSetting(gameSettings, "ao", "2", false);
+    gameSettings = setGameSetting(gameSettings, "showSubtitles", "true", false);
     gameSettings = setGameSetting(gameSettings, "tutorialStep", "none", true);
     gameSettings = setGameSetting(gameSettings, "acknowledgeDisclaimer", "true", true);
     return typeof window.btoa === "function" ? window.btoa(gameSettings) : encodeBase64(gameSettings);
@@ -89,6 +105,19 @@
     // Storage can be unavailable in private browsing. Keep the launch hint as
     // a best-effort fallback instead of preventing the client from starting.
   }
+
+  var resourcePackManager = typeof window.createSpawnpointResourcePackManager === "function"
+    ? window.createSpawnpointResourcePackManager({
+      storageNamespace: storageNamespace,
+      preference: resourcePackPreference,
+      csrf: resourcePackSyncCsrf,
+      decodeBase64: decodeBase64,
+      encodeBase64: encodeBase64,
+      setGameSetting: setGameSetting,
+      defaultGameSettings: function () { return applySpawnpointGameSettings(null); },
+    })
+    : null;
+  window.__spawnpointPrepareClient = resourcePackManager ? resourcePackManager.prepare() : Promise.resolve();
 
   // WASM-GC uses these hooks as its authoritative local-storage adapter when
   // they are present. Supplying them makes the Korean setting reliable in both
@@ -123,6 +152,7 @@
 
   existingHooks.localStorageSaved = function (key, encoded) {
     var value = isGameSettingsKey(key) ? applySpawnpointGameSettings(encoded) : encoded;
+    if (isGameSettingsKey(key) && resourcePackManager) resourcePackManager.sync(value);
     if (existingSaveHook) {
       existingSaveHook.call(this, key, value);
       return;
@@ -319,6 +349,7 @@
   var mobileScaleUpButton = null;
   var mobileEditButton = null;
   var mobileHideButton = null;
+  var mobileSprintButton = null;
   var mobileSensitivityInput = null;
   var mobileSensitivityValue = null;
   var mobileForwardSequence = 0;
@@ -1379,6 +1410,11 @@
     if (!button) return;
     if (button.classList && typeof button.classList.toggle === "function") button.classList.toggle("is-toggled", enabled);
     button.setAttribute("aria-pressed", enabled ? "true" : "false");
+  }
+
+  function setMobileSprintEnabled(enabled) {
+    mobileSprintEnabled = enabled === true;
+    setMobileToggleState(mobileSprintButton, mobileSprintEnabled);
   }
 
   function clampMobileValue(value, minimum, maximum) {
@@ -2497,14 +2533,13 @@
     move.appendChild(chatButton);
     registerMobileEditableControl(chatButton);
     appendMobileKeyButton(move, "왼쪽", "왼쪽으로 이동", "left", "a", "KeyA", 65);
-    var sprintButton = createMobileButton("달리기", "자동 달리기", "sprint");
-    setMobileToggleState(sprintButton, mobileSprintEnabled);
-    bindMobilePulseButton(sprintButton, function () {
-      mobileSprintEnabled = !mobileSprintEnabled;
-      setMobileToggleState(sprintButton, mobileSprintEnabled);
+    mobileSprintButton = createMobileButton("달리기", "자동 달리기", "sprint");
+    setMobileToggleState(mobileSprintButton, mobileSprintEnabled);
+    bindMobilePulseButton(mobileSprintButton, function () {
+      setMobileSprintEnabled(!mobileSprintEnabled);
     });
-    move.appendChild(sprintButton);
-    registerMobileEditableControl(sprintButton);
+    move.appendChild(mobileSprintButton);
+    registerMobileEditableControl(mobileSprintButton);
     appendMobileKeyButton(move, "오른쪽", "오른쪽으로 이동", "right", "d", "KeyD", 68);
     var dropButton = createMobileButton("Q", "아이템 버리기", "drop");
     bindMobilePulseButton(dropButton, function () { dispatchMobileKeyPulse("q", "KeyQ", 81); });
@@ -2579,6 +2614,10 @@
     if (!event) return false;
     if (event.__spawnpointMobileChatForwarded === true || event.__spawnpointMobileControl === true) return false;
     if (isMobileChatInput(event.target) || isMobileChatInput(document.activeElement)) return true;
+    var keyboardZone = document.querySelector && document.querySelector("._eaglercraftX_keyboard_open_zone");
+    if (!desktopChatInputActive && !portalChatActive && !clientKeyboardZoneIsOpen(keyboardZone) && !composingInput) {
+      return false;
+    }
     if (!isClientTextInput(event.target) && !isClientTextInput(document.activeElement)) return false;
     if (event.isComposing || composingInput || event.keyCode === 229 || event.which === 229) return true;
 
@@ -2731,6 +2770,38 @@
     event.stopImmediatePropagation();
   }
 
+  function gameplayAcceptsSprintToggle(event) {
+    return !!event
+      && !currentScreenName
+      && !portalChatActive
+      && !desktopChatInputActive
+      && !mobileChatComposerIsVisible()
+      && !isClientTextInput(event.target)
+      && !isMobileChatInput(event.target)
+      && !!findMinecraftCanvas();
+  }
+
+  function eventMatchesKey(event, key, code, keyCode) {
+    var eventKey = typeof event.key === "string" ? event.key.toLowerCase() : "";
+    return event.code === code || eventKey === key || event.keyCode === keyCode || event.which === keyCode;
+  }
+
+  function interceptSprintToggle(event) {
+    if (!gameplayAcceptsSprintToggle(event) || event.__spawnpointMobileControl === true) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (eventMatchesKey(event, "r", "KeyR", 82)) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+      if (event.type === "keydown" && !event.repeat) setMobileSprintEnabled(!mobileSprintEnabled);
+      return;
+    }
+    if (mobileSprintEnabled && event.type === "keydown" && !event.repeat && eventMatchesKey(event, "w", "KeyW", 87)) {
+      // R is the client sprint binding. Pulse it just before the real W event
+      // reaches the runtime, so one forward press starts sprinting.
+      dispatchMobileKeyPulse("r", "KeyR", 82);
+    }
+  }
+
   function eventCaptureFlag(options) {
     return options === true || !!(options && typeof options === "object" && options.capture);
   }
@@ -2872,6 +2943,7 @@
     backquoteEventNames.forEach(function (eventName) {
       window.addEventListener(eventName, blockClientBackquote, true);
       window.addEventListener(eventName, relayNativeEscape, true);
+      window.addEventListener(eventName, interceptSprintToggle, true);
     });
   }
 
@@ -3003,7 +3075,7 @@
     window.visualViewport.addEventListener("scroll", updateMobileChatComposerLayout);
   }
 
-  options.servers = [{ addr: gateway, name: "대 미 덕 마크서버", hideAddress: true }];
+  options.servers = [{ addr: gateway, name: siteName, hideAddress: true }];
   options.joinServer = gateway;
   options.relays = [];
   options.checkRelaysForUpdates = false;
@@ -3011,6 +3083,7 @@
   options.lang = "ko_kr";
   options.autoJump = false;
   options.localStorageNamespace = storageNamespace;
+  options.allowVoiceClient = true;
   options.enableDownloadOfflineButton = false;
   options.openDebugConsoleOnLaunch = false;
   options.allowUpdateSvc = false;

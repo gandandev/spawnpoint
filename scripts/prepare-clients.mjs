@@ -14,6 +14,16 @@ if (!/^[A-Za-z0-9_-]{1,80}$/.test(gameClient.cacheVersion)) {
 }
 const loadingBackgroundPattern = /center \/ contain no-repeat url\("data:image\/png;base64,[^"]+"\)/g;
 const epwDataUriPattern = /data:application\/octet-stream;base64,[A-Za-z0-9+/=]+/g;
+const clientMainCall = "setTimeout(function() { document.body.removeChild(document.getElementById(\"launch_countdown_screen\")); document.body.style.backgroundColor = \"black\"; main(); }, 50);";
+const preparedClientMainCall = `setTimeout(function() {
+  document.body.removeChild(document.getElementById("launch_countdown_screen"));
+  document.body.style.backgroundColor = "black";
+  Promise.resolve(window.__spawnpointPrepareClient).catch(function(error) {
+    console.warn("Spawnpoint client preparation failed", error);
+  }).then(function() {
+    main();
+  });
+}, 50);`;
 const bridgeTag = (epwUrl) => `
 <link rel="preload" href="${epwUrl}" as="fetch" crossorigin="anonymous">
 <style>
@@ -29,6 +39,7 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
+<script src="/game/resource-pack-bridge.js?v=${gameClient.cacheVersion}"></script>
 <script src="/game/portal-bridge.js?v=${gameClient.cacheVersion}"></script>
 `;
 
@@ -73,7 +84,12 @@ for (const [name, sourceName] of clients) {
   if (epwDataUris?.length !== 1) {
     throw new Error(`${sourceName} has ${epwDataUris?.length ?? 0} EPW data URIs, expected exactly 1`);
   }
-  const patchedInput = input.replace(epwDataUriPattern, epwUrl);
+  if (input.split(clientMainCall).length !== 2) {
+    throw new Error(`${sourceName} does not contain exactly one supported client main call`);
+  }
+  const patchedInput = input
+    .replace(epwDataUriPattern, epwUrl)
+    .replace(clientMainCall, preparedClientMainCall);
   const brandedInput = patchedInput.replace(
     loadingBackgroundPattern,
     `center / cover no-repeat url("${loadingImage}")`,

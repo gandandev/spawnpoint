@@ -39,7 +39,7 @@ app.set("trust proxy", 1);
 app.use((request, response, next) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "no-referrer");
-  response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  response.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), payment=()");
   response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   if (process.env.NODE_ENV === "production") {

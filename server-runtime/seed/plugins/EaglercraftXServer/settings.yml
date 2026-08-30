@@ -24,6 +24,14 @@ skin_service:
   skin_cache_thread_count: 2
   skin_cache_memory_max_objects: 256
   skin_cache_disk_max_objects: 2048
+voice_service:
+  enable_voice_service: true
+  enable_voice_all_worlds: true
+  enable_voice_on_worlds: []
+  separate_world_voice_channels: false
+  voice_connect_ratelimit: 20
+  voice_request_ratelimit: 120
+  voice_ice_ratelimit: 600
 update_checker:
   enable_update_checker: true
   check_for_update_every: 86400

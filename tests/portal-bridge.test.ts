@@ -5,6 +5,7 @@ import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 const bridgeSource = fs.readFileSync(path.join(process.cwd(), "public/game/portal-bridge.js"), "utf8");
+const resourcePackBridgeSource = fs.readFileSync(path.join(process.cwd(), "public/game/resource-pack-bridge.js"), "utf8");
 
 type BridgeEnvironment = {
   coarsePointer?: boolean;
@@ -14,6 +15,7 @@ type BridgeEnvironment = {
   mobileLookSensitivity?: number;
   nativePointerLock?: boolean;
   renderDom?: boolean;
+  resourcePackPreference?: "new-default" | "programmer-art";
   userAgent?: string;
   viewportHeight?: number;
   viewportWidth?: number;
@@ -50,6 +52,12 @@ function loadBridge(
   }
   if (environment.mobileControlLayout !== undefined) storage.set("spawnpoint_mobile_control_layout_v1", environment.mobileControlLayout);
   if (environment.mobileLookSensitivity !== undefined) storage.set("spawnpoint_mobile_look_sensitivity", String(environment.mobileLookSensitivity));
+  if (environment.resourcePackPreference !== undefined) {
+    storage.set("_spawnpoint_mossrunner.launch", JSON.stringify({
+      csrf: "resource-pack-csrf",
+      resourcePackPreference: environment.resourcePackPreference,
+    }));
+  }
   const canvas = {
     width: 960,
     height: 600,
@@ -236,7 +244,7 @@ function loadBridge(
       return locatorIntervals.length;
     });
   }
-  if (locatorSnapshot || environment.renderDom) {
+  if (locatorSnapshot || environment.renderDom || environment.resourcePackPreference !== undefined) {
     windowObject.fetch = vi.fn(async (input: unknown) => ({
       ok: true,
       json: async () => String(input) === "/api/game/chat"
@@ -401,7 +409,7 @@ function loadBridge(
     });
   });
 
-  vm.runInNewContext(bridgeSource, {
+  vm.runInNewContext(`${resourcePackBridgeSource}\n${bridgeSource}`, {
     URLSearchParams,
     clearTimeout() {},
     document: documentObject,
@@ -452,10 +460,10 @@ describe("domain site name", () => {
     ["xn--o79a769b.xn--hk3b17f.xn--3e0b707e", "예게.서버.한국"],
     ["xn--9k3b21rt2f.xn--hk3b17f.xn--3e0b707e", "베이컨.서버.한국"],
     ["spawnpoint.test", "spawnpoint"],
-  ])("uses the branded server name for %s in the game client", (hostname, expected) => {
+  ])("uses the name for %s in the game client", (hostname, expected) => {
     const client = loadBridge(undefined, true, undefined, { hostname });
     expect(client.options.servers).toEqual([
-      { addr: `wss://${hostname}/gateway?launch=launch-123`, name: "대 미 덕 마크서버", hideAddress: true },
+      { addr: `wss://${hostname}/gateway?launch=launch-123`, name: expected, hideAddress: true },
     ]);
     expect(client.documentObject.title).toBe(`${expected}, mossrunner`);
   });
@@ -473,11 +481,24 @@ function findControl(root: Record<string, any>, action: string): Record<string, 
 describe("portal game bridge", () => {
   it("ships the verified Minecraft 1.12 Korean language asset", () => {
     const locale = fs.readFileSync(path.join(process.cwd(), "public/game/lang-v2/ko_kr.lang"));
+    const localeText = locale.toString("utf8");
 
     expect(crypto.createHash("sha1").update(locale).digest("hex")).toBe(
-      "502813d62264297168b2fb6cf732fc3ee337d42f",
+      "82103a7478dd7405fb95ca7e61cbbeea1cc2e6bf",
     );
-    expect(locale.toString("utf8")).toContain("language.code=ko_kr\n");
+    expect(localeText).toContain("language.code=ko_kr\n");
+    for (const voiceLabel of [
+      "eaglercraft.voice.title=음성 채팅",
+      "eaglercraft.voice.notConnected=연결되지 않음",
+      "eaglercraft.voice.connecting=연결 중...",
+      "eaglercraft.voice.connectedGlobal=연결됨",
+      "eaglercraft.voice.connectedRadius=연결됨",
+      "eaglercraft.voice.off=끔",
+      "eaglercraft.voice.radius=주변",
+      "eaglercraft.voice.global=전체",
+    ]) {
+      expect(localeText).toContain(`${voiceLabel}\n`);
+    }
   });
 
   it("ships the locale-metadata-fixed 1.12.2 client bundle", () => {
@@ -494,6 +515,7 @@ describe("portal game bridge", () => {
 
     expect(options.lang).toBe("ko_kr");
     expect(options.localesURI).toBe("/game/lang-v2");
+    expect(options.allowVoiceClient).toBe(true);
   });
 
   it("fills the optional hooks that WASM-GC u2 casts without null checks", () => {
@@ -507,7 +529,7 @@ describe("portal game bridge", () => {
     const encoded = loadBridge().storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -515,7 +537,7 @@ describe("portal game bridge", () => {
     const encoded = loadBridge(undefined, false).storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -526,7 +548,7 @@ describe("portal game bridge", () => {
     };
 
     expect(Buffer.from(hooks.localStorageLoaded("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary")).toBe(
-      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -542,7 +564,69 @@ describe("portal game bridge", () => {
     );
 
     expect(Buffer.from(storage.get("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+    );
+  });
+
+  it("syncs a Resource Packs menu change back to the signed-in account", async () => {
+    const { options, windowObject } = loadBridge(
+      'resourcePacks:["New Default V2"]\nincompatibleResourcePacks:[]\nlang:ko_kr\n',
+      true,
+      undefined,
+      { resourcePackPreference: "new-default" },
+    );
+    const hooks = options.hooks as {
+      localStorageSaved: (key: string, data: string) => void;
+    };
+
+    hooks.localStorageSaved(
+      "g",
+      Buffer.from("resourcePacks:[]\nincompatibleResourcePacks:[]\nlang:ko_kr\n", "binary").toString("base64"),
+    );
+
+    await vi.waitFor(() => {
+      expect(windowObject.fetch).toHaveBeenCalledWith("/api/account/resource-pack", expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ resourcePackPreference: "programmer-art" }),
+      }));
+    });
+  });
+
+  it("applies the saved Programmer Art choice on another device without clearing custom packs", async () => {
+    const { storage, windowObject } = loadBridge(
+      'resourcePacks:["New Default V2","Custom Pack"]\nincompatibleResourcePacks:[]\nlang:ko_kr\n',
+      true,
+      undefined,
+      { resourcePackPreference: "programmer-art" },
+    );
+
+    await (windowObject.__spawnpointPrepareClient as Promise<void>);
+
+    expect(Buffer.from(storage.get("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary")).toContain(
+      'resourcePacks:["Custom Pack"]\n',
+    );
+  });
+
+  it("does not guess a preference when compressed settings cannot be inspected", async () => {
+    const compressedSettings = "\x1f\x8bunsupported-in-test";
+    const { options, windowObject } = loadBridge(
+      compressedSettings,
+      true,
+      undefined,
+      { resourcePackPreference: "new-default" },
+    );
+    await (windowObject.__spawnpointPrepareClient as Promise<void>);
+
+    const hooks = options.hooks as {
+      localStorageSaved: (key: string, data: string) => void;
+    };
+    hooks.localStorageSaved("g", Buffer.from(compressedSettings, "binary").toString("base64"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(windowObject.fetch).not.toHaveBeenCalledWith(
+      "/api/account/resource-pack",
+      expect.anything(),
     );
   });
 
@@ -551,18 +635,18 @@ describe("portal game bridge", () => {
     const encoded = storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
   it("preserves per-user values after applying the first-launch defaults", () => {
     const { storage } = loadBridge(
-      "lang:en_us\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\n",
+      "lang:en_us\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\nshowSubtitles:false\n",
     );
     const encoded = storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\nshowSubtitles:false\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -1227,6 +1311,60 @@ describe("portal game bridge", () => {
     expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keyup"]);
   });
 
+  it("uses R as an auto-sprint toggle so one physical W press primes sprint", () => {
+    const { canvas, canvasEvents, locatorElementsById, options, windowHandlers } = loadBridge(
+      undefined,
+      true,
+      undefined,
+      { maxTouchPoints: 5, renderDom: true },
+    );
+    const root = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const sprint = findControl(root, "sprint")!;
+    canvas.requestPointerLock();
+
+    const dispatchWindowKey = (type: "keydown" | "keypress" | "keyup", key: string, code: string, keyCode: number) => {
+      const event = {
+        type,
+        target: canvas,
+        key,
+        code,
+        keyCode,
+        which: keyCode,
+        preventDefault: vi.fn(),
+        stopImmediatePropagation: vi.fn(),
+      };
+      windowHandlers.get(type)?.forEach((listener) => listener(event));
+      return event;
+    };
+
+    const sprintDown = dispatchWindowKey("keydown", "r", "KeyR", 82);
+    const sprintUp = dispatchWindowKey("keyup", "r", "KeyR", 82);
+    expect(sprintDown.preventDefault).toHaveBeenCalledOnce();
+    expect(sprintDown.stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(sprintUp.preventDefault).toHaveBeenCalledOnce();
+    expect(sprint["aria-pressed"]).toBe("true");
+
+    dispatchWindowKey("keydown", "w", "KeyW", 87);
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ type: "keydown", key: "r", code: "KeyR", keyCode: 82 }),
+      expect.objectContaining({ type: "keyup", key: "r", code: "KeyR", keyCode: 82 }),
+    ]);
+
+    canvasEvents.length = 0;
+    dispatchWindowKey("keydown", "r", "KeyR", 82);
+    expect(sprint["aria-pressed"]).toBe("false");
+    dispatchWindowKey("keydown", "w", "KeyW", 87);
+    expect(canvasEvents).toHaveLength(0);
+
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
+    const chatR = dispatchWindowKey("keydown", "r", "KeyR", 82);
+    expect(chatR.preventDefault).not.toHaveBeenCalled();
+    expect(sprint["aria-pressed"]).toBe("false");
+  });
+
   it("maps the drop and right-side action controls to their game inputs", () => {
     const { canvas, canvasEvents, locatorElementsById } = loadBridge(undefined, true, undefined, {
       maxTouchPoints: 5,
@@ -1711,6 +1849,31 @@ describe("portal game bridge", () => {
     expect(documentObject.activeElement).toBe(canvas);
   });
 
+  it("passes movement keys to the runtime when a stale hidden input still has focus", () => {
+    const {
+      clientTextInput,
+      documentObject,
+      keyboardZone,
+      windowHandlers,
+      windowObject,
+    } = loadBridge();
+    keyboardZone.dispatchEvent({ type: "touchend" });
+    documentObject.activeElement = clientTextInput;
+    const runtimeListener = vi.fn();
+    windowObject.addEventListener("keydown", runtimeListener, true);
+
+    windowHandlers.get("keydown")?.at(-1)?.({
+      target: clientTextInput,
+      key: "w",
+      code: "KeyW",
+      keyCode: 87,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(runtimeListener).toHaveBeenCalledOnce();
+  });
+
   it("relays Enter from the hidden IME input to Minecraft's canvas", () => {
     const { canvas, canvasEvents, clientTextInput, handlers, options } = loadBridge();
     const hooks = options.hooks as {
@@ -2040,9 +2203,14 @@ describe("portal game bridge", () => {
       clientTextInput,
       documentObject,
       handlers,
+      options,
       windowHandlers,
       windowObject,
     } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
     const windowRuntimeListener = vi.fn();
     const documentRuntimeListener = { handleEvent: vi.fn() };
 
@@ -2093,9 +2261,14 @@ describe("portal game bridge", () => {
       clientTextInput,
       documentObject,
       documentPropertyHandlers,
+      options,
       windowObject,
       windowPropertyHandlers,
     } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("net.minecraft.client.gui.GuiChat", 480, 300, 960, 600, 2);
     const windowRuntimeHandler = vi.fn();
     const documentRuntimeHandler = vi.fn();
 

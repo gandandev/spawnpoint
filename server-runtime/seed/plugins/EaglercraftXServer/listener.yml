@@ -8,7 +8,7 @@ allow_query: true
 allow_cookie_revoke_query: false
 server_motd:
   - "&aspawnpoint"
-  - "&7wake, join, sleep."
+  - "&7대 미 덕 마크서버"
 server_icon: server-icon.png
 tls_config:
   enable_tls: false
@@ -28,4 +28,3 @@ ratelimit:
     limit: 5
     limit_lockout: 10
     lockout_duration: 300
-
