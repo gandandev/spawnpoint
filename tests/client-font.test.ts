@@ -153,7 +153,7 @@ print(json.dumps({
   "underwater_alpha_extrema": underwater_alpha.getextrema(),
   "load_screen_matches_bacon": load_screen.size == (256, 256) and load_screen.tobytes() == expected_load_screen.tobytes(),
 }))
-`, path.join(clients, "stable-galmuri.epw"), path.join(process.cwd(), "public/og-image-bacon.jpg")], { encoding: "utf8" }));
+`, path.join(clients, "stable-galmuri.epw"), path.join(process.cwd(), "vendor/clients/loading-screen-bacon.jpg")], { encoding: "utf8" }));
     expect(inspection).toEqual({
       menu_ranges_are_nops: true,
       panorama_blur_chain_is_nops: true,

@@ -26,7 +26,7 @@ DEFAULT_BASE = ROOT / "vendor/clients/stable-locale-fixed.epw"
 DEFAULT_OUTPUT = ROOT / "vendor/clients/stable-galmuri.epw"
 DEFAULT_FONT = ROOT / "vendor/fonts/galmuri/Galmuri11.ttf"
 DEFAULT_LICENSE = ROOT / "vendor/fonts/galmuri/LICENSE.txt"
-DEFAULT_FINAL_LOAD_SCREEN = ROOT / "public/og-image-bacon.jpg"
+DEFAULT_FINAL_LOAD_SCREEN = ROOT / "vendor/clients/loading-screen-bacon.jpg"
 
 EPW_MAGIC = b"EAG$WASM"
 EPW_EPK_COUNT_OFFSET = 96

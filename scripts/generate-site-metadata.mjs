@@ -32,7 +32,7 @@ function insertAfter(html, marker, value) {
 
 for (const site of sites) {
   let html = source.replace(/<title>[^<]*<\/title>/, `<title>${site.title}</title>`);
-  const imageAlt = `초록빛 검정 배경 위에 로고와 ${site.title}이 가로로 놓인 이미지`;
+  const imageAlt = `셰이더가 적용된 블록 풍경 위에 검정 로고와 흰 테두리의 ${site.title} 문구가 놓인 이미지`;
   html = insertAfter(html, '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />', `<link rel="canonical" href="${site.origin}/" />`);
   html = insertAfter(html, '<meta property="og:type" content="website" />', `<meta property="og:url" content="${site.origin}/" />`);
   html = replaceMeta(html, "property", "og:site_name", site.title);

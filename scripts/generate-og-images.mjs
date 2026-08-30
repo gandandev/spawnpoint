@@ -4,8 +4,9 @@ import sharp from "sharp";
 
 const width = 1200;
 const height = 630;
-const logoSize = 124;
+const logoSize = 112;
 const publicDir = path.join(process.cwd(), "public");
+const backgroundPath = path.join(process.cwd(), "vendor", "og", "voxel-sunrise.png");
 const font = await fs.readFile(path.join(process.cwd(), "vendor", "fonts", "galmuri", "Galmuri11.woff2"));
 const fontData = font.toString("base64");
 
@@ -15,18 +16,10 @@ const sites = [
   { name: "베이컨.서버.한국", files: ["og-image-bacon.jpg"], fontSize: 82 },
 ];
 
-function backgroundSvg() {
-  return Buffer.from(`
-    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="1200" height="630" fill="#0b110c"/>
-    </svg>
-  `);
-}
-
 function logoSvg() {
   return Buffer.from(`
     <svg width="${logoSize}" height="${logoSize}" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-      <path fill="#96ce4d" fill-rule="evenodd" d="M0 0h18v13H13v5H0zM4 4v7h7V4z"/>
+      <path fill="#090909" stroke="#ffffff" stroke-width="0.7" stroke-linejoin="round" paint-order="stroke fill" fill-rule="evenodd" d="M0 0h18v13H13v5H0zM4 4v7h7V4z"/>
     </svg>
   `);
 }
@@ -46,17 +39,20 @@ function textSvg(name, fontSize) {
           font-weight: 700;
           letter-spacing: 1px;
           paint-order: stroke fill;
-          stroke: #f0f7ec;
-          stroke-width: 2px;
+          stroke: #ffffff;
+          stroke-width: 5px;
           stroke-linejoin: round;
         }
       </style>
-      <text x="12" y="116" fill="#f0f7ec">${name}</text>
+      <text x="14" y="116" fill="#090909">${name}</text>
     </svg>
   `);
 }
 
-const background = await sharp(backgroundSvg()).png().toBuffer();
+const background = await sharp(backgroundPath)
+  .resize(width, height, { fit: "cover", position: "centre" })
+  .png()
+  .toBuffer();
 const logo = await sharp(logoSvg()).png().toBuffer();
 
 await Promise.all(sites.map(async ({ name, files, fontSize }) => {
@@ -64,7 +60,7 @@ await Promise.all(sites.map(async ({ name, files, fontSize }) => {
   const textMetadata = await sharp(text).metadata();
   const textWidth = textMetadata.width ?? 0;
   const textHeight = textMetadata.height ?? 0;
-  const gap = 38;
+  const gap = 34;
   const groupWidth = logoSize + gap + textWidth;
   const left = Math.round((width - groupWidth) / 2);
 
