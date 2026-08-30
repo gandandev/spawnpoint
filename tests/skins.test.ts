@@ -35,25 +35,25 @@ describe("account skin storage", () => {
     database.close();
   });
 
-  it("adds the default skin to the stable catalog choices", () => {
-    expect(SKIN_CATALOG).toHaveLength(1);
-    expect(SKIN_CATALOG[0].label).toBe("유명");
-    expect(SKIN_CATALOG[0].skins).toHaveLength(60);
-    expect(SKIN_CATALOG[0].skins[0].id).toBe("famous-1");
-    expect(SKIN_CATALOG[0].skins.at(-1)?.id).toBe("saved-50");
-    expect(new Set(SKIN_CATALOG[0].skins.map((skin) => skin.id)).size).toBe(60);
-    expect(SKIN_CATALOG[0].skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);
+  it("groups every stable catalog skin once", () => {
+    expect(SKIN_CATALOG.map((category) => category.label)).toEqual(["기본", "유튜버", "중2병", "블록", "ㅆㄷ"]);
+    expect(SKIN_CATALOG[0].skins.map((skin) => skin.id)).toEqual(["steve", "alex"]);
+    const skins = SKIN_CATALOG.flatMap((category) => category.skins);
+    expect(skins).toHaveLength(62);
+    expect(new Set(skins.map((skin) => skin.id)).size).toBe(62);
+    expect(skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);
   });
 
-  it("serves normalized skin textures for the real 3D renderer", async () => {
+  it("serves normalized default skin textures for the real 3D renderer", async () => {
     const database = createDatabase();
     const service = new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public"));
-    const texture = await service.catalogTexture("spawnpoint");
-    const metadata = await sharp(texture).metadata();
-
-    expect(metadata.format).toBe("png");
-    expect(metadata.width).toBe(64);
-    expect(metadata.height).toBe(64);
+    for (const skinId of ["steve", "alex", "spawnpoint"]) {
+      const texture = await service.catalogTexture(skinId);
+      const metadata = await sharp(texture).metadata();
+      expect(metadata.format).toBe("png");
+      expect(metadata.width).toBe(64);
+      expect(metadata.height).toBe(64);
+    }
     database.close();
   });
 
@@ -187,5 +187,18 @@ describe("account skin storage", () => {
   it("disables the unsupported vanilla skin cache", () => {
     const settings = fs.readFileSync(path.join(process.cwd(), "server-runtime/seed/plugins/EaglercraftXServer/settings.yml"), "utf8");
     expect(settings).toMatch(/download_vanilla_skins_to_clients:\s*false/);
+  });
+
+  it("enables rate-limited voice chat with managed STUN servers", () => {
+    const configDir = path.join(process.cwd(), "server-runtime/seed/plugins/EaglercraftXServer");
+    const settings = fs.readFileSync(path.join(configDir, "settings.yml"), "utf8");
+    const iceServers = fs.readFileSync(path.join(configDir, "ice_servers.yml"), "utf8");
+
+    expect(settings).toMatch(/voice_service:\s*[\s\S]*enable_voice_service:\s*true/);
+    expect(settings).toMatch(/voice_connect_ratelimit:\s*20/);
+    expect(settings).toMatch(/voice_request_ratelimit:\s*120/);
+    expect(settings).toMatch(/voice_ice_ratelimit:\s*600/);
+    expect(iceServers).toContain("stun:stun.l.google.com:19302");
+    expect(iceServers).toContain("ice_servers_passwd: []");
   });
 });

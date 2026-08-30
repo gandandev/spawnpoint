@@ -65,7 +65,7 @@ export function CatalogSkinPreview({ src }: { src: string }) {
       setVisible(true);
       observer.disconnect();
     }, {
-      root: container.closest('[aria-label="유명 스킨"]'),
+      root: container.closest('[aria-label="스킨 목록"]'),
       rootMargin: "200px 0px",
     });
     observer.observe(container);

@@ -85,8 +85,6 @@ export function SkinStudio({ data, onUser, onChanged, notice }: SkinStudioProps)
     }
   };
 
-  const famous = categories.find((category) => category.id === "famous");
-
   return <form className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1" onSubmit={submit}>
     <ToggleGroup type="single" value={mode} onValueChange={(value) => { if (value === "catalog" || value === "lookup" || value === "upload") setMode(value); }} variant="outline" spacing={0} className="grid w-full grid-cols-3 p-1">
       <ToggleGroupItem value="catalog" className="h-auto min-h-10 min-w-0 w-full cursor-pointer whitespace-normal px-1 text-xs leading-tight sm:h-10 sm:px-2 sm:text-sm">고르기</ToggleGroupItem>
@@ -95,24 +93,27 @@ export function SkinStudio({ data, onUser, onChanged, notice }: SkinStudioProps)
     </ToggleGroup>
     <AnimatedHeight>
       <div key={mode} className="skin-studio-content flex flex-col gap-4">
-        {mode === "catalog" ? <div className="grid max-h-[min(34rem,calc(100dvh-10rem))] grid-cols-3 gap-2 overflow-y-auto overscroll-contain pr-1" aria-label="유명 스킨">
-          {!famous && !catalogError && <div className="col-span-3 flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />카탈로그 불러오는 중</div>}
+        {mode === "catalog" ? <div className="grid max-h-[min(34rem,calc(100dvh-10rem))] grid-cols-3 gap-2 overflow-y-auto overscroll-contain pr-1" aria-label="스킨 목록">
+          {categories.length === 0 && !catalogError && <div className="col-span-3 flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />카탈로그 불러오는 중</div>}
           {catalogError && <div className="col-span-3 flex min-h-40 items-center justify-center text-sm text-muted-foreground">카탈로그를 불러오지 못했어요.</div>}
-          {famous?.skins.map((skin, index) => {
-            const selected = data.user?.skin.label === skin.label;
-            return <button
-              key={skin.id}
-              type="button"
-              className={cn("group relative flex min-h-44 cursor-pointer items-center justify-center rounded-lg border bg-muted/35 p-2 transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-muted active:scale-[var(--scale-large)] active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100", selected && "border-[#96ce4d] bg-[#96ce4d]/10")}
-              aria-label={`스킨 ${index + 1} 선택`}
-              aria-pressed={selected}
-              disabled={busy !== null}
-              onClick={() => void update(skin.id, "/skin/catalog", { method: "POST", body: JSON.stringify({ skinId: skin.id }), headers: { "Content-Type": "application/json" } })}
-            >
-              <CatalogSkinPreview src={skin.textureUrl} />
-              {busy === skin.id ? <span className="absolute right-2 top-2"><Spinner /></span> : selected && <Check className="absolute right-2 top-2 size-3.5 text-[#65952c]" />}
-            </button>;
-          })}
+          {categories.map((category) => <section key={category.id} className="col-span-3 grid grid-cols-3 gap-2" aria-labelledby={`skin-category-${category.id}`}>
+            <h3 id={`skin-category-${category.id}`} className="col-span-3 px-1 pt-2 text-sm font-semibold first:pt-0">{category.label}</h3>
+            {category.skins.map((skin, index) => {
+              const selected = data.user?.skin.label === skin.label;
+              return <button
+                key={skin.id}
+                type="button"
+                className={cn("group relative flex min-h-44 cursor-pointer items-center justify-center rounded-lg border-0 bg-muted/35 p-2 transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-muted active:scale-[var(--scale-large)] active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100", selected && "bg-[#96ce4d]/10")}
+                aria-label={`${category.label} 스킨 ${index + 1} 선택`}
+                aria-pressed={selected}
+                disabled={busy !== null}
+                onClick={() => void update(skin.id, "/skin/catalog", { method: "POST", body: JSON.stringify({ skinId: skin.id }), headers: { "Content-Type": "application/json" } })}
+              >
+                <CatalogSkinPreview src={skin.textureUrl} />
+                {busy === skin.id ? <span className="absolute right-2 top-2"><Spinner /></span> : selected && <Check className="absolute right-2 top-2 size-3.5 text-[#65952c]" />}
+              </button>;
+            })}
+          </section>)}
         </div> : mode === "lookup" ? <Field><FieldLabel className="sr-only" htmlFor="skin-lookup">마인크래프트 사용자 이름</FieldLabel><Input className="h-11 px-4 shadow-none" id="skin-lookup" value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="마인크래프트 이름 입력" required /></Field> : <Field><FieldLabel className="sr-only" htmlFor="skin-file">스킨 PNG 업로드</FieldLabel><label htmlFor="skin-file" onDragOver={(event) => event.preventDefault()} onDrop={dropSkin} className="flex min-h-52 touch-manipulation cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-input bg-muted/40 px-4 text-center text-sm text-muted-foreground transition-colors hover:bg-muted"><Upload /><span className="mt-2">{file ? file.name : "PNG 스킨을 선택하거나 여기에 놓으세요"}</span><input id="skin-file" className="sr-only" type="file" accept="image/png" disabled={busy !== null} onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label></Field>}
         {mode !== "catalog" && <Button type="submit" size="lg" className="h-11 w-full" disabled={busy !== null || (mode === "lookup" ? !lookup.trim() : !file)}>{busy ? <Spinner /> : "선택"}</Button>}
       </div>

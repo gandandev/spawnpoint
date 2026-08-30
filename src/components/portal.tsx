@@ -35,7 +35,7 @@ export function AnimatedHeight({ children }: { children: ReactNode }) {
 export function Logo() {
   const siteName = currentSiteName();
   return <div className="flex shrink-0 items-center gap-3 font-mark text-sm font-bold tracking-normal" aria-label={siteName}>
-    <svg aria-hidden="true" className="size-[18px]" viewBox="0 0 18 18" fill="none">
+    <svg aria-hidden="true" className="size-[18px] translate-y-px" viewBox="0 0 18 18" fill="none">
       <path fill="#96ce4d" fillRule="evenodd" d="M0 0h18v13H13v5H0zM4 4v7h7V4z" />
     </svg>
     <span className="max-[359px]:hidden">{siteName}</span>

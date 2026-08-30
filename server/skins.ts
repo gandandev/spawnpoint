@@ -28,72 +28,41 @@ const CATALOG_TEXTURE_VERSION = "texture-v1";
 const CATALOG_SOURCE_CACHE_VERSION = "source-v1";
 const catalogTextureUrl = (skinId: string): string => `/api/skin/catalog/${skinId}.png?v=${CATALOG_TEXTURE_VERSION}`;
 
-export const SKIN_CATALOG = [{
-  id: "famous",
-  label: "유명",
-  skins: [
-    { id: "famous-1", label: "유명 스킨 1", textureUrl: catalogTextureUrl("famous-1") },
-    { id: "famous-6", label: "유명 스킨 6", textureUrl: catalogTextureUrl("famous-6") },
-    { id: "saved-07", label: "저장한 스킨 7", textureUrl: catalogTextureUrl("saved-07") },
-    { id: "saved-14", label: "저장한 스킨 14", textureUrl: catalogTextureUrl("saved-14") },
-    { id: "spawnpoint", label: "spawnpoint", textureUrl: catalogTextureUrl("spawnpoint") },
-    { id: "saved-06", label: "저장한 스킨 6", textureUrl: catalogTextureUrl("saved-06") },
-    { id: "famous-3", label: "유명 스킨 3", textureUrl: catalogTextureUrl("famous-3") },
-    { id: "famous-2", label: "유명 스킨 2", textureUrl: catalogTextureUrl("famous-2") },
-    { id: "saved-02", label: "저장한 스킨 2", textureUrl: catalogTextureUrl("saved-02") },
-    { id: "saved-05", label: "저장한 스킨 5", textureUrl: catalogTextureUrl("saved-05") },
-    { id: "famous-4", label: "유명 스킨 4", textureUrl: catalogTextureUrl("famous-4") },
-    { id: "saved-08", label: "저장한 스킨 8", textureUrl: catalogTextureUrl("saved-08") },
-    { id: "famous-5", label: "유명 스킨 5", textureUrl: catalogTextureUrl("famous-5") },
-    { id: "saved-12", label: "저장한 스킨 12", textureUrl: catalogTextureUrl("saved-12") },
-    { id: "saved-09", label: "저장한 스킨 9", textureUrl: catalogTextureUrl("saved-09") },
-    { id: "famous-7", label: "유명 스킨 7", textureUrl: catalogTextureUrl("famous-7") },
-    { id: "saved-01", label: "저장한 스킨 1", textureUrl: catalogTextureUrl("saved-01") },
-    { id: "famous-8", label: "유명 스킨 8", textureUrl: catalogTextureUrl("famous-8") },
-    { id: "saved-04", label: "저장한 스킨 4", textureUrl: catalogTextureUrl("saved-04") },
-    { id: "saved-15", label: "저장한 스킨 15", textureUrl: catalogTextureUrl("saved-15") },
-    { id: "famous-9", label: "유명 스킨 9", textureUrl: catalogTextureUrl("famous-9") },
-    { id: "saved-11", label: "저장한 스킨 11", textureUrl: catalogTextureUrl("saved-11") },
-    { id: "saved-13", label: "저장한 스킨 13", textureUrl: catalogTextureUrl("saved-13") },
-    { id: "saved-03", label: "저장한 스킨 3", textureUrl: catalogTextureUrl("saved-03") },
-    { id: "saved-10", label: "저장한 스킨 10", textureUrl: catalogTextureUrl("saved-10") },
-    { id: "saved-16", label: "저장한 스킨 16", textureUrl: catalogTextureUrl("saved-16") },
-    { id: "saved-17", label: "저장한 스킨 17", textureUrl: catalogTextureUrl("saved-17") },
-    { id: "saved-18", label: "저장한 스킨 18", textureUrl: catalogTextureUrl("saved-18") },
-    { id: "saved-19", label: "저장한 스킨 19", textureUrl: catalogTextureUrl("saved-19") },
-    { id: "saved-20", label: "저장한 스킨 20", textureUrl: catalogTextureUrl("saved-20") },
-    { id: "saved-21", label: "저장한 스킨 21", textureUrl: catalogTextureUrl("saved-21") },
-    { id: "saved-22", label: "저장한 스킨 22", textureUrl: catalogTextureUrl("saved-22") },
-    { id: "saved-23", label: "저장한 스킨 23", textureUrl: catalogTextureUrl("saved-23") },
-    { id: "saved-24", label: "저장한 스킨 24", textureUrl: catalogTextureUrl("saved-24") },
-    { id: "saved-25", label: "저장한 스킨 25", textureUrl: catalogTextureUrl("saved-25") },
-    { id: "saved-26", label: "저장한 스킨 26", textureUrl: catalogTextureUrl("saved-26") },
-    { id: "saved-27", label: "저장한 스킨 27", textureUrl: catalogTextureUrl("saved-27") },
-    { id: "saved-28", label: "저장한 스킨 28", textureUrl: catalogTextureUrl("saved-28") },
-    { id: "saved-29", label: "저장한 스킨 29", textureUrl: catalogTextureUrl("saved-29") },
-    { id: "saved-30", label: "저장한 스킨 30", textureUrl: catalogTextureUrl("saved-30") },
-    { id: "saved-31", label: "저장한 스킨 31", textureUrl: catalogTextureUrl("saved-31") },
-    { id: "saved-32", label: "저장한 스킨 32", textureUrl: catalogTextureUrl("saved-32") },
-    { id: "saved-33", label: "저장한 스킨 33", textureUrl: catalogTextureUrl("saved-33") },
-    { id: "saved-34", label: "저장한 스킨 34", textureUrl: catalogTextureUrl("saved-34") },
-    { id: "saved-35", label: "저장한 스킨 35", textureUrl: catalogTextureUrl("saved-35") },
-    { id: "saved-36", label: "저장한 스킨 36", textureUrl: catalogTextureUrl("saved-36") },
-    { id: "saved-37", label: "저장한 스킨 37", textureUrl: catalogTextureUrl("saved-37") },
-    { id: "saved-38", label: "저장한 스킨 38", textureUrl: catalogTextureUrl("saved-38") },
-    { id: "saved-39", label: "저장한 스킨 39", textureUrl: catalogTextureUrl("saved-39") },
-    { id: "saved-40", label: "저장한 스킨 40", textureUrl: catalogTextureUrl("saved-40") },
-    { id: "saved-41", label: "저장한 스킨 41", textureUrl: catalogTextureUrl("saved-41") },
-    { id: "saved-42", label: "저장한 스킨 42", textureUrl: catalogTextureUrl("saved-42") },
-    { id: "saved-43", label: "저장한 스킨 43", textureUrl: catalogTextureUrl("saved-43") },
-    { id: "saved-44", label: "저장한 스킨 44", textureUrl: catalogTextureUrl("saved-44") },
-    { id: "saved-45", label: "저장한 스킨 45", textureUrl: catalogTextureUrl("saved-45") },
-    { id: "saved-46", label: "저장한 스킨 46", textureUrl: catalogTextureUrl("saved-46") },
-    { id: "saved-47", label: "저장한 스킨 47", textureUrl: catalogTextureUrl("saved-47") },
-    { id: "saved-48", label: "저장한 스킨 48", textureUrl: catalogTextureUrl("saved-48") },
-    { id: "saved-49", label: "저장한 스킨 49", textureUrl: catalogTextureUrl("saved-49") },
-    { id: "saved-50", label: "저장한 스킨 50", textureUrl: catalogTextureUrl("saved-50") },
-  ],
-}] as const;
+function catalogSkin(id: string) {
+  const label = id === "steve" ? "스티브"
+    : id === "alex" ? "알렉스"
+      : id === "spawnpoint" ? "spawnpoint"
+        : id.startsWith("famous-") ? `유명 스킨 ${Number(id.slice(7))}`
+          : `저장한 스킨 ${Number(id.slice(6))}`;
+  return { id, label, textureUrl: catalogTextureUrl(id) };
+}
+
+const category = (id: string, label: string, skinIds: string[]) => ({
+  id,
+  label,
+  skins: skinIds.map(catalogSkin),
+});
+
+export const SKIN_CATALOG = [
+  category("default", "기본", ["steve", "alex"]),
+  category("creator", "유튜버", [
+    "famous-1", "famous-2", "famous-3", "famous-4", "famous-5", "famous-6", "famous-7", "famous-8", "famous-9",
+    "saved-19", "saved-20",
+  ]),
+  category("dark", "중2병", [
+    "saved-01", "saved-02", "saved-07", "saved-08", "saved-22", "saved-24", "saved-25", "saved-26",
+    "saved-33", "saved-34", "saved-37", "saved-38", "saved-43", "saved-44", "saved-45",
+  ]),
+  category("block", "블록", [
+    "saved-09", "saved-10", "saved-17", "saved-18", "saved-21", "saved-46", "saved-47", "saved-48",
+    "saved-49", "saved-50", "spawnpoint",
+  ]),
+  category("anime", "ㅆㄷ", [
+    "saved-03", "saved-04", "saved-05", "saved-06", "saved-11", "saved-12", "saved-13", "saved-14",
+    "saved-15", "saved-16", "saved-23", "saved-27", "saved-28", "saved-29", "saved-30", "saved-31",
+    "saved-32", "saved-35", "saved-36", "saved-39", "saved-40", "saved-41", "saved-42",
+  ]),
+] as const;
 
 type CatalogSkinSource =
   | { kind: "preset"; ref: string; model: SkinModel }
@@ -116,6 +85,8 @@ function cachedPromise<T>(cache: Map<string, Promise<T>>, key: string, factory: 
 }
 
 const CATALOG_SKIN_SOURCES: Readonly<Record<string, CatalogSkinSource>> = {
+  steve: { kind: "preset", ref: "steve", model: "steve" },
+  alex: { kind: "preset", ref: "alex", model: "alex" },
   spawnpoint: { kind: "preset", ref: "spawnpoint", model: "steve" },
   "famous-1": { kind: "remote", url: "https://s.namemc.com/i/5b3eacb5eae8cc05.png", model: "steve" },
   "famous-2": { kind: "remote", url: "https://s.namemc.com/i/6284e38ae0ad125d.png", model: "steve" },
