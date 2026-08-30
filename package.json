@@ -10,7 +10,7 @@
     "build": "npm run build:client && npm run build:server",
     "build:frontend": "npm run prepare:clients && npm run generate:skins && npm run build:client",
     "build:backend": "npm run build:server",
-    "build:client": "node scripts/generate-og-images.mjs && vite build && node scripts/generate-site-metadata.mjs && node scripts/compress-client-assets.mjs",
+    "build:client": "vite build && node scripts/generate-site-metadata.mjs && node scripts/compress-client-assets.mjs",
     "build:server": "tsc -p tsconfig.server.json",
     "build:plugin": "node scripts/build-plugin.mjs",
     "prepare:clients": "node scripts/prepare-clients.mjs",
