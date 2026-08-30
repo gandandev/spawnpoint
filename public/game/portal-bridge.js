@@ -211,6 +211,8 @@
     if (existingScreenChangedHook) {
       existingScreenChangedHook.call(this, screenName, scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor);
     }
+    var locatorWasReady = locatorScreenObserved;
+    locatorScreenObserved = true;
     var previousScreenName = currentScreenName;
     currentScreenName = typeof screenName === "string" ? screenName : "";
     // A single Escape can close a client screen and then reach gameplay again
@@ -228,6 +230,12 @@
     updateMobileScreenMetrics(scaledWidth, scaledHeight, realWidth, realHeight, scaleFactor);
     updateLocatorHudLayout();
     updateLocatorHudVisibility();
+    if (
+      locatorScreenIsVisible()
+      && (!locatorWasReady || (previousScreenName && !/GuiChat$/.test(previousScreenName)))
+    ) {
+      pollLocatorHud();
+    }
     updateTPAPickerLayout();
     updateMobileControlsVisibility();
     if (typeof screenName === "string" && /GuiScreenEditProfile$/.test(screenName)) {
@@ -286,6 +294,7 @@
   var locatorMarkerLayer = null;
   var locatorMarkers = Object.create(null);
   var locatorHasTargets = false;
+  var locatorScreenObserved = false;
   var locatorRequestPending = false;
   var locatorFailureCount = 0;
   var chatDraft = "";
@@ -473,7 +482,7 @@
   }
 
   function locatorScreenIsVisible() {
-    return !currentScreenName || /GuiChat$/.test(currentScreenName);
+    return locatorScreenObserved && (!currentScreenName || /GuiChat$/.test(currentScreenName));
   }
 
   function updateLocatorHudVisibility() {
@@ -506,7 +515,13 @@
   }
 
   function pollLocatorHud() {
-    if (locatorRequestPending || typeof window.fetch !== "function") return;
+    if (
+      locatorRequestPending
+      || !locatorScreenIsVisible()
+      || document.hidden === true
+      || document.visibilityState === "hidden"
+      || typeof window.fetch !== "function"
+    ) return;
     locatorRequestPending = true;
     window.fetch("/api/game/locator", { credentials: "same-origin", cache: "no-store" })
       .then(function (response) {

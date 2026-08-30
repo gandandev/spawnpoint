@@ -693,6 +693,7 @@ describe("portal game bridge", () => {
     const hooks = options.hooks as {
       screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
     };
+    expect(windowObject.fetch.mock.calls.filter((call) => call[0] === "/api/game/locator")).toHaveLength(0);
     hooks.screenChanged("", 480, 300, 960, 600, 2);
 
     await vi.waitFor(() => {
@@ -738,6 +739,14 @@ describe("portal game bridge", () => {
     hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
     expect(root.style.display).toBe("none");
     expect(documentObject.body.children).toContain(root);
+    const requestsBeforeHiddenPoll = windowObject.fetch.mock.calls.length;
+    locatorIntervals[0].callback();
+    expect(windowObject.fetch).toHaveBeenCalledTimes(requestsBeforeHiddenPoll);
+
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    await vi.waitFor(() => {
+      expect(windowObject.fetch).toHaveBeenCalledTimes(requestsBeforeHiddenPoll + 1);
+    });
   });
 
   it("dismisses Edit Profile whenever the client reaches that screen", () => {
