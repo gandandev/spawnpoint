@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { brotliCompressSync, gzipSync, constants as zlibConstants } from "node:zlib";
+import { splitClientBundle } from "./split-client-bundle.mjs";
 
 const root = process.cwd();
 const clients = [
@@ -24,8 +25,9 @@ const preparedClientMainCall = `setTimeout(function() {
     main();
   });
 }, 50);`;
-const bridgeTag = (epwUrl) => `
+const bridgeTag = (epwUrl, wasmUrl) => `
 <link rel="preload" href="${epwUrl}" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="${wasmUrl}" as="fetch" type="application/wasm" crossorigin="anonymous">
 <style>
 ._eaglercraftX_early_splash_element {
   background: center / cover no-repeat url("${loadingImage}") !important;
@@ -39,6 +41,7 @@ window.addEventListener("load", function () {
   }, 0);
 });
 </script>
+<script>window.__spw=${JSON.stringify(wasmUrl)};</script>
 <script src="/game/resource-pack-bridge.js?v=${gameClient.cacheVersion}"></script>
 <script src="/game/portal-bridge.js?v=${gameClient.cacheVersion}"></script>
 `;
@@ -56,14 +59,34 @@ await Promise.all([
   ),
 ]);
 const patchedEpw = await fs.readFile(path.join(root, "vendor/clients/stable-galmuri.epw"));
-const epwHash = createHash("sha256").update(patchedEpw).digest("hex").slice(0, 16);
+const { epw: streamingEpw, mainWasm } = await splitClientBundle(patchedEpw);
+const epwHash = createHash("sha256").update(streamingEpw).digest("hex").slice(0, 16);
+const wasmHash = createHash("sha256").update(mainWasm).digest("hex").slice(0, 16);
 const epwFileName = `stable-${epwHash}.epw`;
+const wasmFileName = `classes-${wasmHash}.wasm`;
 const epwUrl = `/game/${epwFileName}`;
-await fs.writeFile(path.join(root, "public/game", epwFileName), patchedEpw);
+const wasmUrl = `/game/${wasmFileName}`;
+await Promise.all([
+  fs.writeFile(path.join(root, "public/game", epwFileName), streamingEpw),
+  fs.writeFile(path.join(root, "public/game", wasmFileName), mainWasm),
+  fs.writeFile(path.join(root, "public/game", `${wasmFileName}.br`), brotliCompressSync(mainWasm, {
+    params: {
+      [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+      [zlibConstants.BROTLI_PARAM_LGWIN]: 23,
+    },
+  })),
+  fs.writeFile(path.join(root, "public/game", `${wasmFileName}.gz`), gzipSync(mainWasm, { level: 9 })),
+]);
 
-const generatedEpwPattern = /^stable-[0-9a-f]{16}\.epw$/;
+const generatedGameAssetPattern = /^(?:stable-[0-9a-f]{16}\.epw|classes-[0-9a-f]{16}\.wasm(?:\.br|\.gz)?)$/;
+const generatedGameAssets = new Set([
+  epwFileName,
+  wasmFileName,
+  `${wasmFileName}.br`,
+  `${wasmFileName}.gz`,
+]);
 for (const entry of await fs.readdir(path.join(root, "public/game"), { withFileTypes: true })) {
-  if (entry.isFile() && generatedEpwPattern.test(entry.name) && entry.name !== epwFileName) {
+  if (entry.isFile() && generatedGameAssetPattern.test(entry.name) && !generatedGameAssets.has(entry.name)) {
     await fs.unlink(path.join(root, "public/game", entry.name));
   }
 }
@@ -94,7 +117,7 @@ for (const [name, sourceName] of clients) {
     loadingBackgroundPattern,
     `center / cover no-repeat url("${loadingImage}")`,
   );
-  const output = brandedInput.slice(0, scriptEnd + 9) + bridgeTag(epwUrl) + brandedInput.slice(scriptEnd + 9);
+  const output = brandedInput.slice(0, scriptEnd + 9) + bridgeTag(epwUrl, wasmUrl) + brandedInput.slice(scriptEnd + 9);
   await fs.writeFile(outputPath, output, "utf8");
   const outputBuffer = Buffer.from(output, "utf8");
   await Promise.all([
@@ -103,5 +126,5 @@ for (const [name, sourceName] of clients) {
     })),
     fs.writeFile(`${outputPath}.gz`, gzipSync(outputBuffer, { level: 9 })),
   ]);
-  console.log(`${name}: ${output.length.toLocaleString()} chars, external EPW ${epwFileName}, loading screens and bridge injected with Brotli and gzip variants`);
+  console.log(`${name}: ${output.length.toLocaleString()} chars, split EPW ${epwFileName}, streaming WASM ${wasmFileName}, loading screens and bridge injected with Brotli and gzip variants`);
 }

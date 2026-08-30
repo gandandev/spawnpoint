@@ -89,6 +89,32 @@ function preferredEncoding(acceptEncoding: string | undefined): "br" | "gzip" | 
 }
 
 if (config.serveClient) {
+  app.get("/game/:file", (request, response, next) => {
+    const file = request.params.file;
+    if (!/^classes-[0-9a-f]{16}\.wasm$/.test(file)) {
+      next();
+      return;
+    }
+    const encoding = preferredEncoding(request.headers["accept-encoding"]);
+    if (!encoding) {
+      next();
+      return;
+    }
+    const extension = encoding === "br" ? "br" : "gz";
+    const precompressed = path.join(gameDir, `${file}.${extension}`);
+    if (!fs.existsSync(precompressed)) {
+      next();
+      return;
+    }
+    response.setHeader("Content-Encoding", encoding);
+    response.setHeader("Content-Type", "application/wasm");
+    response.setHeader("Vary", "Accept-Encoding");
+    response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    response.sendFile(precompressed, (error) => {
+      if (error) next(error);
+    });
+  });
+
   app.get("/game/stable.html", (request, response, next) => {
     const version = request.query.v;
     if (typeof version !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(version)) {
@@ -126,6 +152,10 @@ if (config.serveClient) {
       if (/stable-[0-9a-f]{16}\.epw$/.test(filePath)) {
         response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         response.setHeader("Content-Type", "application/octet-stream");
+      }
+      if (/classes-[0-9a-f]{16}\.wasm$/.test(filePath)) {
+        response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        response.setHeader("Content-Type", "application/wasm");
       }
     },
   }));

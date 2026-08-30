@@ -6,5 +6,7 @@ build/
 public/game/stable.html
 public/game/experimental.html
 public/game/lite.html
+public/game/stable-*.epw
+public/game/classes-*.wasm*
 .DS_Store
 npm-debug.log*

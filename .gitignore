@@ -16,6 +16,9 @@ public/game/lite.html
 public/game/*.html.br
 public/game/*.html.gz
 public/game/stable-*.epw
+public/game/classes-*.wasm
+public/game/classes-*.wasm.br
+public/game/classes-*.wasm.gz
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
