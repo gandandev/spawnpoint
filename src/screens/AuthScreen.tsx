@@ -12,7 +12,20 @@ import { cn } from "@/lib/utils";
 
 const passwordFieldErrorClass = "password-field-error border-red-500 bg-red-50 text-red-900 ring-2 ring-red-500/20 focus-visible:border-red-500 focus-visible:ring-red-500/20";
 type AuthMode = "login" | "register";
+type UsernameAvailability = {
+  username: string;
+  available: boolean;
+  exists: boolean;
+  resetRequired: boolean;
+};
 const directionForMode = (mode: AuthMode) => mode === "register" ? "from-right" : "from-left";
+const normalizeUsername = (username: string) => username.normalize("NFC").trim();
+const isValidUsername = (username: string) => /^[\p{L}\p{N}_]{1,16}$/u.test(username);
+
+async function fetchUsernameAvailability(username: string, signal?: AbortSignal): Promise<UsernameAvailability> {
+  const result = await api<Omit<UsernameAvailability, "username">>(`/auth/username-availability?username=${encodeURIComponent(username)}`, { signal });
+  return { username, ...result };
+}
 
 interface AuthScreenProps {
   data: BootstrapData;
@@ -81,22 +94,73 @@ function AuthModeContainer({ mode, renderContent }: { mode: AuthMode; renderCont
   );
 }
 
+function AuthHint({
+  actionLabel,
+  busy,
+  copyKey,
+  message,
+  onAction,
+  shakeNonce,
+}: {
+  actionLabel: string;
+  busy: boolean;
+  copyKey: string;
+  message: string;
+  onAction: () => void;
+  shakeNonce: number;
+}) {
+  const previousCopyKey = useRef(copyKey);
+  const animateCopy = previousCopyKey.current !== copyKey;
+
+  useEffect(() => {
+    previousCopyKey.current = copyKey;
+  }, [copyKey]);
+
+  return (
+    <div
+      key={`auth-hint-shake-${shakeNonce}`}
+      className={cn("auth-hint flex items-center justify-center gap-1 text-sm text-muted-foreground", shakeNonce > 0 && "auth-hint-shake")}
+      aria-live="polite"
+    >
+      <div key={copyKey} className={cn("flex items-center justify-center gap-1", animateCopy && "auth-hint-copy-in")}>
+        <span>{message}</span>
+        <Button type="button" variant="link" className="h-auto p-0 font-semibold" disabled={busy} onClick={onAction}>
+          {actionLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, notice }: AuthScreenProps) {
   const [username, setUsername] = useState("");
-  const [availability, setAvailability] = useState<{ available: boolean; exists: boolean; resetRequired: boolean } | null>(null);
+  const [availability, setAvailability] = useState<UsernameAvailability | null>(null);
   const [password, setPassword] = useState("");
   const [serverPassword, setServerPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [passwordError, setPasswordError] = useState(false);
   const [serverPasswordError, setServerPasswordError] = useState(false);
+  const [accountHintShake, setAccountHintShake] = useState<{ mode: AuthMode; nonce: number } | null>(null);
   const [capsLockOn, setCapsLockOn] = useState(false);
+  const usernameInputRef = useRef<HTMLInputElement>(null);
+  const latestUsernameRef = useRef("");
+  const normalizedUsername = normalizeUsername(username);
+  const currentAvailability = availability?.username === normalizedUsername ? availability : null;
+
+  useEffect(() => {
+    usernameInputRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    setAccountHintShake(null);
+  }, [mode, normalizedUsername]);
 
   useEffect(() => {
     setAvailability(null);
-    if (!/^[\p{L}\p{N}_]{1,16}$/u.test(username.normalize("NFC").trim())) return;
+    if (!isValidUsername(normalizedUsername)) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void api<{ available: boolean; exists: boolean; resetRequired: boolean }>(`/auth/username-availability?username=${encodeURIComponent(username)}`, { signal: controller.signal })
+      void fetchUsernameAvailability(normalizedUsername, controller.signal)
         .then(setAvailability)
         .catch((error) => {
           if (!(error instanceof DOMException && error.name === "AbortError")) setAvailability(null);
@@ -106,20 +170,50 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [username]);
+  }, [normalizedUsername]);
+
+  const shakeAccountHint = (activeMode: AuthMode) => {
+    setAccountHintShake((current) => ({ mode: activeMode, nonce: (current?.nonce ?? 0) + 1 }));
+  };
 
   const submit = async (event: FormEvent, activeMode: AuthMode) => {
     event.preventDefault();
-    const resetRequired = activeMode === "login" && availability?.resetRequired === true;
+    const submittedUsername = normalizedUsername;
+    const resetRequired = activeMode === "login" && currentAvailability?.resetRequired === true;
     setPasswordError(false);
     setServerPasswordError(false);
+
+    if ((activeMode === "login" && currentAvailability?.exists === false)
+      || (activeMode === "register" && currentAvailability?.exists === true)) {
+      shakeAccountHint(activeMode);
+      return;
+    }
+
     setBusy(true);
     try {
       await onAuth(resetRequired ? "reset" : activeMode, username, password, serverPassword);
     } catch (error) {
+      if (latestUsernameRef.current !== submittedUsername) return;
       if (error instanceof ApiError && error.code === "INVALID_LOGIN") {
         if (resetRequired) setServerPasswordError(true);
-        else setPasswordError(true);
+        else {
+          let checkedAvailability = currentAvailability;
+          if (!checkedAvailability && isValidUsername(submittedUsername)) {
+            try {
+              checkedAvailability = await fetchUsernameAvailability(submittedUsername);
+              if (latestUsernameRef.current !== submittedUsername) return;
+              setAvailability(checkedAvailability);
+            } catch {
+              checkedAvailability = null;
+            }
+          }
+          if (checkedAvailability?.exists === false) shakeAccountHint(activeMode);
+          else setPasswordError(true);
+        }
+      }
+      else if (error instanceof ApiError && error.code === "USERNAME_TAKEN" && activeMode === "register") {
+        setAvailability({ username: submittedUsername, available: false, exists: true, resetRequired: false });
+        shakeAccountHint(activeMode);
       }
       else if (error instanceof ApiError && (error.code === "INVALID_SERVER_PASSWORD" || error.code === "INVALID_RESET_CODE")) setServerPasswordError(true);
       else notice(error instanceof Error ? error.message : "인증에 실패했어요");
@@ -129,13 +223,28 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
   };
 
   const renderAuthForm = (activeMode: AuthMode) => {
-    const resetRequired = activeMode === "login" && availability?.resetRequired === true;
+    const resetRequired = activeMode === "login" && currentAvailability?.resetRequired === true;
     const authLabel = resetRequired ? "비밀번호 변경" : activeMode === "register" ? "가입" : "로그인";
-    const suggestedMode = activeMode === "login" && availability?.available
+    const suggestedMode = activeMode === "login" && currentAvailability?.available
       ? "register"
-      : activeMode === "register" && availability?.exists
+      : activeMode === "register" && currentAvailability?.exists
         ? "login"
         : null;
+    const hintMessage = suggestedMode === "register"
+      ? "없는 이름이에요. 대신"
+      : suggestedMode === "login"
+        ? "이미 있는 이름이에요. 대신"
+        : activeMode === "login"
+          ? "계정이 없나요?"
+          : "계정이 있나요?";
+    const hintActionLabel = suggestedMode === "register"
+      ? "가입할까요?"
+      : suggestedMode === "login"
+        ? "로그인할까요?"
+        : activeMode === "login"
+          ? "가입"
+          : "로그인";
+    const nextMode = suggestedMode ?? (activeMode === "login" ? "register" : "login");
 
     return (
       <Card className="overflow-visible border-0 bg-transparent p-0 shadow-none ring-0">
@@ -145,7 +254,21 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
             <div className="flex flex-col gap-2">
               <Field>
                 <FieldLabel className="sr-only" htmlFor="username">플레이어 이름</FieldLabel>
-                <Input className="h-11 rounded-full px-4 shadow-none" id="username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder={activeMode === "register" ? "플레이어 이름 (한글 지원)" : "플레이어 이름"} minLength={1} maxLength={16} required />
+                <Input
+                  ref={usernameInputRef}
+                  className="h-11 rounded-full px-4 shadow-none"
+                  id="username"
+                  autoComplete="username"
+                  value={username}
+                  onChange={(event) => {
+                    latestUsernameRef.current = normalizeUsername(event.target.value);
+                    setUsername(event.target.value);
+                  }}
+                  placeholder={activeMode === "register" ? "플레이어 이름 (한글 지원)" : "플레이어 이름"}
+                  minLength={1}
+                  maxLength={16}
+                  required
+                />
               </Field>
               <Field>
                 <FieldLabel className="sr-only" htmlFor="password">{resetRequired ? "새 비밀번호" : "비밀번호"}</FieldLabel>
@@ -199,12 +322,14 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
               {busy ? <Spinner data-icon="inline-end" /> : <ArrowRight data-icon="inline-end" />}
               <span aria-live="polite">{authLabel}</span>
             </Button>
-            <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground" aria-live="polite">
-              <span>{suggestedMode === "register" ? "없는 이름이에요. 대신" : suggestedMode === "login" ? "이미 있는 이름이에요. 대신" : activeMode === "login" ? "계정이 없나요?" : "계정이 있나요?"}</span>
-              <Button type="button" variant="link" className="h-auto p-0 font-semibold" disabled={busy} onClick={() => onModeChange(suggestedMode ?? (activeMode === "login" ? "register" : "login"))}>
-                {suggestedMode === "register" ? "가입할까요?" : suggestedMode === "login" ? "로그인할까요?" : activeMode === "login" ? "가입" : "로그인"}
-              </Button>
-            </div>
+            <AuthHint
+              actionLabel={hintActionLabel}
+              busy={busy}
+              copyKey={`${activeMode}:${hintMessage}:${hintActionLabel}`}
+              message={hintMessage}
+              onAction={() => onModeChange(nextMode)}
+              shakeNonce={accountHintShake?.mode === activeMode ? accountHintShake.nonce : 0}
+            />
           </FieldGroup>
           </form>
         </CardContent>

@@ -198,6 +198,19 @@
   80% { transform: translateX(var(--distance-small)); }
 }
 
+@keyframes auth-hint-in {
+  from { opacity: 0; transform: translateY(var(--distance-small)); filter: blur(var(--blur-small)); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes auth-hint-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(calc(-1 * var(--distance-base))); }
+  40% { transform: translateX(var(--distance-base)); }
+  60% { transform: translateX(calc(-1 * var(--distance-small))); }
+  80% { transform: translateX(var(--distance-small)); }
+}
+
 @keyframes auth-mode-exit {
   from { opacity: 1; transform: translateX(0); filter: blur(0); }
   to { opacity: 0; transform: translateX(var(--auth-mode-exit-x)); filter: blur(var(--blur-small)); }
@@ -236,6 +249,15 @@
 
   .password-field-error {
     animation: password-shake calc(var(--duration-micro) * 5) var(--ease-in-out);
+  }
+
+  .auth-hint-copy-in {
+    animation: auth-hint-in var(--duration-quick) var(--ease-smooth-out) both;
+    will-change: opacity, transform, filter;
+  }
+
+  .auth-hint-shake {
+    animation: auth-hint-shake calc(var(--duration-micro) * 5) var(--ease-in-out);
   }
 
   .dashboard-shell {
@@ -355,6 +377,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .auth-mode-panel,
+  .auth-hint-copy-in,
+  .auth-hint-shake,
   .password-field-error,
   .skin-studio-content {
     animation: none;

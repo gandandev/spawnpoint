@@ -8,6 +8,7 @@ import { ServerCard } from "../src/components/portal";
 import { AccountDialog } from "../src/features/AccountDialog";
 import { AdminPanel, TpaSettingRow } from "../src/features/AdminPanel";
 import { SkinStudio } from "../src/features/SkinStudio";
+import { ApiError } from "../src/lib/api";
 import { AuthScreen } from "../src/screens/AuthScreen";
 import { Dashboard } from "../src/screens/Dashboard";
 import { GameScreen } from "../src/screens/GameScreen";
@@ -377,6 +378,8 @@ describe("server password input", () => {
     expect(container.querySelector('.auth-mode-panel [data-slot="card"]')?.className).toContain("bg-transparent");
     expect(container.querySelector(".auth-mode-panel")?.getAttribute("data-direction")).toBe("from-left");
     expect(container.textContent).toContain("계정이 없나요?");
+    expect(document.activeElement).toBe(container.querySelector("#username"));
+    expect(container.querySelector(".auth-hint-copy-in")).toBeNull();
     expect(container.querySelector("#server-password")).toBeNull();
     expect((container.querySelector("#password") as HTMLInputElement).placeholder).toBe("비밀번호");
     expect(container.querySelector("#password")?.getAttribute("minlength")).toBeNull();
@@ -402,6 +405,7 @@ describe("server password input", () => {
     expect(buttons[0]?.className).toContain("w-full");
     expect(container.textContent).toContain("없는 이름이에요. 대신");
     expect(buttons[1]?.textContent).toContain("가입할까요?");
+    expect(container.querySelector(".auth-hint-copy-in")).not.toBeNull();
     await act(async () => root.unmount());
   });
 
@@ -435,6 +439,133 @@ describe("server password input", () => {
     const loginSuggestion = [...container.querySelectorAll("form button")].find((button) => button.textContent?.includes("로그인할까요?"));
     await act(async () => loginSuggestion?.click());
     expect(onModeChange).toHaveBeenCalledWith("login");
+    await act(async () => root.unmount());
+  });
+
+  it("shakes the account hint without marking the password red for a missing login account", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ available: true, exists: false, resetRequired: false })));
+    const onAuth = vi.fn(async () => undefined);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="login" onAuth={onAuth} onModeChange={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+    });
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      for (const [selector, value] of [["#username", "없는계정"], ["#password", "wrong-password"]] as const) {
+        const input = container.querySelector(selector) as HTMLInputElement;
+        setter.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => (container.querySelector("form") as HTMLFormElement).requestSubmit());
+
+    const hint = container.querySelector(".auth-hint") as HTMLDivElement;
+    const passwordInput = container.querySelector("#password") as HTMLInputElement;
+    expect(onAuth).not.toHaveBeenCalled();
+    expect(hint.className).toContain("auth-hint-shake");
+    expect(hint.className).not.toContain("text-red");
+    expect(passwordInput.className).not.toContain("password-field-error");
+    expect(passwordInput.getAttribute("aria-invalid")).toBe("false");
+    await act(async () => root.unmount());
+  });
+
+  it("shakes the account hint for an existing signup account", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ available: false, exists: true, resetRequired: false })));
+    const onAuth = vi.fn(async () => undefined);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="register" onAuth={onAuth} onModeChange={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+    });
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      for (const [selector, value] of [["#username", "기존계정"], ["#password", "password123"], ["#server-password", "server-password"]] as const) {
+        const input = container.querySelector(selector) as HTMLInputElement;
+        setter.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => (container.querySelector("form") as HTMLFormElement).requestSubmit());
+
+    expect(onAuth).not.toHaveBeenCalled();
+    expect(container.querySelector(".auth-hint")?.className).toContain("auth-hint-shake");
+    expect(container.querySelector("#password")?.className).not.toContain("password-field-error");
+    await act(async () => root.unmount());
+  });
+
+  it("keeps the password error for a wrong password on an existing account", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ available: false, exists: true, resetRequired: false })));
+    const onAuth = vi.fn(async () => {
+      throw new ApiError("플레이어 이름 또는 비밀번호가 올바르지 않아요.", "INVALID_LOGIN");
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="login" onAuth={onAuth} onModeChange={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+    });
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      for (const [selector, value] of [["#username", "기존계정"], ["#password", "wrong-password"]] as const) {
+        const input = container.querySelector(selector) as HTMLInputElement;
+        setter.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => {
+      (container.querySelector("form") as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+
+    expect(onAuth).toHaveBeenCalledWith("login", "기존계정", "wrong-password", "");
+    expect(container.querySelector("#password")?.className).toContain("password-field-error");
+    expect(container.querySelector(".auth-hint")?.className).not.toContain("auth-hint-shake");
+    await act(async () => root.unmount());
+  });
+
+  it("ignores an authentication error after the username changes", async () => {
+    vi.useFakeTimers();
+    const authRequest = deferred<void>();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<AuthScreen data={{ ...adminData, user: null }} mode="login" onAuth={() => authRequest.promise} onModeChange={vi.fn()} onOpenAdmin={vi.fn()} notice={vi.fn()} />);
+    });
+
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      for (const [selector, value] of [["#username", "이전계정"], ["#password", "wrong-password"]] as const) {
+        const input = container.querySelector(selector) as HTMLInputElement;
+        setter.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    await act(async () => {
+      (container.querySelector("form") as HTMLFormElement).requestSubmit();
+    });
+    await act(async () => {
+      const usernameInput = container.querySelector("#username") as HTMLInputElement;
+      setter.call(usernameInput, "새계정");
+      usernameInput.dispatchEvent(new Event("input", { bubbles: true }));
+      authRequest.reject(new ApiError("플레이어 이름 또는 비밀번호가 올바르지 않아요.", "INVALID_LOGIN"));
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("#password")?.className).not.toContain("password-field-error");
+    expect(container.querySelector(".auth-hint")?.className).not.toContain("auth-hint-shake");
     await act(async () => root.unmount());
   });
 
