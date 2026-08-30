@@ -10,6 +10,7 @@ const testSource = path.join(root, "server-plugin/test/dev/spawnpoint/CommandRew
 const paper = path.join(root, "server-plugin/lib/paper-api-1.12.2-shaded.jar");
 const eagler = path.join(root, "server-runtime/seed/plugins/EaglerXServer.jar");
 const output = path.join(root, "server-runtime/seed/plugins/SpawnpointBridge.jar");
+const archiveDate = "2020-01-01T00:00:00Z";
 
 async function run(command, args) {
   await new Promise((resolve, reject) => {
@@ -36,5 +37,5 @@ await run("java", [
 ]);
 await fs.copyFile(path.join(root, "server-plugin/plugin.yml"), path.join(classes, "plugin.yml"));
 await fs.rm(output, { force: true });
-await run("jar", ["cf", output, "-C", classes, "."]);
+await run("jar", ["--create", "--file", output, `--date=${archiveDate}`, "-C", classes, "."]);
 console.log(`built ${path.relative(root, output)}`);
