@@ -8,6 +8,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -48,6 +49,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.imageio.ImageIO;
 import net.lax1dude.eaglercraft.backend.server.api.event.IEaglercraftAuthCheckRequiredEvent.EnumAuthResponse;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftAuthCheckRequiredEvent;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftLoginEvent;
@@ -157,7 +159,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         enableKeepInventory();
         startBridgeServer();
         if (!isEnabled()) return;
-        this.locatorSnapshotTask = getServer().getScheduler().runTaskTimer(this, this::refreshLocatorSnapshots, 1L, 2L);
+        this.locatorSnapshotTask = getServer().getScheduler().runTaskTimer(this, this::refreshLocatorSnapshots, 1L, 1L);
         this.commandIdentityRefreshTask = getServer().getScheduler().runTaskTimerAsynchronously(
             this,
             this::refreshCommandTargets,
@@ -1683,10 +1685,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             connection.setReadTimeout(2_000);
             connection.setUseCaches(false);
             try (InputStream input = connection.getInputStream()) {
+                BufferedImage image = ImageIO.read(input);
+                if (image == null) throw new IOException("The spawnpoint skin is not a readable image.");
                 IEaglerPlayerSkin skin = event.getServerAPI()
                     .getSkinService()
                     .getSkinLoader(false)
-                    .loadSkinImageData(input, model);
+                    .loadSkinImageData_ARGB8I_64x64(skinPixelsForBrowserClient(image), model);
                 if (skin.isSuccess()) event.forceSkinEagler(skin);
             }
         } catch (IOException | IllegalArgumentException exception) {
@@ -1694,6 +1698,21 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    static int[] skinPixelsForBrowserClient(BufferedImage image) {
+        if (image.getWidth() != 64 || image.getHeight() != 64) {
+            throw new IllegalArgumentException("The spawnpoint skin must be 64x64 pixels.");
+        }
+        int[] pixels = image.getRGB(0, 0, 64, 64, null, 0, 64);
+        for (int index = 0; index < pixels.length; index++) {
+            int argb = pixels[index];
+            // EaglerXServer writes these ints as BGR, while this client reads the custom-skin packet as RGB.
+            pixels[index] = (argb & 0xff00ff00)
+                | ((argb & 0x00ff0000) >>> 16)
+                | ((argb & 0x000000ff) << 16);
+        }
+        return pixels;
     }
 
     private Ticket verifyPath(String websocketPath) {

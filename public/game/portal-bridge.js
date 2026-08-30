@@ -297,6 +297,7 @@
   var locatorScreenObserved = false;
   var locatorRequestPending = false;
   var locatorFailureCount = 0;
+  var locatorAnimationFrame = null;
   var chatDraft = "";
   var lastChatSlashAt = 0;
   var pendingClientChatValue = null;
@@ -431,7 +432,54 @@
     element.appendChild(canvas);
     locatorMarkerLayer.appendChild(element);
     drawLocatorHead(canvas, target.skinUrl);
-    return { element: element, canvas: canvas, skinUrl: target.skinUrl };
+    return {
+      element: element,
+      canvas: canvas,
+      skinUrl: target.skinUrl,
+      rawAngle: null,
+      displayAngle: null,
+      fromAngle: null,
+      targetAngle: null,
+      animationStartedAt: 0,
+      animating: false,
+    };
+  }
+
+  function locatorAnimationNow() {
+    return window.performance && typeof window.performance.now === "function"
+      ? window.performance.now()
+      : Date.now();
+  }
+
+  function setLocatorMarkerAngle(marker, angle) {
+    marker.displayAngle = angle;
+    marker.element.style.left = (50 + angle / 1.8) + "%";
+  }
+
+  function advanceLocatorMarker(marker, timestamp) {
+    if (!marker.animating) return false;
+    var progress = Math.min(1, Math.max(0, (timestamp - marker.animationStartedAt) / 80));
+    var eased = 1 - Math.pow(1 - progress, 3);
+    setLocatorMarkerAngle(marker, marker.fromAngle + (marker.targetAngle - marker.fromAngle) * eased);
+    if (progress >= 1) {
+      marker.animating = false;
+      return false;
+    }
+    return true;
+  }
+
+  function animateLocatorMarkers(timestamp) {
+    locatorAnimationFrame = null;
+    var stillAnimating = false;
+    Object.keys(locatorMarkers).forEach(function (id) {
+      if (advanceLocatorMarker(locatorMarkers[id], timestamp)) stillAnimating = true;
+    });
+    if (stillAnimating) scheduleLocatorAnimation();
+  }
+
+  function scheduleLocatorAnimation() {
+    if (locatorAnimationFrame !== null || typeof window.requestAnimationFrame !== "function") return;
+    locatorAnimationFrame = window.requestAnimationFrame(animateLocatorMarkers);
   }
 
   function updateLocatorMarker(marker, target, index, count) {
@@ -440,7 +488,25 @@
       drawLocatorHead(marker.canvas, target.skinUrl);
     }
     var clampedAngle = Math.max(-90, Math.min(90, target.angle));
-    marker.element.style.left = (50 + clampedAngle / 1.8) + "%";
+    if (marker.displayAngle === null || typeof window.requestAnimationFrame !== "function") {
+      marker.animating = false;
+      setLocatorMarkerAngle(marker, clampedAngle);
+    } else {
+      var now = locatorAnimationNow();
+      advanceLocatorMarker(marker, now);
+      var crossedRearBoundary = marker.rawAngle !== null && Math.abs(target.angle - marker.rawAngle) > 180;
+      if (crossedRearBoundary || Math.abs(clampedAngle - marker.displayAngle) < 0.01) {
+        marker.animating = false;
+        setLocatorMarkerAngle(marker, clampedAngle);
+      } else {
+        marker.fromAngle = marker.displayAngle;
+        marker.targetAngle = clampedAngle;
+        marker.animationStartedAt = now;
+        marker.animating = true;
+        scheduleLocatorAnimation();
+      }
+    }
+    marker.rawAngle = target.angle;
     marker.element.style.zIndex = String(count - index);
     marker.element.className = "sp-locator-marker" + (Math.abs(target.angle) > 90 ? " is-behind" : "");
     marker.element.title = target.displayName + " " + Math.round(target.distance) + "m";
@@ -562,7 +628,7 @@
     document.body.appendChild(locatorRoot);
     updateLocatorHudLayout();
     pollLocatorHud();
-    if (typeof window.setInterval === "function") window.setInterval(pollLocatorHud, 200);
+    if (typeof window.setInterval === "function") window.setInterval(pollLocatorHud, 100);
   }
 
   function injectTPAPickerStyles() {

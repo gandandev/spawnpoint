@@ -1,7 +1,9 @@
 package dev.spawnpoint;
 
+import java.awt.image.BufferedImage;
 import java.text.Normalizer;
 import java.util.List;
+import net.lax1dude.eaglercraft.backend.skin_cache.SkinConverter;
 
 public final class CommandRewriteTest {
     private static final String ADMIN = "sp_aaaaaaaaaaaaa";
@@ -51,7 +53,21 @@ public final class CommandRewriteTest {
         if (!ambiguous.ambiguousDisplayName() || !"/tell 중복 안녕".equals(ambiguous.message())) {
             throw new AssertionError("duplicate display names must stop the command");
         }
+        assertBrowserSkinChannels();
         System.out.println("plugin command rewrite tests passed");
+    }
+
+    private static void assertBrowserSkinChannels() {
+        BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(0, 0, 0xff6496b2);
+        int[] pixels = SpawnpointBridgePlugin.skinPixelsForBrowserClient(image);
+        byte[] encoded = new byte[64 * 64 * 3];
+        SkinConverter.convertToBytes(pixels, encoded);
+        if (Byte.toUnsignedInt(encoded[0]) != 0x64
+            || Byte.toUnsignedInt(encoded[1]) != 0x96
+            || Byte.toUnsignedInt(encoded[2]) != 0xd9) {
+            throw new AssertionError("browser skin packet must preserve red, green, and blue channel order");
+        }
     }
 
     private static void assertRewrite(String expected, String input) {

@@ -45,6 +45,8 @@ function loadBridge(
   }> = [];
   const locatorElementsById = new Map<string, Record<string, any>>();
   const locatorIntervals: Array<{ callback: () => void; delay: number }> = [];
+  const locatorAnimationFrames: Array<(timestamp: number) => void> = [];
+  let locatorAnimationTime = 0;
   const windowTimeouts = new Map<number, () => void>();
   let nextWindowTimeout = 1;
   if (gameSettings !== undefined) {
@@ -242,6 +244,11 @@ function loadBridge(
     windowObject.setInterval = vi.fn((callback: () => void, delay: number) => {
       locatorIntervals.push({ callback, delay });
       return locatorIntervals.length;
+    });
+    windowObject.performance = { now: () => locatorAnimationTime };
+    windowObject.requestAnimationFrame = vi.fn((callback: (timestamp: number) => void) => {
+      locatorAnimationFrames.push(callback);
+      return locatorAnimationFrames.length;
     });
   }
   if (locatorSnapshot || environment.renderDom || environment.resourcePackPreference !== undefined) {
@@ -447,6 +454,11 @@ function loadBridge(
     windowHandlers,
     windowPropertyHandlers,
     windowObject,
+    runLocatorAnimationFrame(timestamp: number) {
+      locatorAnimationTime = timestamp;
+      const callbacks = locatorAnimationFrames.splice(0);
+      callbacks.forEach((callback) => callback(timestamp));
+    },
     runWindowTimeouts() {
       const callbacks = [...windowTimeouts.values()];
       windowTimeouts.clear();
@@ -728,7 +740,7 @@ describe("portal game bridge", () => {
       credentials: "same-origin",
       cache: "no-store",
     });
-    expect(locatorIntervals).toEqual([{ callback: expect.any(Function), delay: 200 }]);
+    expect(locatorIntervals).toEqual([{ callback: expect.any(Function), delay: 100 }]);
 
     body.removeChild(root);
     expect(root.parentNode).toBeNull();
@@ -747,6 +759,64 @@ describe("portal game bridge", () => {
     await vi.waitFor(() => {
       expect(windowObject.fetch).toHaveBeenCalledTimes(requestsBeforeHiddenPoll + 1);
     });
+  });
+
+  it("interpolates locator samples in script and settles before the next poll", async () => {
+    const snapshot = {
+      active: true,
+      targets: [{
+        id: "c7aa85c9-1a36-4fb2-a38d-62c0aa26bceb",
+        displayName: "Moss Runner",
+        angle: -45,
+        distance: 18.25,
+        skinUrl: "/api/skins/c7aa85c9-1a36-4fb2-a38d-62c0aa26bceb.png?v=1",
+      }],
+    };
+    const client = loadBridge(undefined, true, snapshot);
+    const hooks = client.options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    await vi.waitFor(() => expect(client.locatorElementsById.get("spawnpoint-player-locator")?.style.display).toBe("block"));
+    const marker = client.locatorElementsById.get("spawnpoint-player-locator")!.children[0].children[0].children[0];
+    expect(marker.style.left).toBe("25%");
+
+    snapshot.targets[0].angle = 45;
+    client.locatorIntervals[0].callback();
+    await vi.waitFor(() => expect(client.windowObject.requestAnimationFrame).toHaveBeenCalled());
+    expect(marker.style.left).toBe("25%");
+
+    client.runLocatorAnimationFrame(40);
+    expect(Number.parseFloat(marker.style.left)).toBeGreaterThan(25);
+    expect(Number.parseFloat(marker.style.left)).toBeLessThan(75);
+    client.runLocatorAnimationFrame(80);
+    expect(marker.style.left).toBe("75%");
+  });
+
+  it("snaps across the rear angle boundary instead of moving through the center", async () => {
+    const snapshot = {
+      active: true,
+      targets: [{
+        id: "c7aa85c9-1a36-4fb2-a38d-62c0aa26bceb",
+        displayName: "Moss Runner",
+        angle: 179,
+        distance: 18.25,
+        skinUrl: "/api/skins/c7aa85c9-1a36-4fb2-a38d-62c0aa26bceb.png?v=1",
+      }],
+    };
+    const client = loadBridge(undefined, true, snapshot);
+    const hooks = client.options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    await vi.waitFor(() => expect(client.locatorElementsById.get("spawnpoint-player-locator")?.style.display).toBe("block"));
+    const marker = client.locatorElementsById.get("spawnpoint-player-locator")!.children[0].children[0].children[0];
+    expect(marker.style.left).toBe("100%");
+
+    snapshot.targets[0].angle = -179;
+    client.locatorIntervals[0].callback();
+    await vi.waitFor(() => expect(marker.style.left).toBe("0%"));
+    expect(client.windowObject.requestAnimationFrame).not.toHaveBeenCalled();
   });
 
   it("dismisses Edit Profile whenever the client reaches that screen", () => {
