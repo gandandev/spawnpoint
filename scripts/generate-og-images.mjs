@@ -1,4 +1,3 @@
-import { randomInt } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import opentype from "opentype.js";
@@ -26,29 +25,27 @@ const backgroundFiles = [
 
 const sites = [
   {
+    key: "spawnpoint",
     name: "spawnpoint",
     files: ["og-image.jpg", "og-image-spawnpoint.jpg"],
     fontSize: 82,
+    fallbackBackgroundIndex: 0,
   },
   {
+    key: "yege",
     name: "예게.서버.한국",
     files: ["og-image-yege.jpg"],
     fontSize: 76,
+    fallbackBackgroundIndex: 1,
   },
   {
+    key: "bacon",
     name: "베이컨.서버.한국",
     files: ["og-image-bacon.jpg"],
     fontSize: 76,
+    fallbackBackgroundIndex: 2,
   },
 ];
-
-function shuffle(items) {
-  for (let index = items.length - 1; index > 0; index -= 1) {
-    const swapIndex = randomInt(index + 1);
-    [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
-  }
-  return items;
-}
 
 function logoSvg(logoSize) {
   return Buffer.from(`
@@ -147,14 +144,10 @@ async function renderBackground(file) {
     .toBuffer();
 }
 
-const selectedBackgrounds = shuffle([...backgroundFiles]).slice(0, sites.length);
-console.log(sites.map((site, index) => `${site.name}: ${selectedBackgrounds[index]}`).join("\n"));
+const backgrounds = await Promise.all(backgroundFiles.map(renderBackground));
 
-await Promise.all(sites.map(async ({ name, files, fontSize }, index) => {
-  const [background, text] = await Promise.all([
-    renderBackground(selectedBackgrounds[index]),
-    renderText(name, fontSize),
-  ]);
+await Promise.all(sites.map(async ({ key, name, files, fontSize, fallbackBackgroundIndex }) => {
+  const text = await renderText(name, fontSize);
   const textMetadata = await sharp(text).metadata();
   const textWidth = textMetadata.width ?? 0;
   const textHeight = textMetadata.height ?? 0;
@@ -167,13 +160,21 @@ await Promise.all(sites.map(async ({ name, files, fontSize }, index) => {
   const groupWidth = renderedLogoWidth + gap + textWidth;
   const left = Math.round((width - groupWidth) / 2);
 
-  const image = await sharp(background)
-    .composite([
-      { input: logo, left, top: Math.round((height - renderedLogoHeight) / 2) },
-      { input: text, left: left + renderedLogoWidth + gap, top: Math.round((height - textHeight) / 2) },
-    ])
-    .jpeg({ quality: 92, progressive: true, chromaSubsampling: "4:4:4" })
-    .toBuffer();
+  const variants = await Promise.all(backgrounds.map((background) => sharp(background)
+      .composite([
+        { input: logo, left, top: Math.round((height - renderedLogoHeight) / 2) },
+        { input: text, left: left + renderedLogoWidth + gap, top: Math.round((height - textHeight) / 2) },
+      ])
+      .jpeg({ quality: 92, progressive: true, chromaSubsampling: "4:4:4" })
+      .toBuffer()));
 
-  await Promise.all(files.map((file) => fs.writeFile(path.join(publicDir, file), image)));
+  await fs.mkdir(path.join(publicDir, "og"), { recursive: true });
+  await Promise.all(backgroundFiles.map((backgroundFile, index) => {
+    const backgroundName = path.parse(backgroundFile).name;
+    return fs.writeFile(path.join(publicDir, "og", `${key}-${backgroundName}.jpg`), variants[index]);
+  }));
+
+  await Promise.all(files.map((file) => (
+    fs.writeFile(path.join(publicDir, file), variants[fallbackBackgroundIndex])
+  )));
 }));

@@ -20,6 +20,11 @@
 		reverse_proxy {$BACKEND_ORIGIN:http://server:3000}
 	}
 
+	@socialPreview path /og-image.jpg /og-image-spawnpoint.jpg /og-image-yege.jpg /og-image-bacon.jpg
+	handle @socialPreview {
+		reverse_proxy {$BACKEND_ORIGIN:http://server:3000}
+	}
+
 	@immutableGameBundle path_regexp immutableGameBundle ^/game/stable-[0-9a-f]{16}\.epw$
 	handle @immutableGameBundle {
 		header {

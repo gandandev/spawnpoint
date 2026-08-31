@@ -11,6 +11,6 @@ These seven Minecraft shader screenshots were supplied by the project owner on
 - `flower-garden-path.jpg`
 - `koi-pond.jpg`
 
-At each frontend build, `scripts/generate-og-images.mjs` shuffles the set and
-assigns one distinct background to each domain. It then adds the project logo
-and Galmuri site name.
+`scripts/generate-og-images.mjs` creates all seven backgrounds for each domain,
+with the project logo and Galmuri site name. The web server randomly redirects
+each social-preview request to one of these pre-rendered variants.

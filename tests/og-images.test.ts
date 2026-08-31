@@ -10,6 +10,18 @@ const imageFiles = [
   "og-image-yege.jpg",
   "og-image-bacon.jpg",
 ];
+const backgroundNames = [
+  "forest-pond",
+  "garden-cottage",
+  "birch-lantern-path",
+  "pond-bench",
+  "cherry-grove",
+  "flower-garden-path",
+  "koi-pond",
+];
+const variantFiles = ["spawnpoint", "yege", "bacon"].flatMap((site) => (
+  backgroundNames.map((background) => `og/${site}-${background}.jpg`)
+));
 
 describe("Open Graph images", () => {
   it.each(imageFiles)("builds %s as a full-size landscape JPEG", async (file) => {
@@ -21,6 +33,17 @@ describe("Open Graph images", () => {
 
     expect(metadata).toMatchObject({ format: "jpeg", width: 1200, height: 630 });
     expect(stats.size).toBeGreaterThan(100_000);
+  });
+
+  it.each(variantFiles)("builds random variant %s", async (file) => {
+    const imagePath = path.join(publicDir, file);
+    const [metadata, stats] = await Promise.all([
+      sharp(imagePath).metadata(),
+      fs.stat(imagePath),
+    ]);
+
+    expect(metadata).toMatchObject({ format: "jpeg", width: 1200, height: 630 });
+    expect(stats.size).toBeGreaterThan(50_000);
   });
 
   it("keeps the embedded game loading screen independent from the social image", async () => {
