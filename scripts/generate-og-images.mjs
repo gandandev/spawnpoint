@@ -6,7 +6,7 @@ const width = 1200;
 const height = 630;
 const logoSize = 112;
 const publicDir = path.join(process.cwd(), "public");
-const backgroundPath = path.join(process.cwd(), "vendor", "og", "voxel-sunrise.png");
+const backgroundPath = path.join(process.cwd(), "vendor", "og", "reddit-warm-nitrogen-20.png");
 const font = await fs.readFile(path.join(process.cwd(), "vendor", "fonts", "galmuri", "Galmuri11.woff2"));
 const fontData = font.toString("base64");
 
