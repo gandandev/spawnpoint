@@ -5,10 +5,9 @@ import sharp from "sharp";
 
 const width = 1200;
 const height = 630;
-const logoSize = 92;
 const outlineWidth = 9;
 const publicDir = path.join(process.cwd(), "public");
-const backgroundPath = path.join(process.cwd(), "vendor", "og", "reddit-warm-nitrogen-20.png");
+const backgroundDir = path.join(process.cwd(), "vendor", "og");
 const fontPath = path.join(process.cwd(), "vendor", "fonts", "galmuri", "Galmuri11.ttf");
 const fontBuffer = await fs.readFile(fontPath);
 const galmuri = opentype.parse(
@@ -16,12 +15,39 @@ const galmuri = opentype.parse(
 );
 
 const sites = [
-  { name: "spawnpoint", files: ["og-image.jpg", "og-image-spawnpoint.jpg"], fontSize: 88 },
-  { name: "예게.서버.한국", files: ["og-image-yege.jpg"], fontSize: 82 },
-  { name: "베이컨.서버.한국", files: ["og-image-bacon.jpg"], fontSize: 82 },
+  {
+    name: "spawnpoint",
+    files: ["og-image.jpg", "og-image-spawnpoint.jpg"],
+    fontSize: 82,
+    panels: [
+      { file: "forest-pond.jpg", left: 0, top: 0, width: 720, height: 630 },
+      { file: "cherry-grove.jpg", left: 720, top: 0, width: 480, height: 315 },
+      { file: "koi-pond.jpg", left: 720, top: 315, width: 480, height: 315 },
+    ],
+  },
+  {
+    name: "예게.서버.한국",
+    files: ["og-image-yege.jpg"],
+    fontSize: 76,
+    panels: [
+      { file: "garden-cottage.jpg", left: 0, top: 0, width: 720, height: 630 },
+      { file: "birch-lantern-path.jpg", left: 720, top: 0, width: 480, height: 315 },
+      { file: "pond-bench.jpg", left: 720, top: 315, width: 480, height: 315 },
+    ],
+  },
+  {
+    name: "베이컨.서버.한국",
+    files: ["og-image-bacon.jpg"],
+    fontSize: 76,
+    panels: [
+      { file: "flower-garden-path.jpg", left: 0, top: 0, width: 720, height: 630 },
+      { file: "cherry-grove.jpg", left: 720, top: 0, width: 480, height: 315 },
+      { file: "koi-pond.jpg", left: 720, top: 315, width: 480, height: 315 },
+    ],
+  },
 ];
 
-function logoSvg() {
+function logoSvg(logoSize) {
   return Buffer.from(`
     <svg width="${logoSize}" height="${logoSize}" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
       <path fill="#090909" fill-rule="evenodd" d="M0 0h18v13H13v5H0zM4 4v7h7V4z"/>
@@ -111,21 +137,43 @@ async function renderText(name, fontSize) {
     .toBuffer();
 }
 
-const background = await sharp(backgroundPath)
-  .resize(width, height, { fit: "cover", position: "centre" })
-  .png()
-  .toBuffer();
-const logo = await addOutline(await sharp(logoSvg()).png().toBuffer());
-const logoMetadata = await sharp(logo).metadata();
-const renderedLogoWidth = logoMetadata.width ?? 0;
-const renderedLogoHeight = logoMetadata.height ?? 0;
+async function renderBackground(panels) {
+  const images = await Promise.all(panels.map(async (panel) => ({
+    input: await sharp(path.join(backgroundDir, panel.file))
+      .resize(panel.width, panel.height, { fit: "cover", position: "centre" })
+      .png()
+      .toBuffer(),
+    left: panel.left,
+    top: panel.top,
+  })));
 
-await Promise.all(sites.map(async ({ name, files, fontSize }) => {
-  const text = await renderText(name, fontSize);
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: "#000000",
+    },
+  })
+    .composite(images)
+    .png()
+    .toBuffer();
+}
+
+await Promise.all(sites.map(async ({ name, files, fontSize, panels }) => {
+  const [background, text] = await Promise.all([
+    renderBackground(panels),
+    renderText(name, fontSize),
+  ]);
   const textMetadata = await sharp(text).metadata();
   const textWidth = textMetadata.width ?? 0;
   const textHeight = textMetadata.height ?? 0;
-  const gap = 30;
+  const logoSize = Math.max(1, textHeight - outlineWidth * 2);
+  const logo = await addOutline(await sharp(logoSvg(logoSize)).png().toBuffer());
+  const logoMetadata = await sharp(logo).metadata();
+  const renderedLogoWidth = logoMetadata.width ?? 0;
+  const renderedLogoHeight = logoMetadata.height ?? 0;
+  const gap = 28;
   const groupWidth = renderedLogoWidth + gap + textWidth;
   const left = Math.round((width - groupWidth) / 2);
 
