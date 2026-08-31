@@ -178,7 +178,9 @@ describe("administrator access", () => {
 
     const adminButton = container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement;
     expect(adminButton).toBeTruthy();
-    expect(adminButton.parentElement?.querySelector('[aria-label="spawnpoint"]')).toBeTruthy();
+    const logo = adminButton.parentElement?.querySelector('[aria-label="spawnpoint"]');
+    expect(logo).toBeTruthy();
+    expect(logo?.querySelector('[data-font="minecraft-1.12"]')).toBeTruthy();
     await act(async () => adminButton.click());
     expect(document.body.querySelector('[aria-label="관리자 비밀번호"]')).toBeTruthy();
     await act(async () => root.unmount());

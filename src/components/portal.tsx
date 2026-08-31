@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { currentSiteName } from "@/lib/site-name";
+import {
+  SPAWNPOINT_MINECRAFT_WORDMARK_HEIGHT,
+  SPAWNPOINT_MINECRAFT_WORDMARK_PATH,
+  SPAWNPOINT_MINECRAFT_WORDMARK_WIDTH,
+} from "@/lib/minecraft-wordmark";
 import { cn } from "@/lib/utils";
 
 export function AnimatedHeight({ children }: { children: ReactNode }) {
@@ -34,11 +39,19 @@ export function AnimatedHeight({ children }: { children: ReactNode }) {
 
 export function Logo() {
   const siteName = currentSiteName();
-  return <div className="flex shrink-0 items-center gap-3 font-mark text-sm font-bold tracking-normal" aria-label={siteName}>
+  return <div className="flex shrink-0 items-center gap-3" aria-label={siteName}>
     <svg aria-hidden="true" className="size-[18px] translate-y-px" viewBox="0 0 18 18" fill="none">
       <path fill="#96ce4d" fillRule="evenodd" d="M0 0h18v13H13v5H0zM4 4v7h7V4z" />
     </svg>
-    <span className="max-[359px]:hidden">{siteName}</span>
+    {siteName === "spawnpoint" ? <svg
+      aria-hidden="true"
+      className="h-4 w-[108px] max-[359px]:hidden"
+      data-font="minecraft-1.12"
+      viewBox={`0 0 ${SPAWNPOINT_MINECRAFT_WORDMARK_WIDTH} ${SPAWNPOINT_MINECRAFT_WORDMARK_HEIGHT}`}
+      shapeRendering="crispEdges"
+    >
+      <path d={SPAWNPOINT_MINECRAFT_WORDMARK_PATH} fill="currentColor" />
+    </svg> : <span className="font-mark text-sm font-bold tracking-normal max-[359px]:hidden">{siteName}</span>}
   </div>;
 }
 
