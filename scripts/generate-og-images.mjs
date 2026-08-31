@@ -1,24 +1,7 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-
-const checkoutKey = Buffer.from(process.cwd()).toString("base64url");
-const fontCacheDir = path.join(os.tmpdir(), "spawnpoint-font-cache", checkoutKey);
-const fontConfigPath = path.join(fontCacheDir, "fonts.conf");
-const fontDirectory = path.join(process.cwd(), "vendor", "fonts", "galmuri");
-
-await fs.mkdir(fontCacheDir, { recursive: true });
-await fs.writeFile(fontConfigPath, `<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
-<fontconfig>
-  <dir>${fontDirectory}</dir>
-  <cachedir>${fontCacheDir}</cachedir>
-</fontconfig>
-`);
-process.env.FONTCONFIG_FILE = fontConfigPath;
-process.env.XDG_CACHE_HOME = fontCacheDir;
-
-const { default: sharp } = await import("sharp");
+import opentype from "opentype.js";
+import sharp from "sharp";
 
 const width = 1200;
 const height = 630;
@@ -27,6 +10,10 @@ const outlineWidth = 9;
 const publicDir = path.join(process.cwd(), "public");
 const backgroundPath = path.join(process.cwd(), "vendor", "og", "reddit-warm-nitrogen-20.png");
 const fontPath = path.join(process.cwd(), "vendor", "fonts", "galmuri", "Galmuri11.ttf");
+const fontBuffer = await fs.readFile(fontPath);
+const galmuri = opentype.parse(
+  fontBuffer.buffer.slice(fontBuffer.byteOffset, fontBuffer.byteOffset + fontBuffer.byteLength),
+);
 
 const sites = [
   { name: "spawnpoint", files: ["og-image.jpg", "og-image-spawnpoint.jpg"], fontSize: 88 },
@@ -97,19 +84,31 @@ async function addOutline(input) {
 }
 
 async function renderText(name, fontSize) {
-  const text = await sharp({
-    text: {
-      text: name,
-      font: `Galmuri11 ${fontSize}`,
-      fontfile: fontPath,
-      dpi: 72,
-      rgba: true,
-    },
-  })
+  const glyphs = galmuri.getPath(name, 0, fontSize, fontSize, { hinting: true });
+  const bounds = glyphs.getBoundingBox();
+  const padding = outlineWidth + 1;
+  const textWidth = Math.ceil(bounds.x2 - bounds.x1 + padding * 2);
+  const textHeight = Math.ceil(bounds.y2 - bounds.y1 + padding * 2);
+  const translateX = padding - bounds.x1;
+  const translateY = padding - bounds.y1;
+  const pathData = glyphs.toPathData({ decimalPlaces: 2, flipY: false, optimize: true });
+  const textSvg = Buffer.from(`
+    <svg width="${textWidth}" height="${textHeight}" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="${pathData}"
+        transform="translate(${translateX} ${translateY})"
+        fill="#090909"
+        stroke="#ffffff"
+        stroke-width="${outlineWidth * 2}"
+        stroke-linejoin="miter"
+        paint-order="stroke fill"
+      />
+    </svg>
+  `);
+
+  return sharp(textSvg)
     .png()
     .toBuffer();
-
-  return addOutline(text);
 }
 
 const background = await sharp(backgroundPath)

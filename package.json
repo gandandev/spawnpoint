@@ -55,6 +55,7 @@
     "@types/three": "^0.156.0",
     "@vitejs/plugin-react": "^6.0.3",
     "jsdom": "^26.1.0",
+    "opentype.js": "^2.0.0",
     "railway": "^3.11.0",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.20.3",
