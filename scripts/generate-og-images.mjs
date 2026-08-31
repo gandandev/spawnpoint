@@ -5,7 +5,7 @@ import sharp from "sharp";
 
 const width = 1200;
 const height = 630;
-const outlineWidth = 9;
+const outlineWidth = 12;
 const publicDir = path.join(process.cwd(), "public");
 const backgroundDir = path.join(process.cwd(), "vendor", "og");
 const fontPath = path.join(process.cwd(), "vendor", "fonts", "galmuri", "Galmuri11.ttf");
