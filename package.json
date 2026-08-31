@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "tsx watch --env-file=.env server/index.ts",
     "dev:client": "vite",
-    "prebuild": "npm run prepare:clients && npm run generate:skins",
+    "prebuild": "npm run prepare:clients && npm run generate:skins && npm run generate:og",
     "build": "npm run build:client && npm run build:server",
-    "build:frontend": "npm run prepare:clients && npm run generate:skins && npm run build:client",
+    "build:frontend": "npm run prepare:clients && npm run generate:skins && npm run generate:og && npm run build:client",
     "build:backend": "npm run build:server",
     "build:client": "vite build && node scripts/generate-site-metadata.mjs && node scripts/compress-client-assets.mjs",
     "build:server": "tsc -p tsconfig.server.json",

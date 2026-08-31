@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import opentype from "opentype.js";
@@ -13,39 +14,41 @@ const fontBuffer = await fs.readFile(fontPath);
 const galmuri = opentype.parse(
   fontBuffer.buffer.slice(fontBuffer.byteOffset, fontBuffer.byteOffset + fontBuffer.byteLength),
 );
+const backgroundFiles = [
+  "forest-pond.jpg",
+  "garden-cottage.jpg",
+  "birch-lantern-path.jpg",
+  "pond-bench.jpg",
+  "cherry-grove.jpg",
+  "flower-garden-path.jpg",
+  "koi-pond.jpg",
+];
 
 const sites = [
   {
     name: "spawnpoint",
     files: ["og-image.jpg", "og-image-spawnpoint.jpg"],
     fontSize: 82,
-    panels: [
-      { file: "forest-pond.jpg", left: 0, top: 0, width: 720, height: 630 },
-      { file: "cherry-grove.jpg", left: 720, top: 0, width: 480, height: 315 },
-      { file: "koi-pond.jpg", left: 720, top: 315, width: 480, height: 315 },
-    ],
   },
   {
     name: "예게.서버.한국",
     files: ["og-image-yege.jpg"],
     fontSize: 76,
-    panels: [
-      { file: "garden-cottage.jpg", left: 0, top: 0, width: 720, height: 630 },
-      { file: "birch-lantern-path.jpg", left: 720, top: 0, width: 480, height: 315 },
-      { file: "pond-bench.jpg", left: 720, top: 315, width: 480, height: 315 },
-    ],
   },
   {
     name: "베이컨.서버.한국",
     files: ["og-image-bacon.jpg"],
     fontSize: 76,
-    panels: [
-      { file: "flower-garden-path.jpg", left: 0, top: 0, width: 720, height: 630 },
-      { file: "cherry-grove.jpg", left: 720, top: 0, width: 480, height: 315 },
-      { file: "koi-pond.jpg", left: 720, top: 315, width: 480, height: 315 },
-    ],
   },
 ];
+
+function shuffle(items) {
+  for (let index = items.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(index + 1);
+    [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
+  }
+  return items;
+}
 
 function logoSvg(logoSize) {
   return Buffer.from(`
@@ -137,32 +140,19 @@ async function renderText(name, fontSize) {
     .toBuffer();
 }
 
-async function renderBackground(panels) {
-  const images = await Promise.all(panels.map(async (panel) => ({
-    input: await sharp(path.join(backgroundDir, panel.file))
-      .resize(panel.width, panel.height, { fit: "cover", position: "centre" })
-      .png()
-      .toBuffer(),
-    left: panel.left,
-    top: panel.top,
-  })));
-
-  return sharp({
-    create: {
-      width,
-      height,
-      channels: 3,
-      background: "#000000",
-    },
-  })
-    .composite(images)
+async function renderBackground(file) {
+  return sharp(path.join(backgroundDir, file))
+    .resize(width, height, { fit: "cover", position: "centre" })
     .png()
     .toBuffer();
 }
 
-await Promise.all(sites.map(async ({ name, files, fontSize, panels }) => {
+const selectedBackgrounds = shuffle([...backgroundFiles]).slice(0, sites.length);
+console.log(sites.map((site, index) => `${site.name}: ${selectedBackgrounds[index]}`).join("\n"));
+
+await Promise.all(sites.map(async ({ name, files, fontSize }, index) => {
   const [background, text] = await Promise.all([
-    renderBackground(panels),
+    renderBackground(selectedBackgrounds[index]),
     renderText(name, fontSize),
   ]);
   const textMetadata = await sharp(text).metadata();

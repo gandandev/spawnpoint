@@ -11,5 +11,6 @@ These seven Minecraft shader screenshots were supplied by the project owner on
 - `flower-garden-path.jpg`
 - `koi-pond.jpg`
 
-`scripts/generate-og-images.mjs` arranges them into fixed, domain-specific
-collages and adds the project logo and Galmuri site name.
+At each frontend build, `scripts/generate-og-images.mjs` shuffles the set and
+assigns one distinct background to each domain. It then adds the project logo
+and Galmuri site name.
