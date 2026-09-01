@@ -24,6 +24,13 @@ const variantFiles = ["spawnpoint", "yege", "bacon"].flatMap((site) => (
 ));
 
 describe("Open Graph images", () => {
+  it("serves canonical preview URLs from the frontend without a redirect", async () => {
+    const caddyfile = await fs.readFile(path.join(process.cwd(), "Caddyfile.frontend"), "utf8");
+
+    expect(caddyfile).not.toContain("@socialPreview");
+    imageFiles.forEach((file) => expect(caddyfile).not.toContain(`/${file}`));
+  });
+
   it.each(imageFiles)("builds %s as a full-size landscape JPEG", async (file) => {
     const imagePath = path.join(publicDir, file);
     const [metadata, stats] = await Promise.all([

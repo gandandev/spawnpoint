@@ -13,7 +13,6 @@ import { MinecraftServerManager } from "./server-manager.js";
 import { presetSkinFile, SkinService, skinPathForUser } from "./skins.js";
 import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
 import { siteIndexForHostname } from "./site-index.js";
-import { randomSocialPreviewLocation } from "./social-preview.js";
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 const sessionSecret = loadOrCreateSecret(config.dataDir, config.sessionSecret);
@@ -78,24 +77,6 @@ app.get("/assets/skins/:file", (request, response) => {
   response.setHeader("Content-Type", "image/png");
   response.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
   response.sendFile(skinFile);
-});
-
-app.get([
-  "/og-image.jpg",
-  "/og-image-spawnpoint.jpg",
-  "/og-image-yege.jpg",
-  "/og-image-bacon.jpg",
-], (request, response, next) => {
-  const location = randomSocialPreviewLocation(request.path);
-  if (!location) {
-    next();
-    return;
-  }
-  response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-  response.setHeader("CDN-Cache-Control", "no-store");
-  response.setHeader("Surrogate-Control", "no-store");
-  response.setHeader("Expires", "0");
-  response.redirect(307, location);
 });
 
 app.use("/api", createApiRouter({
