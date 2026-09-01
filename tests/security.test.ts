@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  createPasswordResetCode, createSessionToken, hashPassword, isSameOriginHeaders, sessionFromCookieHeader,
-  signToken, validateCredentials, validateNewPassword, verifyPassword, verifyPasswordResetCode, verifyToken,
+  createPasswordResetCode, createSessionToken, gameProxyClientIp, hashPassword, isSameOriginHeaders,
+  sessionFromCookieHeader, signToken, validateCredentials, validateNewPassword, verifyPassword,
+  verifyPasswordResetCode, verifyToken,
 } from "../server/security.js";
 
 const secret = "test-secret-that-is-longer-than-thirty-two-characters";
@@ -58,6 +59,17 @@ describe("gateway sessions", () => {
   it("rejects cross-origin websocket handshakes", () => {
     expect(isSameOriginHeaders("https://spawnpoint.test", "spawnpoint.test")).toBe(true);
     expect(isSameOriginHeaders("https://evil.test", "spawnpoint.test")).toBe(false);
+  });
+
+  it("preserves Railway's validated client IP instead of collapsing players onto the Caddy address", () => {
+    expect(gameProxyClientIp("203.0.113.42", "fd12::5")).toBe("203.0.113.42");
+    expect(gameProxyClientIp("2001:db8::42", "fd12::5")).toBe("2001:db8::42");
+  });
+
+  it("rejects malformed or ambiguous forwarded addresses and normalizes the socket fallback", () => {
+    expect(gameProxyClientIp("203.0.113.42, 198.51.100.7", "::ffff:127.0.0.1")).toBe("127.0.0.1");
+    expect(gameProxyClientIp(["203.0.113.42", "198.51.100.7"], "192.0.2.8")).toBe("192.0.2.8");
+    expect(gameProxyClientIp(undefined, undefined)).toBe("127.0.0.1");
   });
 });
 

@@ -6,9 +6,11 @@ import httpProxy from "http-proxy";
 import { config } from "./config.js";
 import { AppDatabase } from "./db.js";
 import { createApiRouter } from "./api.js";
-import { createGameTicket, isSameOriginHeaders, loadOrCreateSecret, sessionFromCookieHeader } from "./security.js";
+import {
+  createGameTicket, gameProxyClientIp, isSameOriginHeaders, loadOrCreateSecret, sessionFromCookieHeader,
+} from "./security.js";
 import { MinecraftServerManager } from "./server-manager.js";
-import { SkinService, skinPathForUser } from "./skins.js";
+import { presetSkinFile, SkinService, skinPathForUser } from "./skins.js";
 import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
 import { siteIndexForHostname } from "./site-index.js";
 import { randomSocialPreviewLocation } from "./social-preview.js";
@@ -63,6 +65,19 @@ app.use((request, response, next) => {
 
 app.get("/healthz", (_request, response) => {
   response.json({ ok: true, server: serverManager.getStatus().phase });
+});
+
+// The backend runs without the frontend bundle in production, but the Bukkit
+// plugin loads preset skins from this loopback-only origin during login.
+app.get("/assets/skins/:file", (request, response) => {
+  const skinFile = presetSkinFile(config.assetRootDir, request.params.file);
+  if (!skinFile || !fs.existsSync(skinFile)) {
+    response.status(404).end();
+    return;
+  }
+  response.setHeader("Content-Type", "image/png");
+  response.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
+  response.sendFile(skinFile);
 });
 
 app.get([
@@ -281,7 +296,10 @@ server.on("upgrade", (request, socket, head) => {
     parsed.searchParams.set("ticket", ticket);
     request.url = `${parsed.pathname}${parsed.search}`;
     delete request.headers.cookie;
-    request.headers["x-real-ip"] = request.socket.remoteAddress ?? "127.0.0.1";
+    request.headers["x-real-ip"] = gameProxyClientIp(
+      request.headers["x-real-ip"],
+      request.socket.remoteAddress,
+    );
     proxy.ws(request, socket, head);
   } catch {
     socket.destroy();

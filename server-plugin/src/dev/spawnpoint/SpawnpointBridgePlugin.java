@@ -1690,7 +1690,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 IEaglerPlayerSkin skin = event.getServerAPI()
                     .getSkinService()
                     .getSkinLoader(false)
-                    .loadSkinImageData_ARGB8I_64x64(skinPixelsForBrowserClient(image), model);
+                    .loadSkinImageData_eagler(encodeEaglerSkinPixels(image), model);
                 if (skin.isSuccess()) event.forceSkinEagler(skin);
             }
         } catch (IOException | IllegalArgumentException exception) {
@@ -1700,19 +1700,20 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
     }
 
-    static int[] skinPixelsForBrowserClient(BufferedImage image) {
+    static byte[] encodeEaglerSkinPixels(BufferedImage image) {
         if (image.getWidth() != 64 || image.getHeight() != 64) {
             throw new IllegalArgumentException("The spawnpoint skin must be 64x64 pixels.");
         }
         int[] pixels = image.getRGB(0, 0, 64, 64, null, 0, 64);
-        for (int index = 0; index < pixels.length; index++) {
-            int argb = pixels[index];
-            // EaglerXServer writes these ints as BGR, while this client reads the custom-skin packet as RGB.
-            pixels[index] = (argb & 0xff00ff00)
-                | ((argb & 0x00ff0000) >>> 16)
-                | ((argb & 0x000000ff) << 16);
+        byte[] encoded = new byte[pixels.length * 3];
+        for (int pixelIndex = 0, byteIndex = 0; pixelIndex < pixels.length; pixelIndex++, byteIndex += 3) {
+            int argb = pixels[pixelIndex];
+            // Eagler V4 stores R and G directly, then seven bits of B with one-bit alpha.
+            encoded[byteIndex] = (byte) (argb >>> 16);
+            encoded[byteIndex + 1] = (byte) (argb >>> 8);
+            encoded[byteIndex + 2] = (byte) (((argb >>> 1) & 0x7f) | ((argb >>> 24) & 0x80));
         }
-        return pixels;
+        return encoded;
     }
 
     private Ticket verifyPath(String websocketPath) {

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { parse as parseCookie, serialize as serializeCookie } from "cookie";
 import type { Request, Response } from "express";
@@ -263,6 +264,22 @@ export function isSameOriginHeaders(origin: string | undefined, host: string | u
   } catch {
     return false;
   }
+}
+
+function normalizedIpAddress(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+  if (candidate.startsWith("::ffff:") && net.isIPv4(candidate.slice(7))) return candidate.slice(7);
+  return net.isIP(candidate) ? candidate : null;
+}
+
+export function gameProxyClientIp(
+  forwardedAddress: string | string[] | undefined,
+  remoteAddress: string | undefined,
+): string {
+  // Railway overwrites X-Real-IP at its public edge, Caddy preserves it, and the backend is private.
+  const forwarded = Array.isArray(forwardedAddress) ? null : normalizedIpAddress(forwardedAddress);
+  return forwarded ?? normalizedIpAddress(remoteAddress) ?? "127.0.0.1";
 }
 
 export function isSameOrigin(request: Request): boolean {

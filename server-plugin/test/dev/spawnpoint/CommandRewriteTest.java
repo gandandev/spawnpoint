@@ -3,7 +3,7 @@ package dev.spawnpoint;
 import java.awt.image.BufferedImage;
 import java.text.Normalizer;
 import java.util.List;
-import net.lax1dude.eaglercraft.backend.skin_cache.SkinConverter;
+import net.lax1dude.eaglercraft.v1_8.socket.protocol.util.SkinPacketVersionCache;
 
 public final class CommandRewriteTest {
     private static final String ADMIN = "sp_aaaaaaaaaaaaa";
@@ -59,14 +59,36 @@ public final class CommandRewriteTest {
 
     private static void assertBrowserSkinChannels() {
         BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        image.setRGB(0, 0, 0xff6496b2);
-        int[] pixels = SpawnpointBridgePlugin.skinPixelsForBrowserClient(image);
-        byte[] encoded = new byte[64 * 64 * 3];
-        SkinConverter.convertToBytes(pixels, encoded);
-        if (Byte.toUnsignedInt(encoded[0]) != 0x64
-            || Byte.toUnsignedInt(encoded[1]) != 0x96
-            || Byte.toUnsignedInt(encoded[2]) != 0xd9) {
-            throw new AssertionError("browser skin packet must preserve red, green, and blue channel order");
+        int[] colors = {
+            0xff6496b2,
+            0xffff0000,
+            0xff0000fe,
+            0xff808080,
+            0x006496b2,
+            0x806496b2,
+        };
+        for (int index = 0; index < colors.length; index++) {
+            image.setRGB(index, 0, colors[index]);
+        }
+
+        byte[] encoded = SpawnpointBridgePlugin.encodeEaglerSkinPixels(image);
+        byte[] decoded = SkinPacketVersionCache.convertToV3Raw(encoded);
+        for (int index = 0; index < colors.length; index++) {
+            int source = colors[index];
+            int expected = ((source & 0x80000000) == 0 ? 0 : 0xff000000)
+                | (source & 0x00fffffe);
+            int byteIndex = index * 4;
+            int actual = (Byte.toUnsignedInt(decoded[byteIndex]) << 24)
+                | (Byte.toUnsignedInt(decoded[byteIndex + 1]) << 16)
+                | (Byte.toUnsignedInt(decoded[byteIndex + 2]) << 8)
+                | Byte.toUnsignedInt(decoded[byteIndex + 3]);
+            if (actual != expected) {
+                throw new AssertionError(
+                    "browser skin packet changed pixel " + index
+                        + ": expected 0x" + Integer.toHexString(expected)
+                        + " but got 0x" + Integer.toHexString(actual)
+                );
+            }
         }
     }
 

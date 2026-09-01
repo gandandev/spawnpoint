@@ -5,7 +5,7 @@ import { gunzipSync } from "node:zlib";
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppDatabase } from "../server/db.js";
-import { encodeClientProfile, SKIN_CATALOG, SkinService, skinPathForUser } from "../server/skins.js";
+import { encodeClientProfile, presetSkinFile, SKIN_CATALOG, SkinService, skinPathForUser } from "../server/skins.js";
 
 const dataDirectories: string[] = [];
 
@@ -36,12 +36,21 @@ describe("account skin storage", () => {
   });
 
   it("groups every stable catalog skin once", () => {
-    expect(SKIN_CATALOG.map((category) => category.label)).toEqual(["기본", "유튜버", "중2병", "블록", "ㅆㄷ"]);
-    expect(SKIN_CATALOG[0].skins.map((skin) => skin.id)).toEqual(["steve", "alex"]);
+    expect(SKIN_CATALOG.map((category) => category.label)).toEqual(["마인크래프트", "유튜버", "중2병", "ㅆㄷ"]);
+    expect(SKIN_CATALOG[0].skins.map((skin) => skin.id)).toEqual(["saved-47", "saved-50", "saved-49", "spawnpoint", "alex", "saved-48", "saved-24"]);
     const skins = SKIN_CATALOG.flatMap((category) => category.skins);
-    expect(skins).toHaveLength(62);
-    expect(new Set(skins.map((skin) => skin.id)).size).toBe(62);
+    expect(skins).toHaveLength(54);
+    expect(new Set(skins.map((skin) => skin.id)).size).toBe(54);
     expect(skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);
+  });
+
+  it("resolves only flat preset PNG paths for the backend skin loader", () => {
+    const assetRoot = path.join(process.cwd(), "public");
+
+    expect(presetSkinFile(assetRoot, "saved-01.png"))
+      .toBe(path.join(assetRoot, "assets", "skins", "saved-01.png"));
+    expect(presetSkinFile(assetRoot, "../saved-01.png")).toBeNull();
+    expect(presetSkinFile(assetRoot, "saved-01.jpg")).toBeNull();
   });
 
   it("serves normalized default skin textures for the real 3D renderer", async () => {
@@ -187,6 +196,7 @@ describe("account skin storage", () => {
   it("disables the unsupported vanilla skin cache", () => {
     const settings = fs.readFileSync(path.join(process.cwd(), "server-runtime/seed/plugins/EaglercraftXServer/settings.yml"), "utf8");
     expect(settings).toMatch(/download_vanilla_skins_to_clients:\s*false/);
+    expect(settings).toMatch(/http_websocket_max_frame_length:\s*131071/);
   });
 
   it("enables rate-limited voice chat with managed STUN servers", () => {

@@ -10,6 +10,11 @@ export function skinPathForUser(user: UserRecord): string {
   return `/api/skins/${user.id}.png?v=${user.skinUpdatedAt}`;
 }
 
+export function presetSkinFile(assetRootDir: string, fileName: string): string | null {
+  if (!/^[A-Za-z0-9_-]+\.png$/.test(fileName)) return null;
+  return path.join(assetRootDir, "assets", "skins", fileName);
+}
+
 export function toPublicUser(user: UserRecord): PublicUser {
   return {
     id: user.id,
@@ -44,23 +49,17 @@ const category = (id: string, label: string, skinIds: string[]) => ({
 });
 
 export const SKIN_CATALOG = [
-  category("default", "기본", ["steve", "alex"]),
+  category("minecraft", "마인크래프트", ["saved-47", "saved-50", "saved-49", "spawnpoint", "alex", "saved-48", "saved-24"]),
   category("creator", "유튜버", [
-    "famous-1", "famous-2", "famous-3", "famous-4", "famous-5", "famous-6", "famous-7", "famous-8", "famous-9",
-    "saved-19", "saved-20",
+    "saved-19", "saved-20", "saved-01", "saved-22", "saved-25", "saved-26", "saved-11", "saved-23", "saved-08",
   ]),
   category("dark", "중2병", [
-    "saved-01", "saved-02", "saved-07", "saved-08", "saved-22", "saved-24", "saved-25", "saved-26",
-    "saved-33", "saved-34", "saved-37", "saved-38", "saved-43", "saved-44", "saved-45",
-  ]),
-  category("block", "블록", [
-    "saved-09", "saved-10", "saved-17", "saved-18", "saved-21", "saved-46", "saved-47", "saved-48",
-    "saved-49", "saved-50", "spawnpoint",
+    "saved-33", "saved-34", "saved-38", "saved-37", "saved-45", "saved-44", "saved-32", "saved-35", "saved-36", "saved-43",
   ]),
   category("anime", "ㅆㄷ", [
-    "saved-03", "saved-04", "saved-05", "saved-06", "saved-11", "saved-12", "saved-13", "saved-14",
-    "saved-15", "saved-16", "saved-23", "saved-27", "saved-28", "saved-29", "saved-30", "saved-31",
-    "saved-32", "saved-35", "saved-36", "saved-39", "saved-40", "saved-41", "saved-42",
+    "famous-1", "famous-2", "famous-3", "famous-4", "famous-5", "famous-6", "famous-7", "famous-8", "famous-9",
+    "saved-02", "saved-03", "saved-04", "saved-05", "saved-06", "saved-12", "saved-13", "saved-14", "saved-15", "saved-16",
+    "saved-27", "saved-28", "saved-29", "saved-30", "saved-31", "saved-39", "saved-40", "saved-41", "saved-42",
   ]),
 ] as const;
 
