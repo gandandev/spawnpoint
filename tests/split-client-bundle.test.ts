@@ -33,9 +33,9 @@ describe("streaming game client bundle", () => {
       "3d05175c9cf1f4b35946b5999a728908ebe023a8df0b8b8d5b8dbf709b98d9e8",
     );
     expect(mainWasm.length).toBe(sourceMain.rawLength);
-    expect(epw.length).toBe(17_592_382);
+    expect(epw.length).toBe(17_588_054);
     expect(crypto.createHash("sha256").update(epw).digest("hex")).toBe(
-      "a12c2ed804c78e1b2d02fe6c58272a291d5e11dc147c7941d6753f935ab0b412",
+      "edaadb639d6ae70bb1ba3e5428d63b765a6b7b99e873bbcae0c44ed82249c7ab",
     );
     expect(epw.readUInt32LE(8)).toBe(epw.length);
     expect(epw.readUInt32LE(12)).toBe(crc32(epw.subarray(16)));

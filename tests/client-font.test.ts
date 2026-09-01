@@ -43,7 +43,7 @@ function mainProgramRecord(bundle: Buffer) {
 }
 
 describe("in-game bitmap font client", () => {
-  it("patches the runtime input and mobile launch gate while keeping the Korean locale overlay", () => {
+  it("keeps vanilla English while patching the Korean font and runtime", () => {
     const base = fs.readFileSync(path.join(clients, "stable-locale-fixed.epw"));
     const patched = fs.readFileSync(path.join(clients, "stable-galmuri.epw"));
 
@@ -116,6 +116,9 @@ def epk_file(path):
   return assets[start:start + stored_length - 5]
 underwater_path = b"assets/minecraft/textures/misc/underwater.png"
 underwater_alpha = Image.open(io.BytesIO(epk_file(underwater_path))).getchannel("A")
+ascii_texture = epk_file(b"assets/minecraft/textures/font/ascii.png")
+unicode_page_00 = epk_file(b"assets/minecraft/textures/font/unicode_page_00.png")
+glyph_sizes = epk_file(b"assets/minecraft/font/glyph_sizes.bin")
 load_screen = Image.open(io.BytesIO(epk_file(b"assets/eagler/eagtek.png"))).convert("RGB")
 bacon = Image.open(sys.argv[2]).convert("RGB")
 bacon.thumbnail((256, 256), Image.Resampling.LANCZOS)
@@ -151,6 +154,9 @@ print(json.dumps({
   "portal_return_label_count": assets.count("eaglercraft.menu.editProfile=포탈로 돌아가기".encode()),
   "splash_count": assets.count("대미덕에디션\\n".encode()),
   "underwater_alpha_extrema": underwater_alpha.getextrema(),
+  "ascii_texture_sha256": hashlib.sha256(ascii_texture).hexdigest(),
+  "unicode_page_00_sha256": hashlib.sha256(unicode_page_00).hexdigest(),
+  "ascii_glyph_sizes_sha256": hashlib.sha256(glyph_sizes[:256]).hexdigest(),
   "load_screen_matches_bacon": load_screen.size == (256, 256) and load_screen.tobytes() == expected_load_screen.tobytes(),
 }))
 `, path.join(clients, "stable-galmuri.epw"), path.join(process.cwd(), "vendor/clients/loading-screen-bacon.jpg")], { encoding: "utf8" }));
@@ -178,6 +184,9 @@ print(json.dumps({
       portal_return_label_count: 1,
       splash_count: 1,
       underwater_alpha_extrema: [0, 0],
+      ascii_texture_sha256: "8d3320e77d2449bc2311390fd452736c046298854377addc940e56ce4e7dda2b",
+      unicode_page_00_sha256: "56855da19f265ac7675f4701793cbed95504a97c712fe1506c1e627465d6942b",
+      ascii_glyph_sizes_sha256: "b47040b1ec35e88c12c3662654f674599e865d1ea0004239e0d6b73422a784f9",
       load_screen_matches_bacon: true,
     });
   }, 15_000);

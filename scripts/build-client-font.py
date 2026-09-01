@@ -421,7 +421,7 @@ def apply_font(
     code_points = sorted(
         code_point
         for code_point in cmap
-        if 0x20 < code_point <= 0xFFFF and not 0xD800 <= code_point <= 0xDFFF
+        if 0xFF < code_point <= 0xFFFF and not 0xD800 <= code_point <= 0xDFFF
     )
     hangul_count = sum(0xAC00 <= code_point <= 0xD7A3 for code_point in code_points)
     if hangul_count != 11_172:
@@ -467,22 +467,9 @@ def apply_font(
             entries.append(EpkEntry(b"FILE", page_name, rendered))
         replaced_pages += 1
 
-    ascii_index = by_name[ASCII_TEXTURE]
-    ascii_image = Image.open(io.BytesIO(entries[ascii_index].data)).convert("RGBA")
+    ascii_image = Image.open(io.BytesIO(entries[by_name[ASCII_TEXTURE]].data))
     if ascii_image.size != (128, 128):
         raise ValueError("Base Minecraft ASCII texture must be 128 by 128 pixels")
-    ascii_image = ascii_image.resize((PAGE_SIZE, PAGE_SIZE), Image.Resampling.NEAREST)
-    ascii_draw = ImageDraw.Draw(ascii_image)
-    for code_point in range(0x20, 0x7F):
-        slot_x = (code_point & 0x0F) * CELL_SIZE
-        slot_y = (code_point >> 4) * CELL_SIZE
-        ascii_draw.rectangle(
-            (slot_x, slot_y, slot_x + CELL_SIZE - 1, slot_y + CELL_SIZE - 1),
-            fill=(255, 255, 255, 0),
-        )
-        if code_point > 0x20 and code_point in cmap:
-            render_glyph(ascii_image, ascii_draw, font, chr(code_point), slot_x, slot_y)
-    entries[ascii_index].data = png_bytes(ascii_image)
     entries[by_name[GLYPH_SIZES]].data = bytes(glyph_sizes)
 
     license_text = license_path.read_text(encoding="utf-8").strip()
