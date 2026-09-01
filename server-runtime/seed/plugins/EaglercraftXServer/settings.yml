@@ -5,6 +5,7 @@ debug_log_origin_headers: false
 debug_log_real_ip_headers: false
 eagler_players_view_distance: 4
 http_websocket_compression_level: 6
+http_websocket_max_frame_length: 131071
 protocols:
   min_minecraft_protocol: 47
   max_minecraft_protocol: 340

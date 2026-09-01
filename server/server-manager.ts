@@ -70,6 +70,9 @@ export class MinecraftServerManager extends EventEmitter {
 
   constructor(private readonly options: ServerManagerOptions) {
     super();
+    // Every open portal tab has one live status subscription. Keep leak
+    // detection, but size the warning threshold for the server's real fanout.
+    this.setMaxListeners(Math.max(32, options.maxPlayers * 4));
     this.minecraftDir = path.join(options.dataDir, "minecraft");
     this.state = {
       phase: "off",

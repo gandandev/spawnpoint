@@ -37,6 +37,10 @@ afterEach(async () => {
 });
 
 describe("MinecraftServerManager player tracking", () => {
+  it("allows the expected portal status fanout without hiding real listener leaks", () => {
+    expect(manager().getMaxListeners()).toBe(48);
+  });
+
   it("removes players from a localized server after a lost connection line", () => {
     const instance = manager();
     log(instance, "[Server thread/INFO]: telegram[/127.0.0.1:56096] logged in with entity id 654 at ([world]0, 64, 0)");
