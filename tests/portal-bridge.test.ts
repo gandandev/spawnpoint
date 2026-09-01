@@ -1039,6 +1039,7 @@ describe("portal game bridge", () => {
       clientTextInputEvents,
       locatorElementsById,
       options,
+      runWindowTimeouts,
       windowObject,
     } = loadBridge(undefined, true, {
       active: false,
@@ -1068,6 +1069,14 @@ describe("portal game bridge", () => {
       body: JSON.stringify({ launchId: "launch-123", message: "/텔포 MossRunner" }),
     })));
     expect(clientTextInputEvents).toHaveLength(0);
+    expect(canvasEvents).toHaveLength(0);
+
+    button.onclick({ preventDefault: vi.fn() });
+    runWindowTimeouts();
+    runWindowTimeouts();
+    runWindowTimeouts();
+    expect((windowObject.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([input]) => input === "/api/game/chat")).toHaveLength(1);
     expect(canvasEvents).toHaveLength(0);
     expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/players", {
       credentials: "same-origin",
@@ -1558,7 +1567,7 @@ describe("portal game bridge", () => {
     expect(locatorElementsById.get("spawnpoint-mobile-chat")?.style.display).toBe("flex");
   });
 
-  it("keeps a visible mobile composer focused and sends Korean text through the portal API", async () => {
+  it("sends Korean text through the portal API and closes native slash chat without submitting it", async () => {
     const {
       canvas,
       canvasEvents,
@@ -1611,20 +1620,36 @@ describe("portal game bridge", () => {
     expect(clientTextInputEvents).toHaveLength(0);
     expect(documentObject.activeElement).toBe(input);
 
-    input.value = "안";
+    input.value = "/say 안";
     input.oninput({ isComposing: false });
     expect(clientTextInputEvents).toHaveLength(0);
 
-    send.ontouchstart(touchEvent);
-    send.ontouchend(touchEvent);
+    canvasEvents.length = 0;
+    const enterEvent = {
+      key: "Enter",
+      keyCode: 13,
+      isComposing: false,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    input.onkeydown(enterEvent);
     await vi.waitFor(() => expect(composer.style.display).toBe("none"));
+    expect(enterEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(enterEvent.stopImmediatePropagation).toHaveBeenCalledOnce();
     expect(clientTextInputEvents).toHaveLength(0);
     expect(windowObject.fetch).toHaveBeenCalledWith("/api/game/chat", expect.objectContaining({
       method: "POST",
       credentials: "same-origin",
-      body: JSON.stringify({ launchId: "launch-123", message: "안" }),
+      body: JSON.stringify({ launchId: "launch-123", message: "/say 안" }),
     }));
-    expect(canvasEvents.slice(-3).map(({ type }) => type)).toEqual(["mousedown", "mouseup", "click"]);
+    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keyup"]);
+    canvasEvents.forEach((event) => expect(event).toMatchObject({
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+      __spawnpointClientChatClose: true,
+    }));
+    expect(canvasEvents.some(({ key }) => key === "Enter")).toBe(false);
 
     const style = documentObject.head.children.find(
       (element: Record<string, unknown>) => element.id === "spawnpoint-mobile-control-style",
@@ -2187,6 +2212,32 @@ describe("portal game bridge", () => {
 
     expect(markedEvent.preventDefault).not.toHaveBeenCalled();
     expect(markedEvent.stopImmediatePropagation).not.toHaveBeenCalled();
+    expect(runtimeListener).toHaveBeenCalledOnce();
+  });
+
+  it("lets the marked client-chat Escape reach the runtime without becoming another portal Escape", () => {
+    const { canvas, windowHandlers, windowObject } = loadBridge();
+    const runtimeListener = vi.fn();
+    windowObject.addEventListener("keydown", runtimeListener, true);
+    let stopped = false;
+    const event = {
+      target: canvas,
+      type: "keydown",
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+      __spawnpointClientChatClose: true,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(() => { stopped = true; }),
+    };
+
+    for (const listener of windowHandlers.get("keydown") ?? []) {
+      listener(event);
+      if (stopped) break;
+    }
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
     expect(runtimeListener).toHaveBeenCalledOnce();
   });
 

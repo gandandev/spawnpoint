@@ -310,6 +310,7 @@
   var tpaPlayersLoaded = false;
   var tpaRequestPending = false;
   var tpaPickerWasActive = false;
+  var lastTPASelectionAt = 0;
   var mobileTouchCapable = detectMobileTouchCapability();
   var mobileControlsRoot = null;
   var mobileChatComposer = null;
@@ -678,7 +679,10 @@
 
   function sendTPAToPlayer(gameUsername) {
     if (!/^[A-Za-z0-9_]{1,32}$/.test(gameUsername)) return;
+    var now = Date.now();
+    if (now - lastTPASelectionAt < 1000) return;
     if (mobileChatComposerIsVisible() && mobileChatInput) {
+      lastTPASelectionAt = now;
       mobileChatInput.value = chatDraft + " " + gameUsername;
       updateMobileChatDraft();
       submitMobileChat();
@@ -686,6 +690,7 @@
     }
     var input = document.querySelector && document.querySelector("._eaglercraftX_text_input_element");
     if (!input) return;
+    lastTPASelectionAt = now;
     if (typeof input.focus === "function") input.focus({ preventScroll: true });
     chatDraft += " " + gameUsername;
     updateTPAPickerVisibility();
@@ -2354,7 +2359,9 @@
       rememberSentChat(message);
       if (submittedFromPortal && portalChatActive) closePortalChat(true);
       else if (!submittedFromPortal) {
-        dismissClientChat();
+        // GuiChat still contains the slash that opened it. Escape closes that stale draft without submitting it.
+        markUiEscape(currentScreenName || "GuiChat");
+        if (!dispatchClientChatClose()) dismissClientChat();
         desktopChatInputActive = false;
         chatDraft = "";
         updateTPAPickerVisibility();
@@ -2687,6 +2694,10 @@
     return !!event && event.__spawnpointRelayedBackquote === true;
   }
 
+  function isClientChatCloseEvent(event) {
+    return !!event && event.__spawnpointClientChatClose === true;
+  }
+
   function isBackquoteEvent(event) {
     return !!event && (event.code === "Backquote" || event.key === "`" || event.keyCode === 192 || event.which === 192);
   }
@@ -2784,6 +2795,34 @@
     });
   }
 
+  function dispatchClientChatClose() {
+    var canvas = findMinecraftCanvas();
+    if (!canvas || typeof canvas.dispatchEvent !== "function" || typeof window.KeyboardEvent !== "function") return false;
+    if (typeof canvas.focus === "function") canvas.focus();
+    ["keydown", "keyup"].forEach(function (eventName) {
+      var event = new window.KeyboardEvent(eventName, {
+        key: "Escape",
+        code: "Escape",
+        keyCode: 27,
+        which: 27,
+        charCode: 0,
+        bubbles: true,
+        cancelable: true,
+      });
+      try {
+        Object.defineProperties(event, {
+          keyCode: { value: 27 },
+          which: { value: 27 },
+          __spawnpointClientChatClose: { value: true },
+        });
+      } catch (_error) {
+        event.__spawnpointClientChatClose = true;
+      }
+      canvas.dispatchEvent(event);
+    });
+    return true;
+  }
+
   function clearUiEscapeSuppression() {
     uiEscapeSourceScreen = "";
     uiEscapeHandledAt = 0;
@@ -2810,7 +2849,7 @@
   function relayNativeEscape(event) {
     trackChatDraftKey(event);
     var isEscape = event.key === "Escape" || event.code === "Escape" || event.keyCode === 27 || event.which === 27;
-    if (!isEscape || isRelayedBackquote(event)) return;
+    if (!isEscape || isRelayedBackquote(event) || isClientChatCloseEvent(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.type === "keyup") {
