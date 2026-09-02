@@ -1694,8 +1694,8 @@ describe("portal game bridge", () => {
     expect(down.preventDefault).toHaveBeenCalledOnce();
   });
 
-  it("does not render obsolete mobile menu back or keyboard controls", () => {
-    const { canvas, locatorElementsById, options } = loadBridge(undefined, true, undefined, {
+  it("renders a top-left Escape control for inventory and other game UI", () => {
+    const { canvas, canvasEvents, locatorElementsById, options } = loadBridge(undefined, true, undefined, {
       maxTouchPoints: 5,
       renderDom: true,
     });
@@ -1703,12 +1703,23 @@ describe("portal game bridge", () => {
       screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
     };
     canvas.requestPointerLock();
-    hooks.screenChanged("net.minecraft.client.gui.GuiIngameMenu", 480, 300, 960, 600, 2);
+    hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
     const controls = locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const menuBack = findControl(controls, "menu-back")!;
+    const style = locatorElementsById.get("spawnpoint-mobile-control-style");
 
     expect(controls.className).toBe("is-menu");
-    expect(findControl(controls, "menu-back")).toBeUndefined();
+    expect(menuBack).toMatchObject({ textContent: "ESC", "aria-label": "화면 닫기" });
+    expect(style?.textContent).toContain("#spawnpoint-mobile-controls.is-menu .sp-mobile-button.sp-mobile-menu-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid}");
     expect(findControl(controls, "keyboard")).toBeUndefined();
+
+    menuBack.onclick({ preventDefault: vi.fn(), stopPropagation: vi.fn() });
+    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keypress", "keyup"]);
+    canvasEvents.forEach((event) => expect(event).toMatchObject({
+      key: "`",
+      code: "Backquote",
+      __spawnpointRelayedBackquote: true,
+    }));
   });
 
   it("translates mobile canvas drags into camera movement and menu taps into clicks", () => {

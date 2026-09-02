@@ -2476,8 +2476,10 @@
       "#spawnpoint-mobile-controls .sp-mobile-gameplay{pointer-events:none}",
       "#spawnpoint-mobile-controls.is-menu .sp-mobile-gameplay{display:none}",
       "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-chat-only{display:none}",
+      "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-menu-only{display:none}",
       "#spawnpoint-mobile-controls.is-chat .sp-mobile-gameplay{display:none}",
       "#spawnpoint-mobile-controls.is-chat .sp-mobile-button.sp-mobile-chat-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid}",
+      "#spawnpoint-mobile-controls.is-menu .sp-mobile-button.sp-mobile-menu-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid}",
       "#spawnpoint-mobile-controls .sp-mobile-tools{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));display:flex;gap:5px}",
       "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-default-scale{display:none}",
       "#spawnpoint-mobile-controls.is-editing[data-sp-default-layout=true] .sp-mobile-button.sp-mobile-default-scale{display:grid}",
@@ -2550,6 +2552,11 @@
     chatExitButton.className += " sp-mobile-chat-only sp-mobile-key-label";
     bindMobilePulseButton(chatExitButton, dispatchMobileBackAction);
     mobileControlsRoot.appendChild(chatExitButton);
+
+    var menuBackButton = createMobileButton("ESC", "화면 닫기", "menu-back");
+    menuBackButton.className += " sp-mobile-menu-only sp-mobile-key-label";
+    bindMobilePulseButton(menuBackButton, dispatchMobileBackAction);
+    mobileControlsRoot.appendChild(menuBackButton);
 
     var tools = document.createElement("div");
     tools.className = "sp-mobile-gameplay sp-mobile-tools";
