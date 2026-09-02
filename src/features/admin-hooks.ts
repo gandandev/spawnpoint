@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import type { AdminLogPage, AdminOverview, PublicUser, SessionUpdate } from "@/types";
+import type { AdminLogPage, AdminOverview, PublicUser, ServerSettings, SessionUpdate } from "@/types";
 
 interface UseAdminOverviewOptions {
   open: boolean;
@@ -86,19 +86,25 @@ interface AdminMutationOptions {
   refresh: () => Promise<AdminOverview | null>;
 }
 
-interface AdminMutationResult {
+export interface AdminMutationResult {
   user?: PublicUser;
   csrf?: string;
   adminExpiresAt?: number | null;
   resetCode?: string;
+  temporaryPassword?: string;
   sent?: number;
+  settings?: ServerSettings;
+  restartRequired?: boolean;
+  liveApplied?: boolean;
 }
+
+export type AdminMutate = (key: string, path: string, options: RequestInit) => Promise<AdminMutationResult | null>;
 
 export function useAdminMutation({ csrf, onSession, notice, refresh }: AdminMutationOptions) {
   const [busyKeys, setBusyKeys] = useState<Set<string>>(() => new Set());
 
   const isBusy = useCallback((key: string) => busyKeys.has(key), [busyKeys]);
-  const mutate = useCallback(async (key: string, path: string, options: RequestInit) => {
+  const mutate: AdminMutate = useCallback(async (key: string, path: string, options: RequestInit) => {
     setBusyKeys((current) => {
       if (current.has(key)) return current;
       const next = new Set(current);

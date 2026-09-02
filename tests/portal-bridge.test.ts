@@ -541,7 +541,7 @@ describe("portal game bridge", () => {
     const encoded = loadBridge().storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\ngamma:1.0\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -549,7 +549,7 @@ describe("portal game bridge", () => {
     const encoded = loadBridge(undefined, false).storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\ngamma:1.0\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -560,7 +560,7 @@ describe("portal game bridge", () => {
     };
 
     expect(Buffer.from(hooks.localStorageLoaded("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary")).toBe(
-      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\ngamma:1.0\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -576,7 +576,7 @@ describe("portal game bridge", () => {
     );
 
     expect(Buffer.from(storage.get("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:false\nfov:0.5\ngamma:1.0\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -647,7 +647,7 @@ describe("portal game bridge", () => {
     const encoded = storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "version:1343\nlang:ko_kr\nmouseSensitivity:0.75\nautoJump:false\nfov:0.5\ngamma:1.0\nenableDynamicLights:true\nao:2\nshowSubtitles:true\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -658,7 +658,7 @@ describe("portal game bridge", () => {
     const encoded = storage.get("_spawnpoint_mossrunner.g");
 
     expect(Buffer.from(encoded ?? "", "base64").toString("binary")).toBe(
-      "lang:ko_kr\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\nshowSubtitles:false\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
+      "lang:ko_kr\nautoJump:true\nfov:0.25\nenableDynamicLights:false\nao:0\nshowSubtitles:false\ngamma:1.0\ntutorialStep:none\nacknowledgeDisclaimer:true\n",
     );
   });
 
@@ -1283,6 +1283,54 @@ describe("portal game bridge", () => {
     expect(client.storage.has("spawnpoint_mobile_control_layout_v1")).toBe(false);
     tap(edit);
     expect(attack.style.position).toBe("");
+  });
+
+  it("adds, runs, saves, and removes a selected mobile key", () => {
+    const client = loadBridge(undefined, true, undefined, {
+      maxTouchPoints: 5,
+      renderDom: true,
+    });
+    const root = client.locatorElementsById.get("spawnpoint-mobile-controls")!;
+    const edit = findControl(root, "edit-controls")!;
+    const editor = root.children.find((child: Record<string, any>) => child.className.includes("sp-mobile-editor"))!;
+    const select = editor.children[2].children[0];
+    const add = editor.children[2].children[1];
+    const touchEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    const tap = (button: Record<string, any>) => {
+      button.ontouchstart(touchEvent);
+      button.ontouchend(touchEvent);
+    };
+
+    client.canvas.requestPointerLock();
+    tap(edit);
+    select.value = "f3";
+    tap(add);
+
+    const f3 = findControl(root, "extra-f3")!;
+    expect(f3).toMatchObject({ textContent: "F3", "aria-label": "F3 키" });
+    expect(f3.style.position).toBe("fixed");
+    expect(JSON.parse(client.storage.get("spawnpoint_mobile_control_layout_v1")!).profiles[0].extras).toEqual(["f3"]);
+
+    tap(edit);
+    f3.ontouchstart(touchEvent);
+    f3.ontouchend(touchEvent);
+    expect(client.canvasEvents.slice(-2)).toEqual([
+      expect.objectContaining({ type: "keydown", key: "F3", code: "F3", keyCode: 114 }),
+      expect.objectContaining({ type: "keyup", key: "F3", code: "F3", keyCode: 114 }),
+    ]);
+
+    tap(edit);
+    const remove = f3.children.find((child: Record<string, any>) => child.className === "sp-mobile-delete-handle")!;
+    f3.dispatchEvent({
+      type: "touchstart",
+      target: remove,
+      changedTouches: [{ identifier: 22, clientX: 0, clientY: 0 }],
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    });
+    expect(findControl(root, "extra-f3")).toBeUndefined();
+    expect(JSON.parse(client.storage.get("spawnpoint_mobile_control_layout_v1")!).profiles[0].extras).toEqual([]);
   });
 
   it("restores a saved mobile control layout", () => {

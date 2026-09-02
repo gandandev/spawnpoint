@@ -6,7 +6,9 @@ import path from "node:path";
 import readline from "node:readline";
 import { promisify } from "node:util";
 import { gunzip as gunzipCallback } from "node:zlib";
-import type { ServerStatus } from "./types.js";
+import { PlayerDataStore, type PlayerAccountReference, type PlayerInventoryPatch, type PlayerStatePatch } from "./player-data.js";
+import { ServerSettingsStore } from "./server-settings.js";
+import type { PlayerDetails, ServerSettings, ServerStatus } from "./types.js";
 
 interface ServerManagerOptions {
   dataDir: string;
@@ -25,7 +27,6 @@ interface ServerManagerOptions {
 const MANAGED_FILES = [
   "paper-1.12.2.jar",
   "server-icon.png",
-  "server.properties",
   "bukkit.yml",
   "plugins/EaglerXServer.jar",
   "plugins/SpawnpointBridge.jar",
@@ -60,6 +61,8 @@ export class ServerStartError extends Error {
 export class MinecraftServerManager extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null;
   private readonly minecraftDir: string;
+  private readonly settingsStore: ServerSettingsStore;
+  private readonly playerDataStore: PlayerDataStore;
   private idleTimer: NodeJS.Timeout;
   private expectedExit = false;
   private mockStartTimer: NodeJS.Timeout | null = null;
@@ -74,6 +77,8 @@ export class MinecraftServerManager extends EventEmitter {
     // detection, but size the warning threshold for the server's real fanout.
     this.setMaxListeners(Math.max(32, options.maxPlayers * 4));
     this.minecraftDir = path.join(options.dataDir, "minecraft");
+    this.settingsStore = new ServerSettingsStore(this.minecraftDir, options.seedDir, options.maxPlayers);
+    this.playerDataStore = new PlayerDataStore(this.minecraftDir, this.settingsStore);
     this.state = {
       phase: "off",
       players: [],
@@ -96,6 +101,49 @@ export class MinecraftServerManager extends EventEmitter {
   getRecentLogs(limit = 200): string[] {
     const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
     return this.recentOutput.slice(-safeLimit);
+  }
+
+  getServerSettings(): Promise<ServerSettings> {
+    return this.settingsStore.read();
+  }
+
+  async updateServerSettings(settings: ServerSettings): Promise<ServerSettings> {
+    const stored = await this.settingsStore.write(settings);
+    if (stored.maxPlayers !== this.state.maxPlayers) {
+      this.setMaxListeners(Math.max(32, stored.maxPlayers * 4));
+      if (this.state.phase === "off" || this.state.phase === "error") {
+        this.publish({ maxPlayers: stored.maxPlayers });
+      }
+    }
+    return stored;
+  }
+
+  getStoredPlayers(accounts: PlayerAccountReference[]): Promise<PlayerDetails[]> {
+    return this.playerDataStore.list(accounts);
+  }
+
+  getStoredPlayer(account: PlayerAccountReference): Promise<PlayerDetails> {
+    return this.playerDataStore.details(account);
+  }
+
+  updateStoredPlayerState(account: PlayerAccountReference, patch: PlayerStatePatch): Promise<PlayerDetails> {
+    return this.playerDataStore.updateState(account, patch);
+  }
+
+  updateStoredPlayerInventory(account: PlayerAccountReference, patch: PlayerInventoryPatch): Promise<PlayerDetails> {
+    return this.playerDataStore.updateInventory(account, patch);
+  }
+
+  setStoredPlayerOperator(account: PlayerAccountReference, operator: boolean): Promise<PlayerDetails> {
+    return this.playerDataStore.setOperator(account, operator);
+  }
+
+  setStoredPlayerBanned(account: PlayerAccountReference, banned: boolean, reason: string): Promise<PlayerDetails> {
+    return this.playerDataStore.setBanned(account, banned, reason);
+  }
+
+  isPlayerOnline(gameUsername: string): boolean {
+    return this.state.players.some((player) => player.toLowerCase() === gameUsername.toLowerCase());
   }
 
   async getLogHistory(options: { query?: string; offset?: number; limit?: number } = {}): Promise<ConsoleLogPage> {
@@ -210,13 +258,18 @@ export class MinecraftServerManager extends EventEmitter {
         "Set MC_EULA=true after reading the Minecraft EULA before starting the real server.",
       );
     }
-    const propertiesPath = path.join(this.minecraftDir, "server.properties");
-    const properties = await fs.readFile(propertiesPath, "utf8");
-    await fs.writeFile(
-      propertiesPath,
-      properties.replace(/^max-players=.*$/m, `max-players=${this.options.maxPlayers}`),
-      "utf8",
-    );
+    if (firstBoot) {
+      const propertiesPath = path.join(this.minecraftDir, "server.properties");
+      const properties = await fs.readFile(propertiesPath, "utf8");
+      await fs.writeFile(
+        propertiesPath,
+        properties.replace(/^max-players=.*$/m, `max-players=${this.options.maxPlayers}`),
+        "utf8",
+      );
+    }
+    const settings = await this.settingsStore.read();
+    this.state.maxPlayers = settings.maxPlayers;
+    this.setMaxListeners(Math.max(32, settings.maxPlayers * 4));
     await fs.writeFile(path.join(this.minecraftDir, "eula.txt"), "eula=true\n", "utf8");
   }
 

@@ -77,6 +77,27 @@ function adminOverview(tpaEnabled: boolean, players: PlayerDetails[] = []): Admi
     players,
     bridgeAvailable: true,
     tpaEnabled,
+    settings: {
+      motd: "Spawnpoint",
+      maxPlayers: 12,
+      difficulty: "normal",
+      defaultGameMode: "survival",
+      forceGameMode: false,
+      viewDistance: 8,
+      playerIdleTimeout: 0,
+      pvp: true,
+      allowFlight: false,
+      hardcore: false,
+      allowNether: true,
+      generateStructures: true,
+      spawnAnimals: true,
+      spawnMonsters: true,
+      spawnNpcs: true,
+      whiteList: false,
+      commandBlocks: false,
+      keepInventory: true,
+      tpaEnabled,
+    },
     logs: [],
     server: onlineStatus,
   };
@@ -107,6 +128,12 @@ const testPlayer: PlayerDetails = {
   uuid: "00000000-0000-4000-8000-000000000001",
   username: "qaadmin",
   displayName: "관리자",
+  online: true,
+  dataAvailable: true,
+  firstSeenAt: Date.now() - 86_400_000,
+  lastSeenAt: Date.now(),
+  playTimeTicks: 72_000,
+  banned: false,
   operator: false,
   world: "world",
   x: 0,
@@ -894,8 +921,8 @@ describe("administrator TPA setting", () => {
         if (overviewRequests === 2) return stalePoll.promise;
         if (overviewRequests === 3) return Promise.resolve(jsonResponse(adminOverview(true)));
       }
-      if (String(input) === "/api/admin/settings/tpa" && options?.method === "PUT") {
-        return Promise.resolve(jsonResponse({ tpaEnabled: false }));
+      if (String(input) === "/api/admin/settings/server" && options?.method === "PUT") {
+        return Promise.resolve(jsonResponse({ settings: adminOverview(true).settings, restartRequired: false, liveApplied: true }));
       }
       return Promise.reject(new Error(`Unexpected request: ${String(input)}`));
     }));
@@ -912,7 +939,10 @@ describe("administrator TPA setting", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const control = document.body.querySelector('[role="switch"]') as HTMLButtonElement;
+    await act(async () => {
+      ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "설정") as HTMLButtonElement).click();
+    });
+    const control = document.body.querySelector('[aria-label="TPA 요청"]') as HTMLButtonElement;
     expect(control.getAttribute("aria-checked")).toBe("false");
     expect(control.className).toContain("touch-manipulation");
     expect(control.className).toContain("after:-inset-y-[13px]");
@@ -924,6 +954,9 @@ describe("administrator TPA setting", () => {
 
     await act(async () => {
       control.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "설정 저장") as HTMLButtonElement).click();
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -985,21 +1018,22 @@ describe("administrator TPA setting", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(document.body.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(document.body.textContent).toContain("플레이어 0");
     await act(async () => root.unmount());
   });
 
   it("tracks concurrent mutation busy states independently", async () => {
-    const tpaUpdate = deferred<Response>();
+    const stateUpdate = deferred<Response>();
     const operatorUpdate = deferred<Response>();
-    let tpaEnabled = true;
-    const overview = adminOverview(tpaEnabled, [{ ...testPlayer, accountId: "admin-account" }]);
+    const overview = adminOverview(true, [{ ...testPlayer, accountId: "admin-account" }]);
     overview.users = [{
       id: "admin-account",
       username: "qaadmin",
       gameUsername: "qaadmin",
       displayName: "관리자",
       createdAt: Date.now(),
+      lastLoginAt: Date.now(),
+      passwordUpdatedAt: Date.now(),
       passwordResetExpiresAt: null,
       resetRequired: false,
       isAdmin: true,
@@ -1007,9 +1041,9 @@ describe("administrator TPA setting", () => {
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
       const path = String(input);
       if (path === "/api/admin/overview") {
-        return Promise.resolve(jsonResponse({ ...overview, tpaEnabled }));
+        return Promise.resolve(jsonResponse(overview));
       }
-      if (path === "/api/admin/settings/tpa" && options?.method === "PUT") return tpaUpdate.promise;
+      if (path.endsWith("/state") && options?.method === "PATCH") return stateUpdate.promise;
       if (path.includes("/api/admin/players/") && path.endsWith("/operator") && options?.method === "PUT") {
         return operatorUpdate.promise;
       }
@@ -1027,7 +1061,8 @@ describe("administrator TPA setting", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const tpaControl = document.body.querySelector('[role="switch"]') as HTMLButtonElement;
+    const stateControl = [...document.body.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("상태 적용")) as HTMLButtonElement;
     const operatorControl = [...document.body.querySelectorAll("button")]
       .find((button) => button.textContent?.includes("OP 부여")) as HTMLButtonElement;
     const onlineIndicator = document.body.querySelector('[aria-label="온라인"]') as HTMLSpanElement;
@@ -1038,11 +1073,11 @@ describe("administrator TPA setting", () => {
     expect(playerName.className).toContain("text-[#65952c]");
 
     await act(async () => {
-      tpaControl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      stateControl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       operatorControl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
-    expect(tpaControl.disabled).toBe(true);
+    expect(stateControl.disabled).toBe(true);
     expect(operatorControl.disabled).toBe(true);
 
     await act(async () => {
@@ -1051,18 +1086,16 @@ describe("administrator TPA setting", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(tpaControl.disabled).toBe(true);
+    expect(stateControl.disabled).toBe(true);
     expect(operatorControl.disabled).toBe(false);
 
-    tpaEnabled = false;
     await act(async () => {
-      tpaUpdate.resolve(jsonResponse({ tpaEnabled: false }));
+      stateUpdate.resolve(jsonResponse({ player: testPlayer }));
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(tpaControl.disabled).toBe(false);
-    expect(tpaControl.getAttribute("aria-checked")).toBe("false");
+    expect(stateControl.disabled).toBe(false);
     await act(async () => root.unmount());
   });
 
@@ -1092,11 +1125,11 @@ describe("administrator TPA setting", () => {
     });
 
     expect((container.querySelector('[role="switch"]') as HTMLButtonElement).disabled).toBe(true);
-    expect(container.textContent).toContain("게임 서버 설정을 불러올 수 없어요.");
+    expect(container.textContent).toContain("서버 설정을 불러올 수 없어요.");
     await act(async () => root.unmount());
   });
 
-  it("explains that an offline server cannot be changed", async () => {
+  it("allows the stored setting to change while the server is offline", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -1104,8 +1137,8 @@ describe("administrator TPA setting", () => {
       root.render(<TpaSettingRow enabled serverOnline={false} busy={false} onChange={vi.fn()} />);
     });
 
-    expect((container.querySelector('[role="switch"]') as HTMLButtonElement).disabled).toBe(true);
-    expect(container.textContent).toContain("서버가 오프라인일 때는 변경할 수 없어요.");
+    expect((container.querySelector('[role="switch"]') as HTMLButtonElement).disabled).toBe(false);
+    expect(container.textContent).toContain("서버가 꺼져 있어도 저장됩니다.");
     await act(async () => root.unmount());
   });
 });
@@ -1283,6 +1316,113 @@ describe("administrator console and account actions", () => {
     expect(document.body.textContent).toContain("플레이어 1");
     expect(document.body.textContent).not.toContain("계정 1");
     expect(document.body.textContent).not.toContain("변경 저장");
+    await act(async () => root.unmount());
+  });
+
+  it("edits categorized server settings while the game server is offline", async () => {
+    const overview = adminOverview(true);
+    overview.server = { ...onlineStatus, phase: "off", players: [], startedAt: null, readyAt: null };
+    let currentSettings = overview.settings;
+    let submitted: unknown = null;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/admin/overview") return Promise.resolve(jsonResponse({ ...overview, settings: currentSettings }));
+      if (path === "/api/admin/settings/server" && options?.method === "PUT") {
+        submitted = JSON.parse(String(options.body));
+        currentSettings = submitted as AdminOverview["settings"];
+        return Promise.resolve(jsonResponse({ settings: currentSettings, restartRequired: false, liveApplied: true }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    }));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AdminPanel data={adminData} onSession={vi.fn()} notice={vi.fn()} />));
+    await act(async () => {
+      (container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "설정") as HTMLButtonElement).click());
+
+    expect(document.body.textContent).toContain("서버 설정");
+    expect(document.body.textContent).toContain("오프라인");
+    expect(document.body.querySelector('[aria-label="서버 설정 분류"]')).toBeTruthy();
+    await act(async () => ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "월드") as HTMLButtonElement).click());
+    const difficulty = document.body.querySelector('option[value="hard"]')?.parentElement as HTMLSelectElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+      setter.call(difficulty, "hard");
+      difficulty.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const monsters = document.body.querySelector('[aria-label="몬스터 생성"]') as HTMLButtonElement;
+    await act(async () => monsters.click());
+    await act(async () => {
+      ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "설정 저장") as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(submitted).toMatchObject({ difficulty: "hard", spawnMonsters: false, tpaEnabled: true });
+    await act(async () => root.unmount());
+  });
+
+  it("shows offline player history and creates a one-time temporary password", async () => {
+    const overview = adminOverview(true, [{
+      ...testPlayer,
+      accountId: "member-1",
+      online: false,
+      firstSeenAt: Date.now() - 172_800_000,
+      lastSeenAt: Date.now() - 86_400_000,
+      playTimeTicks: 144_000,
+    }]);
+    overview.users = [{
+      id: "member-1",
+      username: "member",
+      gameUsername: "member",
+      displayName: "멤버",
+      createdAt: Date.now() - 172_800_000,
+      lastLoginAt: Date.now() - 86_400_000,
+      passwordUpdatedAt: Date.now() - 172_800_000,
+      passwordResetExpiresAt: null,
+      resetRequired: false,
+      isAdmin: false,
+    }];
+    const fetchMock = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/admin/overview") return Promise.resolve(jsonResponse(overview));
+      if (path === "/api/admin/users/member-1/temporary-password" && options?.method === "POST") {
+        return Promise.resolve(jsonResponse({ temporaryPassword: "TempPass123ABC", user: { id: "member-1" } }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AdminPanel data={adminData} onSession={vi.fn()} notice={vi.fn()} />));
+    await act(async () => {
+      (container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("총 플레이 시간");
+    expect(document.body.textContent).toContain("2시간 0분");
+    expect(document.body.textContent).toContain("상태와 위치");
+    expect(document.body.textContent).toContain("엔더 상자");
+    const issue = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "임시 비밀번호 발급") as HTMLButtonElement;
+    await act(async () => issue.click());
+    const confirm = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "한 번 더 눌러 발급") as HTMLButtonElement;
+    await act(async () => {
+      confirm.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("TempPass123ABC");
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/users/member-1/temporary-password", expect.objectContaining({ method: "POST" }));
     await act(async () => root.unmount());
   });
 });

@@ -13,6 +13,7 @@ import {
   createAdminToken,
   createPasswordResetCode,
   createSessionToken,
+  createTemporaryPassword,
   hashPassword,
   isSameOrigin,
   sessionFromRequest,
@@ -36,10 +37,13 @@ import type {
   PlayerDetails,
   PublicUser,
   ResourcePackPreference,
+  ServerGameMode,
+  ServerSettings,
   TitleColor,
   UserAuthentication,
   UserRecord,
 } from "./types.js";
+import type { PlayerInventoryPatch, PlayerStatePatch } from "./player-data.js";
 
 export interface ApiContext {
   database: AppDatabase;
@@ -63,6 +67,8 @@ const ADMIN_UNLOCK_MINUTES = 10;
 const ADMIN_OVERVIEW_RATE_LIMIT = 1_200;
 const ADMIN_OVERVIEW_RATE_WINDOW_MS = 10 * 60_000;
 const TITLE_COLORS = new Set<TitleColor>(["white", "gray", "red", "gold", "yellow", "green", "aqua", "blue", "light_purple"]);
+const SERVER_DIFFICULTIES = new Set(["peaceful", "easy", "normal", "hard"]);
+const SERVER_GAME_MODES = new Set<ServerGameMode>(["survival", "creative", "adventure", "spectator"]);
 const STANDALONE_ADMIN = {
   id: "spawnpoint-standalone-admin",
   username: "admin",
@@ -305,6 +311,124 @@ function validateLogOffset(input: unknown): number {
   return Number(input);
 }
 
+function objectInput(input: unknown, message: string): Record<string, unknown> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(message);
+  return input as Record<string, unknown>;
+}
+
+function booleanInput(input: unknown, message: string): boolean {
+  if (typeof input !== "boolean") throw new Error(message);
+  return input;
+}
+
+function numberInput(input: unknown, label: string, minimum: number, maximum: number, integer = false): number {
+  if (typeof input !== "number" || !Number.isFinite(input) || input < minimum || input > maximum || (integer && !Number.isInteger(input))) {
+    throw new Error(`${label} 값이 올바르지 않아요.`);
+  }
+  return input;
+}
+
+function validateServerSettings(input: unknown): ServerSettings {
+  const value = objectInput(input, "서버 설정이 올바르지 않아요.");
+  const motd = typeof value.motd === "string" ? value.motd.trim() : "";
+  if (!motd || motd.length > 80 || /[\r\n\0]/.test(motd)) throw new Error("서버 설명은 한 줄로 1~80자를 입력하세요.");
+  if (typeof value.difficulty !== "string" || !SERVER_DIFFICULTIES.has(value.difficulty)) {
+    throw new Error("난이도 선택이 올바르지 않아요.");
+  }
+  if (typeof value.defaultGameMode !== "string" || !SERVER_GAME_MODES.has(value.defaultGameMode as ServerGameMode)) {
+    throw new Error("기본 게임 모드 선택이 올바르지 않아요.");
+  }
+  return {
+    motd,
+    maxPlayers: numberInput(value.maxPlayers, "최대 인원", 2, 40, true),
+    difficulty: value.difficulty as ServerSettings["difficulty"],
+    defaultGameMode: value.defaultGameMode as ServerGameMode,
+    forceGameMode: booleanInput(value.forceGameMode, "게임 모드 설정이 올바르지 않아요."),
+    viewDistance: numberInput(value.viewDistance, "시야 거리", 2, 12, true),
+    playerIdleTimeout: numberInput(value.playerIdleTimeout, "자리 비움 제한", 0, 120, true),
+    pvp: booleanInput(value.pvp, "PVP 설정이 올바르지 않아요."),
+    allowFlight: booleanInput(value.allowFlight, "비행 설정이 올바르지 않아요."),
+    hardcore: booleanInput(value.hardcore, "하드코어 설정이 올바르지 않아요."),
+    allowNether: booleanInput(value.allowNether, "네더 설정이 올바르지 않아요."),
+    generateStructures: booleanInput(value.generateStructures, "구조물 설정이 올바르지 않아요."),
+    spawnAnimals: booleanInput(value.spawnAnimals, "동물 설정이 올바르지 않아요."),
+    spawnMonsters: booleanInput(value.spawnMonsters, "몬스터 설정이 올바르지 않아요."),
+    spawnNpcs: booleanInput(value.spawnNpcs, "주민 설정이 올바르지 않아요."),
+    whiteList: booleanInput(value.whiteList, "화이트리스트 설정이 올바르지 않아요."),
+    commandBlocks: booleanInput(value.commandBlocks, "명령 블록 설정이 올바르지 않아요."),
+    keepInventory: booleanInput(value.keepInventory, "인벤토리 보존 설정이 올바르지 않아요."),
+    tpaEnabled: booleanInput(value.tpaEnabled, "TPA 설정이 올바르지 않아요."),
+  };
+}
+
+function serverSettingsRequireRestart(previous: ServerSettings, next: ServerSettings): boolean {
+  return (Object.keys(next) as Array<keyof ServerSettings>).some((key) => (
+    key !== "tpaEnabled" && key !== "keepInventory" && previous[key] !== next[key]
+  ));
+}
+
+function validatePlayerStatePatch(input: unknown): PlayerStatePatch {
+  const value = objectInput(input, "플레이어 상태가 올바르지 않아요.");
+  const allowed = new Set(["health", "foodLevel", "gameMode", "location"]);
+  if (!Object.keys(value).length || Object.keys(value).some((key) => !allowed.has(key))) {
+    throw new Error("변경할 플레이어 상태를 선택하세요.");
+  }
+  const patch: PlayerStatePatch = {};
+  if (value.health !== undefined) patch.health = numberInput(value.health, "체력", 0, 20);
+  if (value.foodLevel !== undefined) patch.foodLevel = numberInput(value.foodLevel, "허기", 0, 20, true);
+  if (value.gameMode !== undefined) {
+    if (typeof value.gameMode !== "string" || !SERVER_GAME_MODES.has(value.gameMode as ServerGameMode)) {
+      throw new Error("게임 모드 선택이 올바르지 않아요.");
+    }
+    patch.gameMode = value.gameMode as ServerGameMode;
+  }
+  if (value.location !== undefined) {
+    const location = objectInput(value.location, "위치 정보가 올바르지 않아요.");
+    if (typeof location.world !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(location.world)) {
+      throw new Error("월드 선택이 올바르지 않아요.");
+    }
+    patch.location = {
+      world: location.world,
+      x: numberInput(location.x, "X 좌표", -30_000_000, 30_000_000),
+      y: numberInput(location.y, "Y 좌표", -64, 512),
+      z: numberInput(location.z, "Z 좌표", -30_000_000, 30_000_000),
+      yaw: numberInput(location.yaw, "방향", -360, 360),
+      pitch: numberInput(location.pitch, "고개 각도", -90, 90),
+    };
+  }
+  return patch;
+}
+
+function validateInventoryPatch(input: unknown): PlayerInventoryPatch {
+  const value = objectInput(input, "인벤토리 변경 값이 올바르지 않아요.");
+  if (value.section !== "storage" && value.section !== "armor" && value.section !== "extra" && value.section !== "ender") {
+    throw new Error("인벤토리 종류가 올바르지 않아요.");
+  }
+  const maximumSlot = value.section === "storage" ? 35 : value.section === "armor" ? 3 : value.section === "extra" ? 0 : 26;
+  const slot = numberInput(value.slot, "아이템 칸", 0, maximumSlot, true);
+  if (value.item === null) return { section: value.section, slot, item: null };
+  const item = objectInput(value.item, "아이템 정보가 올바르지 않아요.");
+  const type = typeof item.type === "string" ? item.type.trim().toLowerCase().replace(/^minecraft:/, "") : "";
+  if (!/^[a-z0-9_]{1,80}$/.test(type)) throw new Error("아이템 ID가 올바르지 않아요.");
+  return {
+    section: value.section,
+    slot,
+    item: {
+      type,
+      amount: numberInput(item.amount, "아이템 수량", 1, 64, true),
+      durability: numberInput(item.durability ?? 0, "아이템 내구도", 0, 32_767, true),
+    },
+  };
+}
+
+function validateAdminReason(input: unknown, fallback: string): string {
+  if (input !== undefined && typeof input !== "string") throw new Error("사유는 한 줄로 1~160자를 입력하세요.");
+  if (typeof input === "string" && /[\r\n\0]/.test(input)) throw new Error("사유는 한 줄로 1~160자를 입력하세요.");
+  const reason = typeof input === "string" ? input.trim() || fallback : fallback;
+  if (reason.length > 160) throw new Error("사유는 한 줄로 1~160자를 입력하세요.");
+  return reason;
+}
+
 function validateTitleText(input: unknown, label: string, maxLength: number): string {
   if (typeof input !== "string") throw new Error(`${label} 문구를 입력하세요.`);
   const text = input.trim();
@@ -409,11 +533,25 @@ async function bridgeLocator(context: ApiContext, accountId: string): Promise<Lo
   return { active: body.active, targets: body.targets };
 }
 
-async function bridgeSettings(context: ApiContext, init?: RequestInit, timeoutMs?: number): Promise<BridgeSettings> {
-  const response = await bridgeRequest(context, init ? "/v1/settings/tpa" : "/v1/settings", init, timeoutMs);
+async function bridgeSettings(context: ApiContext): Promise<BridgeSettings> {
+  const response = await bridgeRequest(context, "/v1/settings");
   const body = await response.json() as Partial<BridgeSettings>;
-  if (typeof body.tpaEnabled !== "boolean") throw new Error("브리지의 TPA 설정 응답이 올바르지 않아요.");
-  return { tpaEnabled: body.tpaEnabled };
+  if (typeof body.tpaEnabled !== "boolean" || typeof body.keepInventory !== "boolean") {
+    throw new Error("브리지의 서버 설정 응답이 올바르지 않아요.");
+  }
+  return { tpaEnabled: body.tpaEnabled, keepInventory: body.keepInventory };
+}
+
+async function updateBridgeSetting(context: ApiContext, setting: "tpa" | "keep-inventory", enabled: boolean): Promise<BridgeSettings> {
+  const response = await bridgeRequest(context, `/v1/settings/${setting}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  }, 4_000);
+  const body = await response.json() as Partial<BridgeSettings>;
+  if (typeof body.tpaEnabled !== "boolean" || typeof body.keepInventory !== "boolean") {
+    throw new Error("브리지의 서버 설정 응답이 올바르지 않아요.");
+  }
+  return { tpaEnabled: body.tpaEnabled, keepInventory: body.keepInventory };
 }
 
 async function bridgeTitle(context: ApiContext, request: BridgeTitleRequest): Promise<{ sent: number }> {
@@ -688,7 +826,7 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
     try {
       const credentials = validateCredentials(request.body?.username, request.body?.password);
-      const user = context.database.getUserByUsername(credentials.username);
+      let user = context.database.getUserByUsername(credentials.username);
       if (user && hasActivePasswordReset(user)) {
         fail(response, 409, "새 비밀번호를 설정해 로그인하세요.", "PASSWORD_RESET_REQUIRED");
         return;
@@ -701,6 +839,7 @@ export function createApiRouter(context: ApiContext): express.Router {
         fail(response, 401, "플레이어 이름 또는 비밀번호가 올바르지 않아요.", "INVALID_LOGIN");
         return;
       }
+      user = context.database.recordLogin(user.id);
       const session = createSessionToken(user, context.sessionSecret, context.sessionDays);
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({ user: publicUser(user, context), csrf: session.csrf, created: false });
@@ -770,6 +909,7 @@ export function createApiRouter(context: ApiContext): express.Router {
         }
       }
 
+      if (!created) user = context.database.recordLogin(user.id);
       const session = createSessionToken(user, context.sessionSecret, context.sessionDays);
       setSessionCookie(response, session.token, context.sessionDays, context.secureCookies);
       response.json({ user: publicUser(user, context), csrf: session.csrf, created });
@@ -978,26 +1118,53 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      const [playersResult, settingsResult] = await Promise.allSettled([
-        bridgePlayers(context),
-        bridgeSettings(context),
+      const server = context.serverManager.getStatus();
+      const users = context.database.listUsers().map((user) => ({
+        ...user,
+        resetRequired: user.passwordResetPending
+          && user.passwordResetExpiresAt !== null
+          && user.passwordResetExpiresAt > Date.now(),
+        isAdmin: isAdminId(user.id, context) || isAdminUsername(user.username, context),
+      }));
+      const [storedSettings, storedPlayers] = await Promise.all([
+        context.serverManager.getServerSettings(),
+        context.serverManager.getStoredPlayers(users),
       ]);
-      const players = playersResult.status === "fulfilled" ? playersResult.value : [];
-      const bridgeAvailable = playersResult.status === "fulfilled";
-      const tpaEnabled = settingsResult.status === "fulfilled" ? settingsResult.value.tpaEnabled : null;
+      const [playersResult, bridgeSettingsResult] = server.phase === "online"
+        ? await Promise.allSettled([bridgePlayers(context), bridgeSettings(context)])
+        : [
+            { status: "fulfilled", value: [] } as const,
+            { status: "rejected", reason: new Error("server offline") } as const,
+          ];
+      const livePlayers = playersResult.status === "fulfilled" ? playersResult.value : [];
+      const liveByAccount = new Map(livePlayers.flatMap((player) => player.accountId ? [[player.accountId, player] as const] : []));
+      const liveByUsername = new Map(livePlayers.map((player) => [player.username.toLowerCase(), player] as const));
+      const matchedLivePlayers = new Set<PlayerDetails>();
+      const players = storedPlayers.map((stored) => {
+        const live = (stored.accountId ? liveByAccount.get(stored.accountId) : null)
+          ?? liveByUsername.get(stored.username.toLowerCase());
+        if (!live) return stored;
+        matchedLivePlayers.add(live);
+        return { ...stored, ...live, online: true, dataAvailable: true };
+      });
+      for (const live of livePlayers) {
+        if (!matchedLivePlayers.has(live)) players.push(live);
+      }
+      const settings = bridgeSettingsResult.status === "fulfilled"
+        ? {
+            ...storedSettings,
+            tpaEnabled: bridgeSettingsResult.value.tpaEnabled,
+            keepInventory: bridgeSettingsResult.value.keepInventory,
+          }
+        : storedSettings;
       response.json({
-        users: context.database.listUsers().map((user) => ({
-          ...user,
-          resetRequired: user.passwordResetPending
-            && user.passwordResetExpiresAt !== null
-            && user.passwordResetExpiresAt > Date.now(),
-          isAdmin: isAdminId(user.id, context) || isAdminUsername(user.username, context),
-        })),
+        users,
         players,
-        bridgeAvailable,
-        tpaEnabled,
+        bridgeAvailable: server.phase === "online" && playersResult.status === "fulfilled",
+        tpaEnabled: settings.tpaEnabled,
+        settings,
         logs: context.serverManager.getRecentLogs(200),
-        server: context.serverManager.getStatus(),
+        server,
       });
     } catch (error) {
       failFromError(response, 500, error, "관리자 정보를 불러오지 못했어요.", "ADMIN_OVERVIEW_FAILED");
@@ -1035,13 +1202,54 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      const settings = await bridgeSettings(context, {
-        method: "PUT",
-        body: JSON.stringify({ enabled: request.body.enabled }),
-      }, 4_000);
-      response.json(settings);
+      const current = await context.serverManager.getServerSettings();
+      const settings = await context.serverManager.updateServerSettings({
+        ...current,
+        tpaEnabled: request.body.enabled,
+      });
+      if (context.serverManager.getStatus().phase === "online") {
+        await updateBridgeSetting(context, "tpa", request.body.enabled);
+      }
+      response.json({ tpaEnabled: settings.tpaEnabled, keepInventory: settings.keepInventory });
     } catch (error) {
-      failFromError(response, 503, error, "TPA 설정을 변경하지 못했어요.", "BRIDGE_UNAVAILABLE");
+      failFromError(response, 503, error, "TPA 설정을 변경하지 못했어요.", "SETTING_UPDATE_FAILED");
+    }
+  });
+
+  router.put("/admin/settings/server", async (request, response) => {
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
+    let requested: ServerSettings;
+    try {
+      requested = validateServerSettings(request.body);
+    } catch (error) {
+      failFromError(response, 400, error, "서버 설정을 확인하세요.", "INVALID_SERVER_SETTINGS");
+      return;
+    }
+    try {
+      const previous = await context.serverManager.getServerSettings();
+      const settings = await context.serverManager.updateServerSettings(requested);
+      const serverOnline = context.serverManager.getStatus().phase === "online";
+      let liveApplied = true;
+      if (serverOnline) {
+        const liveUpdates: Promise<BridgeSettings>[] = [];
+        if (previous.tpaEnabled !== settings.tpaEnabled) {
+          liveUpdates.push(updateBridgeSetting(context, "tpa", settings.tpaEnabled));
+        }
+        if (previous.keepInventory !== settings.keepInventory) {
+          liveUpdates.push(updateBridgeSetting(context, "keep-inventory", settings.keepInventory));
+        }
+        if (liveUpdates.length) {
+          const results = await Promise.allSettled(liveUpdates);
+          liveApplied = results.every((result) => result.status === "fulfilled");
+        }
+      }
+      response.json({
+        settings,
+        restartRequired: serverOnline && (serverSettingsRequireRestart(previous, settings) || !liveApplied),
+        liveApplied,
+      });
+    } catch (error) {
+      failFromError(response, 500, error, "서버 설정을 저장하지 못했어요.", "SETTING_UPDATE_FAILED");
     }
   });
 
@@ -1174,24 +1382,185 @@ export function createApiRouter(context: ApiContext): express.Router {
     });
   });
 
-  router.put("/admin/players/:player/operator", async (request, response) => {
-    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
-    let player: string;
-    try {
-      player = validatePlayerTarget(request.params.player);
-      if (typeof request.body?.operator !== "boolean") throw new Error("OP 상태를 선택하세요.");
-    } catch (error) {
-      failFromError(response, 400, error, "OP 상태를 확인하세요.", "INVALID_OPERATOR_REQUEST");
+  router.post("/admin/users/:id/temporary-password", async (request, response) => {
+    const authorization = requireAdminMutation(request, response, context, adminLimiter);
+    if (!authorization) return;
+    if (authorization.admin.id === request.params.id) {
+      fail(response, 400, "내 비밀번호는 계정 설정에서 변경하세요.", "SELF_RESET_NOT_ALLOWED");
+      return;
+    }
+    const target = context.database.getUserById(request.params.id);
+    if (!target) {
+      fail(response, 404, "사용자를 찾을 수 없어요.", "USER_NOT_FOUND");
       return;
     }
     try {
-      await bridgeRequest(context, `/v1/players/${encodeURIComponent(player)}/operator`, {
-        method: "PUT",
-        body: JSON.stringify({ operator: request.body.operator }),
+      const temporaryPassword = createTemporaryPassword();
+      const password = await hashPassword(temporaryPassword);
+      const updated = context.database.updatePassword(target.id, password.hash, password.salt);
+      context.gameConnections.disconnectUser(updated.id);
+      try {
+        await bridgeRequest(context, `/v1/players/${encodeURIComponent(updated.id)}/disconnect`, { method: "POST" });
+      } catch {
+        // Password replacement must also work while Minecraft is asleep or unavailable.
+      }
+      response.json({
+        temporaryPassword,
+        user: {
+          id: updated.id,
+          username: updated.username,
+          displayName: updated.displayName,
+          passwordUpdatedAt: updated.passwordUpdatedAt,
+        },
       });
-      response.status(204).end();
     } catch (error) {
-      failFromError(response, 503, error, "OP 상태를 변경하지 못했어요.", "BRIDGE_UNAVAILABLE");
+      failFromError(response, 500, error, "임시 비밀번호를 만들지 못했어요.", "PASSWORD_UPDATE_FAILED");
+    }
+  });
+
+  router.patch("/admin/players/:id/state", async (request, response) => {
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
+    const target = context.database.getUserById(request.params.id);
+    if (!target) {
+      fail(response, 404, "플레이어를 찾을 수 없어요.", "USER_NOT_FOUND");
+      return;
+    }
+    let patch: PlayerStatePatch;
+    try {
+      patch = validatePlayerStatePatch(request.body);
+    } catch (error) {
+      failFromError(response, 400, error, "플레이어 상태를 확인하세요.", "INVALID_PLAYER_STATE");
+      return;
+    }
+    try {
+      if (context.serverManager.isPlayerOnline(target.gameUsername)) {
+        const bridgeResponse = await bridgeRequest(context, `/v1/players/${encodeURIComponent(target.gameUsername)}/state`, {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        }, 4_000);
+        response.json({ player: await bridgeResponse.json() });
+      } else {
+        response.json({ player: await context.serverManager.updateStoredPlayerState(target, patch) });
+      }
+    } catch (error) {
+      failFromError(response, 409, error, "플레이어 상태를 변경하지 못했어요.", "PLAYER_UPDATE_FAILED");
+    }
+  });
+
+  router.put("/admin/players/:id/inventory", async (request, response) => {
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
+    const target = context.database.getUserById(request.params.id);
+    if (!target) {
+      fail(response, 404, "플레이어를 찾을 수 없어요.", "USER_NOT_FOUND");
+      return;
+    }
+    let patch: PlayerInventoryPatch;
+    try {
+      patch = validateInventoryPatch(request.body);
+    } catch (error) {
+      failFromError(response, 400, error, "아이템 변경 값을 확인하세요.", "INVALID_INVENTORY_UPDATE");
+      return;
+    }
+    try {
+      if (context.serverManager.isPlayerOnline(target.gameUsername)) {
+        const bridgeResponse = await bridgeRequest(context, `/v1/players/${encodeURIComponent(target.gameUsername)}/inventory`, {
+          method: "PUT",
+          body: JSON.stringify(patch),
+        }, 4_000);
+        response.json({ player: await bridgeResponse.json() });
+      } else {
+        response.json({ player: await context.serverManager.updateStoredPlayerInventory(target, patch) });
+      }
+    } catch (error) {
+      failFromError(response, 409, error, "아이템을 변경하지 못했어요.", "INVENTORY_UPDATE_FAILED");
+    }
+  });
+
+  router.post("/admin/players/:id/kick", async (request, response) => {
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
+    const target = context.database.getUserById(request.params.id);
+    if (!target) {
+      fail(response, 404, "플레이어를 찾을 수 없어요.", "USER_NOT_FOUND");
+      return;
+    }
+    if (!context.serverManager.isPlayerOnline(target.gameUsername)) {
+      fail(response, 409, "온라인 플레이어만 내보낼 수 있어요.", "PLAYER_OFFLINE");
+      return;
+    }
+    let reason: string;
+    try {
+      reason = validateAdminReason(request.body?.reason, "관리자가 서버에서 내보냈습니다.");
+    } catch (error) {
+      failFromError(response, 400, error, "사유가 올바르지 않아요.", "INVALID_KICK_REASON");
+      return;
+    }
+    try {
+      const bridgeResponse = await bridgeRequest(context, `/v1/players/${encodeURIComponent(target.gameUsername)}/kick`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }, 4_000);
+      response.json(await bridgeResponse.json());
+    } catch (error) {
+      failFromError(response, 409, error, "플레이어를 내보내지 못했어요.", "KICK_FAILED");
+    }
+  });
+
+  router.put("/admin/players/:id/ban", async (request, response) => {
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
+    const target = context.database.getUserById(request.params.id);
+    if (!target) {
+      fail(response, 404, "플레이어를 찾을 수 없어요.", "USER_NOT_FOUND");
+      return;
+    }
+    if (typeof request.body?.banned !== "boolean") {
+      fail(response, 400, "차단 상태가 올바르지 않아요.", "INVALID_BAN_STATE");
+      return;
+    }
+    let reason: string;
+    try {
+      reason = validateAdminReason(request.body?.reason, "관리자가 차단했습니다.");
+    } catch (error) {
+      failFromError(response, 400, error, "사유가 올바르지 않아요.", "INVALID_BAN_REASON");
+      return;
+    }
+    try {
+      if (context.serverManager.isPlayerOnline(target.gameUsername)) {
+        const bridgeResponse = await bridgeRequest(context, `/v1/players/${encodeURIComponent(target.gameUsername)}/ban`, {
+          method: "PUT",
+          body: JSON.stringify({ banned: request.body.banned, reason }),
+        }, 4_000);
+        response.json({ player: await bridgeResponse.json() });
+      } else {
+        response.json({ player: await context.serverManager.setStoredPlayerBanned(target, request.body.banned, reason) });
+      }
+    } catch (error) {
+      failFromError(response, 409, error, "차단 상태를 변경하지 못했어요.", "BAN_UPDATE_FAILED");
+    }
+  });
+
+  router.put("/admin/players/:id/operator", async (request, response) => {
+    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
+    const target = context.database.getUserById(request.params.id);
+    if (!target) {
+      fail(response, 404, "플레이어를 찾을 수 없어요.", "USER_NOT_FOUND");
+      return;
+    }
+    if (typeof request.body?.operator !== "boolean") {
+      fail(response, 400, "OP 상태를 선택하세요.", "INVALID_OPERATOR_REQUEST");
+      return;
+    }
+    try {
+      if (context.serverManager.isPlayerOnline(target.gameUsername)) {
+        const bridgeResponse = await bridgeRequest(context, `/v1/players/${encodeURIComponent(target.gameUsername)}/operator`, {
+          method: "PUT",
+          body: JSON.stringify({ operator: request.body.operator }),
+        });
+        response.json({ player: await bridgeResponse.json() });
+      } else {
+        response.json({ player: await context.serverManager.setStoredPlayerOperator(target, request.body.operator) });
+      }
+    } catch (error) {
+      failFromError(response, 409, error, "OP 상태를 변경하지 못했어요.", "OP_UPDATE_FAILED");
     }
   });
 

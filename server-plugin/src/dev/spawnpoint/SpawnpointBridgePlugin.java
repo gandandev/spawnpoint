@@ -64,8 +64,11 @@ import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.chat.TranslatableComponent;
 import net.md_5.bungee.chat.ComponentSerializer;
 import org.bukkit.ChatColor;
+import org.bukkit.BanList;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Statistic;
 import org.bukkit.World;
 import org.bukkit.advancement.Advancement;
 import org.bukkit.block.Block;
@@ -120,6 +123,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private BukkitTask locatorSnapshotTask;
     private BukkitTask commandIdentityRefreshTask;
     private boolean tpaEnabled;
+    private boolean keepInventory;
     private final Map<String, PlayerIdentity> pendingIdentities = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerIdentity> activeIdentities = new ConcurrentHashMap<>();
     private volatile Map<String, JsonObject> locatorSnapshots = Map.of();
@@ -143,6 +147,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             return;
         }
         getConfig().addDefault("tpa-enabled", true);
+        getConfig().addDefault("keep-inventory", true);
         getConfig().options().copyDefaults(true);
         try {
             savePluginConfig();
@@ -150,13 +155,14 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             getLogger().severe("Could not save the default TPA setting: " + exception.getMessage());
         }
         this.tpaEnabled = getConfig().getBoolean("tpa-enabled", true);
+        this.keepInventory = getConfig().getBoolean("keep-inventory", true);
         registerCommand("tpa");
         registerCommand("tpaccept");
         registerCommand("tpdeny");
         registerCommand("spawnpointtell");
         this.portalOrigin = env("PORTAL_INTERNAL_ORIGIN", "http://127.0.0.1:3000").replaceAll("/+$", "");
         getServer().getPluginManager().registerEvents(this, this);
-        enableKeepInventory();
+        applyKeepInventory(keepInventory);
         startBridgeServer();
         if (!isEnabled()) return;
         this.locatorSnapshotTask = getServer().getScheduler().runTaskTimer(this, this::refreshLocatorSnapshots, 1L, 1L);
@@ -169,16 +175,16 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         getLogger().info("Site-ticket authentication and the loopback server bridge are active.");
     }
 
-    private void enableKeepInventory() {
-        int enabledWorlds = 0;
+    private void applyKeepInventory(boolean enabled) {
+        int updatedWorlds = 0;
         for (World world : getServer().getWorlds()) {
-            if (world.setGameRuleValue("keepInventory", "true")) {
-                enabledWorlds++;
+            if (world.setGameRuleValue("keepInventory", Boolean.toString(enabled))) {
+                updatedWorlds++;
             } else {
-                getLogger().warning("Could not enable keepInventory in world " + world.getName() + ".");
+                getLogger().warning("Could not update keepInventory in world " + world.getName() + ".");
             }
         }
-        getLogger().info("Enabled keepInventory in " + enabledWorlds + " loaded worlds.");
+        getLogger().info("Set keepInventory=" + enabled + " in " + updatedWorlds + " loaded worlds.");
     }
 
     @Override
@@ -710,6 +716,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private JsonObject snapshotSettings() {
         JsonObject result = new JsonObject();
         result.addProperty("tpaEnabled", tpaEnabled);
+        result.addProperty("keepInventory", keepInventory);
         return result;
     }
 
@@ -724,6 +731,20 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
         this.tpaEnabled = enabled;
         if (!enabled) cancelAllTeleportRequests();
+        return snapshotSettings();
+    }
+
+    private JsonObject setKeepInventory(boolean enabled) {
+        boolean previous = this.keepInventory;
+        getConfig().set("keep-inventory", enabled);
+        try {
+            savePluginConfig();
+        } catch (IOException exception) {
+            getConfig().set("keep-inventory", previous);
+            throw new IllegalStateException("Could not save the keep-inventory setting: " + exception.getMessage(), exception);
+        }
+        this.keepInventory = enabled;
+        applyKeepInventory(enabled);
         return snapshotSettings();
     }
 
@@ -839,6 +860,18 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 sendJson(exchange, 200, onMainThread(() -> setTpaEnabled(enabled)));
                 return;
             }
+            if ("PUT".equals(method) && "/v1/settings/keep-inventory".equals(path)) {
+                JsonObject request = parseRequestObject(exchange);
+                if (request == null || request.entrySet().size() != 1 || !request.has("enabled")
+                    || !request.get("enabled").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("enabled").isBoolean()) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                boolean enabled = request.get("enabled").getAsBoolean();
+                sendJson(exchange, 200, onMainThread(() -> setKeepInventory(enabled)));
+                return;
+            }
             if ("POST".equals(method) && "/v1/titles".equals(path)) {
                 JsonObject request = parseRequestObject(exchange);
                 if (request == null || request.entrySet().size() != 5
@@ -916,6 +949,88 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 return;
             }
             String prefix = "/v1/players/";
+            String stateSuffix = "/state";
+            if ("PATCH".equals(method) && path.startsWith(prefix) && path.endsWith(stateSuffix)) {
+                String playerKey = playerKeyFromPath(path, prefix, stateSuffix);
+                JsonObject request = parseRequestObject(exchange);
+                if (playerKey == null || request == null || request.entrySet().isEmpty()) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                JsonObject result = onMainThread(() -> updatePlayerState(playerKey, request));
+                if (result == null) {
+                    sendError(exchange, 404, "player_not_found");
+                    return;
+                }
+                sendJson(exchange, 200, result);
+                return;
+            }
+            String inventorySuffix = "/inventory";
+            if ("PUT".equals(method) && path.startsWith(prefix) && path.endsWith(inventorySuffix)) {
+                String playerKey = playerKeyFromPath(path, prefix, inventorySuffix);
+                JsonObject request = parseRequestObject(exchange);
+                if (playerKey == null || request == null) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                JsonObject result = onMainThread(() -> updatePlayerInventory(playerKey, request));
+                if (result == null) {
+                    sendError(exchange, 404, "player_not_found");
+                    return;
+                }
+                sendJson(exchange, 200, result);
+                return;
+            }
+            String kickSuffix = "/kick";
+            if ("POST".equals(method) && path.startsWith(prefix) && path.endsWith(kickSuffix)) {
+                String playerKey = playerKeyFromPath(path, prefix, kickSuffix);
+                JsonObject request = parseRequestObject(exchange);
+                if (playerKey == null || request == null || request.entrySet().size() != 1
+                    || !request.has("reason") || !request.get("reason").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("reason").isString()) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                String reason = request.get("reason").getAsString().trim();
+                if (!isSafeReason(reason)) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                JsonObject result = onMainThread(() -> kickPlayer(playerKey, reason));
+                if (result == null) {
+                    sendError(exchange, 404, "player_not_found");
+                    return;
+                }
+                sendJson(exchange, 200, result);
+                return;
+            }
+            String banSuffix = "/ban";
+            if ("PUT".equals(method) && path.startsWith(prefix) && path.endsWith(banSuffix)) {
+                String playerKey = playerKeyFromPath(path, prefix, banSuffix);
+                JsonObject request = parseRequestObject(exchange);
+                if (playerKey == null || request == null || !request.has("banned")
+                    || !request.get("banned").isJsonPrimitive()
+                    || !request.getAsJsonPrimitive("banned").isBoolean()) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                String reason = request.has("reason") && request.get("reason").isJsonPrimitive()
+                    && request.getAsJsonPrimitive("reason").isString()
+                    ? request.get("reason").getAsString().trim()
+                    : "관리자가 차단했습니다.";
+                if (!isSafeReason(reason)) {
+                    sendError(exchange, 400, "invalid_request");
+                    return;
+                }
+                boolean banned = request.get("banned").getAsBoolean();
+                JsonObject result = onMainThread(() -> setPlayerBanned(playerKey, banned, reason));
+                if (result == null) {
+                    sendError(exchange, 404, "player_not_found");
+                    return;
+                }
+                sendJson(exchange, 200, result);
+                return;
+            }
             String operatorSuffix = "/operator";
             if ("PUT".equals(method) && path.startsWith(prefix) && path.endsWith(operatorSuffix)) {
                 String encodedPlayer = path.substring(prefix.length(), path.length() - operatorSuffix.length());
@@ -997,6 +1112,18 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
     }
 
+    private String playerKeyFromPath(String path, String prefix, String suffix) {
+        String encodedPlayer = path.substring(prefix.length(), path.length() - suffix.length());
+        if (encodedPlayer.isEmpty() || encodedPlayer.contains("/")) return null;
+        String playerKey = URLDecoder.decode(encodedPlayer, StandardCharsets.UTF_8);
+        return PLAYER_KEY.matcher(playerKey).matches() ? playerKey : null;
+    }
+
+    private static boolean isSafeReason(String reason) {
+        return !reason.isEmpty() && reason.length() <= 160
+            && reason.indexOf('\r') < 0 && reason.indexOf('\n') < 0 && reason.indexOf('\0') < 0;
+    }
+
     private <T> T onMainThread(Callable<T> callable)
         throws InterruptedException, ExecutionException, TimeoutException {
         Future<T> future = getServer().getScheduler().callSyncMethod(this, callable);
@@ -1074,6 +1201,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         result.addProperty("accountId", identity == null ? null : identity.accountId);
         result.addProperty("username", player.getName());
         result.addProperty("displayName", player.getDisplayName());
+        result.addProperty("online", true);
+        result.addProperty("dataAvailable", true);
+        result.addProperty("firstSeenAt", player.getFirstPlayed());
+        result.addProperty("lastSeenAt", System.currentTimeMillis());
+        result.addProperty("playTimeTicks", player.getStatistic(Statistic.PLAY_ONE_TICK));
+        result.addProperty("banned", getServer().getBanList(BanList.Type.NAME).isBanned(player.getName()));
         result.addProperty("operator", player.isOp());
         result.addProperty("world", player.getWorld().getName());
         result.addProperty("x", location.getX());
@@ -1085,7 +1218,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         result.addProperty("foodLevel", player.getFoodLevel());
         result.addProperty("gameMode", player.getGameMode().name().toLowerCase(Locale.ROOT));
         result.add("inventory", snapshotPlayerInventory(player.getInventory()));
-        result.add("enderChest", snapshotInventory(player.getEnderChest(), "storage"));
+        result.add("enderChest", snapshotInventory(player.getEnderChest(), "ender"));
         return result;
     }
 
@@ -1132,6 +1265,133 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             }
             result.add(value);
         }
+    }
+
+    private JsonObject updatePlayerState(String playerKey, JsonObject request) {
+        for (Map.Entry<String, JsonElement> entry : request.entrySet()) {
+            if (!Set.of("health", "foodLevel", "gameMode", "location").contains(entry.getKey())) {
+                throw new IllegalArgumentException("Unknown player state field.");
+            }
+        }
+        Player player = resolvePlayer(playerKey);
+        if (player == null) return null;
+        if (request.has("health")) {
+            double health = finiteJsonNumber(request, "health", 0.0D, 20.0D);
+            player.setHealth(Math.min(health, player.getMaxHealth()));
+        }
+        if (request.has("foodLevel")) {
+            int foodLevel = integerJsonNumber(request, "foodLevel", 0, 20);
+            player.setFoodLevel(foodLevel);
+        }
+        if (request.has("gameMode")) {
+            if (!request.get("gameMode").isJsonPrimitive() || !request.getAsJsonPrimitive("gameMode").isString()) {
+                throw new IllegalArgumentException("Invalid game mode.");
+            }
+            player.setGameMode(GameMode.valueOf(request.get("gameMode").getAsString().toUpperCase(Locale.ROOT)));
+        }
+        if (request.has("location")) {
+            if (!request.get("location").isJsonObject()) throw new IllegalArgumentException("Invalid location.");
+            JsonObject location = request.getAsJsonObject("location");
+            if (location.entrySet().size() != 6 || !location.has("world")
+                || !location.get("world").isJsonPrimitive() || !location.getAsJsonPrimitive("world").isString()) {
+                throw new IllegalArgumentException("Invalid location.");
+            }
+            World world = getServer().getWorld(location.get("world").getAsString());
+            if (world == null) throw new IllegalArgumentException("Unknown world.");
+            double x = finiteJsonNumber(location, "x", -30_000_000.0D, 30_000_000.0D);
+            double y = finiteJsonNumber(location, "y", -64.0D, 512.0D);
+            double z = finiteJsonNumber(location, "z", -30_000_000.0D, 30_000_000.0D);
+            float yaw = (float) finiteJsonNumber(location, "yaw", -360.0D, 360.0D);
+            float pitch = (float) finiteJsonNumber(location, "pitch", -90.0D, 90.0D);
+            if (!player.teleport(new Location(world, x, y, z, yaw, pitch))) {
+                throw new IllegalStateException("Player teleport was rejected.");
+            }
+        }
+        player.saveData();
+        return snapshotPlayer(player);
+    }
+
+    private JsonObject updatePlayerInventory(String playerKey, JsonObject request) {
+        if (request.entrySet().size() != 3 || !request.has("section") || !request.has("slot") || !request.has("item")
+            || !request.get("section").isJsonPrimitive() || !request.getAsJsonPrimitive("section").isString()) {
+            throw new IllegalArgumentException("Invalid inventory request.");
+        }
+        String section = request.get("section").getAsString();
+        int maximumSlot = "storage".equals(section) ? 35 : "armor".equals(section) ? 3
+            : "extra".equals(section) ? 0 : "ender".equals(section) ? 26 : -1;
+        int slot = integerJsonNumber(request, "slot", 0, maximumSlot);
+        ItemStack item = null;
+        if (!request.get("item").isJsonNull()) {
+            if (!request.get("item").isJsonObject()) throw new IllegalArgumentException("Invalid inventory item.");
+            JsonObject value = request.getAsJsonObject("item");
+            if (value.entrySet().size() != 3 || !value.has("type") || !value.has("amount") || !value.has("durability")
+                || !value.get("type").isJsonPrimitive() || !value.getAsJsonPrimitive("type").isString()) {
+                throw new IllegalArgumentException("Invalid inventory item.");
+            }
+            String type = value.get("type").getAsString().toUpperCase(Locale.ROOT).replaceFirst("^MINECRAFT:", "");
+            Material material = Material.matchMaterial(type);
+            if (material == null || material == Material.AIR) throw new IllegalArgumentException("Unknown inventory item.");
+            int amount = integerJsonNumber(value, "amount", 1, Math.min(64, material.getMaxStackSize()));
+            int durability = integerJsonNumber(value, "durability", 0, Short.MAX_VALUE);
+            item = new ItemStack(material, amount, (short) durability);
+        }
+        Player player = resolvePlayer(playerKey);
+        if (player == null) return null;
+        PlayerInventory inventory = player.getInventory();
+        if ("storage".equals(section)) {
+            inventory.setItem(slot, item);
+        } else if ("armor".equals(section)) {
+            ItemStack[] armor = inventory.getArmorContents();
+            armor[slot] = item;
+            inventory.setArmorContents(armor);
+        } else if ("extra".equals(section)) {
+            ItemStack[] extra = inventory.getExtraContents();
+            extra[slot] = item;
+            inventory.setExtraContents(extra);
+        } else {
+            player.getEnderChest().setItem(slot, item);
+        }
+        player.updateInventory();
+        player.saveData();
+        return snapshotPlayer(player);
+    }
+
+    private JsonObject kickPlayer(String playerKey, String reason) {
+        Player player = resolvePlayer(playerKey);
+        if (player == null) return null;
+        JsonObject result = playerIdentity(player);
+        result.addProperty("kicked", true);
+        player.kickPlayer(reason);
+        return result;
+    }
+
+    private JsonObject setPlayerBanned(String playerKey, boolean banned, String reason) {
+        Player player = resolvePlayer(playerKey);
+        if (player == null) return null;
+        BanList bans = getServer().getBanList(BanList.Type.NAME);
+        if (banned) bans.addBan(player.getName(), reason, null, "spawnpoint admin");
+        else bans.pardon(player.getName());
+        JsonObject result = playerIdentity(player);
+        result.addProperty("banned", banned);
+        if (banned) player.kickPlayer(reason);
+        return result;
+    }
+
+    private static double finiteJsonNumber(JsonObject object, String key, double minimum, double maximum) {
+        if (!object.has(key) || !object.get(key).isJsonPrimitive() || !object.getAsJsonPrimitive(key).isNumber()) {
+            throw new IllegalArgumentException("Invalid number.");
+        }
+        double value = object.get(key).getAsDouble();
+        if (!Double.isFinite(value) || value < minimum || value > maximum) {
+            throw new IllegalArgumentException("Number is out of range.");
+        }
+        return value;
+    }
+
+    private static int integerJsonNumber(JsonObject object, String key, int minimum, int maximum) {
+        double value = finiteJsonNumber(object, key, minimum, maximum);
+        if (value != Math.rint(value)) throw new IllegalArgumentException("Expected an integer.");
+        return (int) value;
     }
 
     private JsonObject setOperator(String playerKey, boolean operator) {

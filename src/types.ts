@@ -1,5 +1,7 @@
 export type ServerPhase = "off" | "preparing" | "starting" | "online" | "stopping" | "error";
 export type ResourcePackPreference = "new-default" | "programmer-art";
+export type ServerDifficulty = "peaceful" | "easy" | "normal" | "hard";
+export type ServerGameMode = "survival" | "creative" | "adventure" | "spectator";
 
 export interface ServerStatus {
   phase: ServerPhase;
@@ -49,6 +51,8 @@ export interface AdminUser {
   gameUsername: string;
   displayName: string;
   createdAt: number;
+  lastLoginAt: number | null;
+  passwordUpdatedAt: number;
   passwordResetExpiresAt: number | null;
   resetRequired: boolean;
   isAdmin: boolean;
@@ -70,6 +74,12 @@ export interface PlayerDetails {
   uuid: string;
   username: string;
   displayName: string;
+  online: boolean;
+  dataAvailable: boolean;
+  firstSeenAt: number | null;
+  lastSeenAt: number | null;
+  playTimeTicks: number;
+  banned: boolean;
   operator: boolean;
   world: string;
   x: number;
@@ -89,8 +99,31 @@ export interface AdminOverview {
   players: PlayerDetails[];
   bridgeAvailable: boolean;
   tpaEnabled: boolean | null;
+  settings: ServerSettings;
   logs: string[];
   server: ServerStatus;
+}
+
+export interface ServerSettings {
+  motd: string;
+  maxPlayers: number;
+  difficulty: ServerDifficulty;
+  defaultGameMode: ServerGameMode;
+  forceGameMode: boolean;
+  viewDistance: number;
+  playerIdleTimeout: number;
+  pvp: boolean;
+  allowFlight: boolean;
+  hardcore: boolean;
+  allowNether: boolean;
+  generateStructures: boolean;
+  spawnAnimals: boolean;
+  spawnMonsters: boolean;
+  spawnNpcs: boolean;
+  whiteList: boolean;
+  commandBlocks: boolean;
+  keepInventory: boolean;
+  tpaEnabled: boolean;
 }
 
 export interface AdminLogEntry {

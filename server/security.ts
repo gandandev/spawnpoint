@@ -73,6 +73,11 @@ export function createPasswordResetCode(secret: string): { code: string; digest:
   return { code, digest: passwordResetDigest(code, secret) };
 }
 
+export function createTemporaryPassword(length = 14): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  return Array.from({ length }, () => alphabet[crypto.randomInt(0, alphabet.length)]).join("");
+}
+
 export function passwordResetDigest(code: string, secret: string): Buffer {
   return crypto.createHmac("sha256", secret).update(code, "utf8").digest();
 }

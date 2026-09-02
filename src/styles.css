@@ -319,6 +319,52 @@
     @apply flex max-h-48 flex-col gap-1 overflow-y-auto pr-1;
   }
 
+  .admin-compact-field {
+    @apply flex min-w-0 flex-col gap-1 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .admin-native-select {
+    @apply h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50;
+  }
+
+  .admin-settings-layout {
+    @apply grid min-w-0 gap-4;
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+  }
+
+  .admin-settings-nav {
+    @apply flex flex-col gap-1 rounded-lg border bg-muted/20 p-1;
+  }
+
+  .admin-settings-nav-button {
+    @apply flex min-h-10 touch-manipulation cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .admin-settings-nav-button > svg {
+    @apply size-4 shrink-0;
+  }
+
+  .admin-settings-nav-button.is-selected {
+    @apply bg-muted font-medium text-foreground;
+  }
+
+  .admin-settings-section {
+    @apply flex flex-col gap-3;
+  }
+
+  .admin-settings-section[hidden] {
+    display: none;
+  }
+
+  .admin-setting-row,
+  .admin-setting-field {
+    @apply flex min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5;
+  }
+
+  .admin-setting-field {
+    @apply flex-col items-stretch;
+  }
+
   .admin-log-view {
     @apply h-[min(32rem,60dvh)] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#111411] p-3 font-mono text-[11px] leading-relaxed text-[#d8ddcf];
   }
@@ -392,5 +438,13 @@
 
   .admin-list-panel {
     @apply max-h-36;
+  }
+
+  .admin-settings-layout {
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+  }
+
+  .admin-settings-nav-button {
+    @apply flex-col justify-center gap-1 px-1 text-xs;
   }
 }

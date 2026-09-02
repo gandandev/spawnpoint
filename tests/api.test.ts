@@ -8,10 +8,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiRouter } from "../server/api.js";
 import { AppDatabase } from "../server/db.js";
 import { GameConnectionTracker } from "../server/game-connections.js";
+import type { PlayerAccountReference, PlayerInventoryPatch, PlayerStatePatch } from "../server/player-data.js";
 import { createSessionToken, hashPassword, verifyPassword } from "../server/security.js";
 import type { ConsoleLogPage, MinecraftServerManager } from "../server/server-manager.js";
 import { SkinService, skinPathForUser } from "../server/skins.js";
-import type { ServerStatus } from "../server/types.js";
+import type { PlayerDetails, ServerSettings, ServerStatus } from "../server/types.js";
 
 const secret = "api-test-secret-that-is-longer-than-thirty-two-characters";
 const sharedServerPassword = "명심보감";
@@ -29,6 +30,73 @@ const serverStatus: ServerStatus = {
   version: "Paper 1.12.2",
 };
 
+const serverSettings: ServerSettings = {
+  motd: "Spawnpoint",
+  maxPlayers: 12,
+  difficulty: "normal",
+  defaultGameMode: "survival",
+  forceGameMode: false,
+  viewDistance: 8,
+  playerIdleTimeout: 0,
+  pvp: true,
+  allowFlight: false,
+  hardcore: false,
+  allowNether: true,
+  generateStructures: true,
+  spawnAnimals: true,
+  spawnMonsters: true,
+  spawnNpcs: true,
+  whiteList: false,
+  commandBlocks: false,
+  keepInventory: true,
+  tpaEnabled: true,
+};
+
+function settingsUpdateForApi(base: ServerSettings): ServerSettings {
+  return {
+    ...base,
+    motd: "관리 API 테스트",
+    maxPlayers: 18,
+    difficulty: "hard",
+    defaultGameMode: "adventure",
+    viewDistance: 10,
+    playerIdleTimeout: 15,
+    pvp: false,
+    allowFlight: true,
+    commandBlocks: true,
+    keepInventory: false,
+    tpaEnabled: false,
+  };
+}
+
+function fakePlayer(account: PlayerAccountReference, changes: Partial<PlayerDetails> = {}): PlayerDetails {
+  return {
+    accountId: account.id,
+    uuid: account.id,
+    username: account.gameUsername,
+    displayName: account.displayName,
+    online: false,
+    dataAvailable: false,
+    firstSeenAt: null,
+    lastSeenAt: null,
+    playTimeTicks: 0,
+    banned: false,
+    operator: false,
+    world: "world",
+    x: 0,
+    y: 64,
+    z: 0,
+    yaw: 0,
+    pitch: 0,
+    health: 20,
+    foodLevel: 20,
+    gameMode: "survival",
+    inventory: [],
+    enderChest: [],
+    ...changes,
+  };
+}
+
 function fakeServerManager(
   status = serverStatus,
   consoleCommands: string[] = [],
@@ -37,6 +105,25 @@ function fakeServerManager(
 ): MinecraftServerManager {
   return {
     getStatus: () => ({ ...status, players: [...status.players] }),
+    getServerSettings: async () => ({ ...serverSettings, maxPlayers: status.maxPlayers }),
+    updateServerSettings: async (settings: ServerSettings) => settings,
+    getStoredPlayers: async (accounts) => accounts.map((account) => fakePlayer(account)),
+    getStoredPlayer: async (account: PlayerAccountReference) => fakePlayer(account),
+    updateStoredPlayerState: async (account: PlayerAccountReference, patch: PlayerStatePatch) => fakePlayer(account, {
+      dataAvailable: true,
+      ...(patch.health === undefined ? {} : { health: patch.health }),
+      ...(patch.foodLevel === undefined ? {} : { foodLevel: patch.foodLevel }),
+      ...(patch.gameMode === undefined ? {} : { gameMode: patch.gameMode }),
+      ...(patch.location ?? {}),
+    }),
+    updateStoredPlayerInventory: async (account: PlayerAccountReference, patch: PlayerInventoryPatch) => fakePlayer(account, {
+      dataAvailable: true,
+      inventory: patch.section === "ender" || !patch.item ? [] : [{ section: patch.section, slot: patch.slot, ...patch.item }],
+      enderChest: patch.section === "ender" && patch.item ? [{ section: "ender", slot: patch.slot, ...patch.item }] : [],
+    }),
+    setStoredPlayerOperator: async (account: PlayerAccountReference, operator: boolean) => fakePlayer(account, { operator }),
+    setStoredPlayerBanned: async (account: PlayerAccountReference, banned: boolean) => fakePlayer(account, { banned }),
+    isPlayerOnline: (username: string) => status.players.some((player) => player.toLowerCase() === username.toLowerCase()),
     getRecentLogs: () => [],
     getLogHistory: async (options) => {
       logRequests.push(options);
@@ -615,6 +702,25 @@ describe("secure administrator password resets", () => {
     expect(reusedResponse.status).toBe(401);
   });
 
+  it("replaces a password with a one-time displayed temporary value and never exposes its hash", async () => {
+    const harness = await createHarness();
+    const before = harness.database.getUserById(harness.user.id)!;
+    const response = await fetch(`${harness.origin}/api/admin/users/${harness.user.id}/temporary-password`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin },
+    });
+    const body = await response.json() as { temporaryPassword: string; user: { passwordUpdatedAt: number } };
+
+    expect(response.status).toBe(200);
+    expect(body.temporaryPassword).toMatch(/^[A-Za-z0-9]{14}$/);
+    expect(JSON.stringify(body)).not.toMatch(/passwordHash|passwordSalt|passwordResetDigest/);
+    const updated = harness.database.getUserById(harness.user.id)!;
+    expect(updated.sessionVersion).toBe(before.sessionVersion + 1);
+    expect(updated.passwordUpdatedAt).toBeGreaterThanOrEqual(before.passwordUpdatedAt);
+    await expect(verifyPassword(body.temporaryPassword, updated.passwordSalt, updated.passwordHash)).resolves.toBe(true);
+    await expect(verifyPassword("user-password", updated.passwordSalt, updated.passwordHash)).resolves.toBe(false);
+  });
+
   it("keeps the shared server password for ordinary login and registration", async () => {
     const harness = await createHarness();
     harness.database.requestPasswordReset(harness.user.id, Buffer.alloc(32, 3), Date.now() - 1);
@@ -766,24 +872,26 @@ describe("administrator TPA settings", () => {
         return;
       }
       if (request.method === "GET" && request.url === "/v1/settings") {
-        response.end(JSON.stringify({ tpaEnabled: true }));
+        response.end(JSON.stringify({ tpaEnabled: true, keepInventory: true }));
         return;
       }
       if (request.method === "PUT" && request.url === "/v1/settings/tpa") {
         request.setEncoding("utf8");
         request.on("data", (chunk) => { updateBody += chunk; });
-        request.on("end", () => response.end(JSON.stringify({ tpaEnabled: false })));
+        request.on("end", () => response.end(JSON.stringify({ tpaEnabled: false, keepInventory: true })));
         return;
       }
       response.statusCode = 404;
       response.end(JSON.stringify({ error: "not_found" }));
     }));
-    const harness = await createHarness({ bridgeOrigin });
+    const harness = await createHarness({ bridgeOrigin, serverStatus: { ...serverStatus, phase: "online", readyAt: Date.now() } });
 
     const overviewResponse = await fetch(`${harness.origin}/api/admin/overview`, { headers: harness.adminHeaders });
     const overview = await overviewResponse.json() as { bridgeAvailable: boolean; players: unknown[]; tpaEnabled: boolean | null };
     expect(overviewResponse.status).toBe(200);
-    expect(overview).toMatchObject({ bridgeAvailable: false, players: [], tpaEnabled: true });
+    expect(overview).toMatchObject({ bridgeAvailable: false, tpaEnabled: true });
+    expect(overview.players).toHaveLength(2);
+    expect(overview.players).toEqual(expect.arrayContaining([expect.objectContaining({ online: false, dataAvailable: false })]));
     expect(timeoutSpy).toHaveBeenCalledTimes(2);
     expect(timeoutSpy).toHaveBeenNthCalledWith(1, 2_000);
     expect(timeoutSpy).toHaveBeenNthCalledWith(2, 2_000);
@@ -802,7 +910,7 @@ describe("administrator TPA settings", () => {
       body: JSON.stringify({ enabled: false }),
     });
     expect(updateResponse.status).toBe(200);
-    await expect(updateResponse.json()).resolves.toEqual({ tpaEnabled: false });
+    await expect(updateResponse.json()).resolves.toEqual({ tpaEnabled: false, keepInventory: true });
     expect(JSON.parse(updateBody)).toEqual({ enabled: false });
     expect(timeoutSpy).toHaveBeenCalledOnce();
     expect(timeoutSpy).toHaveBeenCalledWith(4_000);
@@ -825,12 +933,12 @@ describe("administrator TPA settings", () => {
       response.statusCode = 503;
       response.end(JSON.stringify({ error: "settings_unavailable" }));
     }));
-    const harness = await createHarness({ bridgeOrigin });
+    const harness = await createHarness({ bridgeOrigin, serverStatus: { ...serverStatus, phase: "online", readyAt: Date.now() } });
 
     const overviewResponse = await fetch(`${harness.origin}/api/admin/overview`, { headers: harness.adminHeaders });
     const overview = await overviewResponse.json() as { bridgeAvailable: boolean; tpaEnabled: boolean | null };
     expect(overviewResponse.status).toBe(200);
-    expect(overview).toMatchObject({ bridgeAvailable: true, tpaEnabled: null });
+    expect(overview).toMatchObject({ bridgeAvailable: true, tpaEnabled: true });
 
     const updateResponse = await fetch(`${harness.origin}/api/admin/settings/tpa`, {
       method: "PUT",
@@ -838,6 +946,102 @@ describe("administrator TPA settings", () => {
       body: JSON.stringify({ enabled: true }),
     });
     expect(updateResponse.status).toBe(503);
+  });
+});
+
+describe("administrator offline controls", () => {
+  it("stores the full settings form while Minecraft is off", async () => {
+    const harness = await createHarness();
+    const requested = settingsUpdateForApi(serverSettings);
+    const response = await fetch(`${harness.origin}/api/admin/settings/server`, {
+      method: "PUT",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify(requested),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ settings: requested, restartRequired: false, liveApplied: true });
+  });
+
+  it("distinguishes live settings from values that need a server restart", async () => {
+    const bridgeOrigin = await listen(http.createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      expect(request.method).toBe("PUT");
+      expect(request.url).toBe("/v1/settings/tpa");
+      response.end(JSON.stringify({ tpaEnabled: false, keepInventory: true }));
+    }));
+    const harness = await createHarness({
+      bridgeOrigin,
+      serverStatus: { ...serverStatus, phase: "online", readyAt: Date.now() },
+    });
+    const headers = { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" };
+
+    const liveResponse = await fetch(`${harness.origin}/api/admin/settings/server`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ ...serverSettings, tpaEnabled: false }),
+    });
+    expect(liveResponse.status).toBe(200);
+    await expect(liveResponse.json()).resolves.toMatchObject({ restartRequired: false, liveApplied: true });
+
+    const restartResponse = await fetch(`${harness.origin}/api/admin/settings/server`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ ...serverSettings, maxPlayers: 18 }),
+    });
+    expect(restartResponse.status).toBe(200);
+    await expect(restartResponse.json()).resolves.toMatchObject({ restartRequired: true, liveApplied: true });
+  });
+
+  it("keeps saved settings and requests a restart when a live update fails", async () => {
+    const bridgeOrigin = await listen(http.createServer((_request, response) => {
+      response.statusCode = 503;
+      response.end();
+    }));
+    const harness = await createHarness({
+      bridgeOrigin,
+      serverStatus: { ...serverStatus, phase: "online", readyAt: Date.now() },
+    });
+    const response = await fetch(`${harness.origin}/api/admin/settings/server`, {
+      method: "PUT",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...serverSettings, keepInventory: false }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ restartRequired: true, liveApplied: false });
+  });
+
+  it("updates offline state, inventory, OP, and ban status while rejecting an offline kick", async () => {
+    const harness = await createHarness();
+    const base = `${harness.origin}/api/admin/players/${harness.user.id}`;
+    const headers = { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" };
+    const stateResponse = await fetch(`${base}/state`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ health: 7.5, foodLevel: 8, gameMode: "creative", location: { world: "world", x: 2, y: 70, z: -3, yaw: 90, pitch: 0 } }),
+    });
+    expect(stateResponse.status).toBe(200);
+    await expect(stateResponse.json()).resolves.toMatchObject({ player: { online: false, health: 7.5, foodLevel: 8, gameMode: "creative", x: 2, y: 70, z: -3 } });
+
+    const inventoryResponse = await fetch(`${base}/inventory`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ section: "storage", slot: 4, item: { type: "diamond", amount: 6, durability: 0 } }),
+    });
+    expect(inventoryResponse.status).toBe(200);
+    await expect(inventoryResponse.json()).resolves.toMatchObject({ player: { inventory: [{ section: "storage", slot: 4, type: "diamond", amount: 6 }] } });
+
+    const operatorResponse = await fetch(`${base}/operator`, { method: "PUT", headers, body: JSON.stringify({ operator: true }) });
+    expect(operatorResponse.status).toBe(200);
+    await expect(operatorResponse.json()).resolves.toMatchObject({ player: { operator: true } });
+
+    const banResponse = await fetch(`${base}/ban`, { method: "PUT", headers, body: JSON.stringify({ banned: true, reason: "통합 테스트" }) });
+    expect(banResponse.status).toBe(200);
+    await expect(banResponse.json()).resolves.toMatchObject({ player: { banned: true } });
+
+    const kickResponse = await fetch(`${base}/kick`, { method: "POST", headers, body: JSON.stringify({ reason: "통합 테스트" }) });
+    expect(kickResponse.status).toBe(409);
   });
 });
 

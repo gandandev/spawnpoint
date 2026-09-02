@@ -85,6 +85,7 @@
     gameSettings = setGameSetting(gameSettings, "lang", "ko_kr", true);
     gameSettings = setGameSetting(gameSettings, "autoJump", "false", false);
     gameSettings = setGameSetting(gameSettings, "fov", "0.5", false);
+    gameSettings = setGameSetting(gameSettings, "gamma", "1.0", true);
     gameSettings = setGameSetting(gameSettings, "enableDynamicLights", "true", false);
     gameSettings = setGameSetting(gameSettings, "ao", "2", false);
     gameSettings = setGameSetting(gameSettings, "showSubtitles", "true", false);
@@ -343,6 +344,43 @@
   var mobileScreenScaleFactor = 0;
   var mobileSprintEnabled = false;
   var mobileControlLayoutStorageKey = "spawnpoint_mobile_control_layout_v1";
+  var mobileExtraKeyChoices = [
+    { id: "f1", label: "F1", key: "F1", code: "F1", keyCode: 112 },
+    { id: "f2", label: "F2", key: "F2", code: "F2", keyCode: 113 },
+    { id: "f3", label: "F3", key: "F3", code: "F3", keyCode: 114 },
+    { id: "f4", label: "F4", key: "F4", code: "F4", keyCode: 115 },
+    { id: "f5", label: "F5", key: "F5", code: "F5", keyCode: 116 },
+    { id: "f6", label: "F6", key: "F6", code: "F6", keyCode: 117 },
+    { id: "f7", label: "F7", key: "F7", code: "F7", keyCode: 118 },
+    { id: "f8", label: "F8", key: "F8", code: "F8", keyCode: 119 },
+    { id: "f9", label: "F9", key: "F9", code: "F9", keyCode: 120 },
+    { id: "f10", label: "F10", key: "F10", code: "F10", keyCode: 121 },
+    { id: "f11", label: "F11", key: "F11", code: "F11", keyCode: 122 },
+    { id: "f12", label: "F12", key: "F12", code: "F12", keyCode: 123 },
+    { id: "tab", label: "TAB", key: "Tab", code: "Tab", keyCode: 9 },
+    { id: "ctrl", label: "CTRL", key: "Control", code: "ControlLeft", keyCode: 17 },
+    { id: "alt", label: "ALT", key: "Alt", code: "AltLeft", keyCode: 18 },
+    { id: "b", label: "B", key: "b", code: "KeyB", keyCode: 66 },
+    { id: "c", label: "C", key: "c", code: "KeyC", keyCode: 67 },
+    { id: "f", label: "F", key: "f", code: "KeyF", keyCode: 70 },
+    { id: "g", label: "G", key: "g", code: "KeyG", keyCode: 71 },
+    { id: "h", label: "H", key: "h", code: "KeyH", keyCode: 72 },
+    { id: "m", label: "M", key: "m", code: "KeyM", keyCode: 77 },
+    { id: "n", label: "N", key: "n", code: "KeyN", keyCode: 78 },
+    { id: "r", label: "R", key: "r", code: "KeyR", keyCode: 82 },
+    { id: "v", label: "V", key: "v", code: "KeyV", keyCode: 86 },
+    { id: "x", label: "X", key: "x", code: "KeyX", keyCode: 88 },
+    { id: "z", label: "Z", key: "z", code: "KeyZ", keyCode: 90 },
+    { id: "1", label: "1", key: "1", code: "Digit1", keyCode: 49 },
+    { id: "2", label: "2", key: "2", code: "Digit2", keyCode: 50 },
+    { id: "3", label: "3", key: "3", code: "Digit3", keyCode: 51 },
+    { id: "4", label: "4", key: "4", code: "Digit4", keyCode: 52 },
+    { id: "5", label: "5", key: "5", code: "Digit5", keyCode: 53 },
+    { id: "6", label: "6", key: "6", code: "Digit6", keyCode: 54 },
+    { id: "7", label: "7", key: "7", code: "Digit7", keyCode: 55 },
+    { id: "8", label: "8", key: "8", code: "Digit8", keyCode: 56 },
+    { id: "9", label: "9", key: "9", code: "Digit9", keyCode: 57 },
+  ];
   var mobileLookSensitivityStorageKey = "spawnpoint_mobile_look_sensitivity";
   var mobileControlLayoutStore = readMobileControlLayoutStore();
   var mobileControlLayout = findMobileControlLayoutForViewport(mobileControlLayoutStore, mobileViewportDimensions());
@@ -351,6 +389,9 @@
     : 1;
   var mobileLookSensitivity = readMobileLookSensitivity();
   var mobileEditableControls = [];
+  var mobileExtraControls = [];
+  var mobileExtraControlsContainer = null;
+  var mobileExtraKeySelect = null;
   var mobileControlEditMode = false;
   var mobileControlsHidden = false;
   var mobileControlGesture = null;
@@ -1589,6 +1630,25 @@
     return mobileEditableControls.indexOf(button) !== -1;
   }
 
+  function mobileExtraKeyChoice(id) {
+    for (var index = 0; index < mobileExtraKeyChoices.length; ++index) {
+      if (mobileExtraKeyChoices[index].id === id) return mobileExtraKeyChoices[index];
+    }
+    return null;
+  }
+
+  function mobileExtraKeyIds(profile) {
+    if (!profile || !Array.isArray(profile.extras)) return [];
+    return profile.extras.filter(function (id, index, values) {
+      return typeof id === "string" && !!mobileExtraKeyChoice(id) && values.indexOf(id) === index;
+    });
+  }
+
+  function mobileExtraControlId(button) {
+    var name = mobileControlName(button);
+    return name.indexOf("extra-") === 0 ? name.slice("extra-".length) : "";
+  }
+
   function mobileControlRect(button) {
     if (button && typeof button.getBoundingClientRect === "function") {
       var bounds = button.getBoundingClientRect();
@@ -1642,7 +1702,10 @@
 
   function mobileControlLayoutIsDefault() {
     return !mobileControlLayoutDirty
-      && (!mobileControlLayout || !mobileControlLayout.controls || typeof mobileControlLayout.controls !== "object");
+      && (!mobileControlLayout || (
+        (!mobileControlLayout.controls || typeof mobileControlLayout.controls !== "object")
+        && mobileExtraKeyIds(mobileControlLayout).length === 0
+      ));
   }
 
   function mobileControlViewportScale(profile, viewport) {
@@ -1744,6 +1807,7 @@
     profile.height = viewport.height;
     profile.scale = mobileControlScale;
     profile.controls = controls;
+    profile.extras = mobileExtraControls.map(mobileExtraControlId).filter(Boolean);
     mobileControlLayoutDirty = false;
     persistMobileControlLayoutStore();
     updateMobileDefaultLayoutState();
@@ -1837,6 +1901,7 @@
     mobileControlScale = 1;
     mobileControlLayoutDirty = false;
     persistMobileControlLayoutStore();
+    syncMobileExtraControls(false);
     clearMobileControlInlineLayout();
     applyMobileControlScale();
     if (mobileControlEditMode) promoteMobileControlsForEditing();
@@ -1866,6 +1931,7 @@
         : 1;
       clearMobileControlInlineLayout();
     }
+    syncMobileExtraControls(false);
     if (mobileControlLayout && mobileControlLayout.controls) {
       applyMobileControlLayout();
     } else {
@@ -1996,9 +2062,19 @@
     mobileEditableControls.push(button);
     if (typeof button.addEventListener === "function") {
       button.addEventListener("touchstart", function (event) {
+        if (event.target && event.target.className === "sp-mobile-delete-handle") {
+          preventMobileControlDefault(event);
+          removeMobileExtraControl(button, true);
+          return;
+        }
         beginMobileControlGesture(button, event.target === handle ? "resize" : "move", event);
       }, { capture: true, passive: false });
       button.addEventListener("mousedown", function (event) {
+        if (event.target && event.target.className === "sp-mobile-delete-handle") {
+          preventMobileControlDefault(event);
+          removeMobileExtraControl(button, true);
+          return;
+        }
         beginMobileControlGesture(button, event.target === handle ? "resize" : "move", event);
       }, true);
     }
@@ -2466,6 +2542,70 @@
     return registerMobileEditableControl(button);
   }
 
+  function createMobileExtraControl(choice, placeNew) {
+    if (!choice || !mobileExtraControlsContainer) return null;
+    var existing = mobileExtraControls.find(function (button) {
+      return mobileExtraControlId(button) === choice.id;
+    });
+    if (existing) return existing;
+    var button = appendMobileKeyButton(
+      mobileExtraControlsContainer,
+      choice.label,
+      choice.label + " 키",
+      "extra-" + choice.id,
+      choice.key,
+      choice.code,
+      choice.keyCode
+    );
+    button.className += " sp-mobile-extra-key sp-mobile-key-label";
+    var remove = document.createElement("span");
+    remove.className = "sp-mobile-delete-handle";
+    remove.setAttribute("aria-hidden", "true");
+    remove.textContent = "×";
+    button.appendChild(remove);
+    mobileExtraControls.push(button);
+    if (placeNew) {
+      var viewport = mobileViewportDimensions();
+      var index = mobileExtraControls.length - 1;
+      var column = Math.floor(index / Math.max(1, Math.floor((viewport.height - 124) / 52)));
+      var row = index - column * Math.max(1, Math.floor((viewport.height - 124) / 52));
+      setMobileControlFixedRect(button, viewport.width - 58 - column * 52, 64 + row * 52, 44, 44);
+    }
+    return button;
+  }
+
+  function removeMobileExtraControl(button, save) {
+    var id = mobileExtraControlId(button);
+    var choice = mobileExtraKeyChoice(id);
+    if (choice) setMobileKeyState(choice.key, choice.code, choice.keyCode, false);
+    var extraIndex = mobileExtraControls.indexOf(button);
+    if (extraIndex !== -1) mobileExtraControls.splice(extraIndex, 1);
+    var editableIndex = mobileEditableControls.indexOf(button);
+    if (editableIndex !== -1) mobileEditableControls.splice(editableIndex, 1);
+    if (button && button.parentNode) button.parentNode.removeChild(button);
+    if (save) saveMobileControlLayout();
+  }
+
+  function syncMobileExtraControls(placeNew) {
+    if (!mobileExtraControlsContainer) return;
+    var desired = mobileExtraKeyIds(mobileControlLayout);
+    mobileExtraControls.slice().forEach(function (button) {
+      if (desired.indexOf(mobileExtraControlId(button)) === -1) removeMobileExtraControl(button, false);
+    });
+    desired.forEach(function (id) {
+      createMobileExtraControl(mobileExtraKeyChoice(id), placeNew === true);
+    });
+  }
+
+  function addSelectedMobileExtraControl() {
+    if (!mobileExtraKeySelect) return;
+    var choice = mobileExtraKeyChoice(mobileExtraKeySelect.value);
+    if (!choice) return;
+    var button = createMobileExtraControl(choice, true);
+    if (!button) return;
+    saveMobileControlLayout();
+  }
+
   function injectMobileControlStyles() {
     if (!document.createElement || !document.head || document.getElementById("spawnpoint-mobile-control-style")) return;
     var style = document.createElement("style");
@@ -2483,15 +2623,19 @@
       "#spawnpoint-mobile-controls .sp-mobile-tools{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));display:flex;gap:5px}",
       "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-default-scale{display:none}",
       "#spawnpoint-mobile-controls.is-editing[data-sp-default-layout=true] .sp-mobile-button.sp-mobile-default-scale{display:grid}",
-      "#spawnpoint-mobile-controls .sp-mobile-editor{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:none;align-items:center;gap:7px;box-sizing:border-box;min-height:44px;padding:6px 7px;pointer-events:auto;color:#fff;background:rgba(3,6,4,.78);border:1px solid rgba(255,255,255,.32);border-radius:6px;font:700 11px/1.1 \"Spawnpoint Mark\",monospace}",
+      "#spawnpoint-mobile-controls .sp-mobile-editor{position:absolute;top:max(60px,calc(env(safe-area-inset-top) + 52px));left:max(8px,env(safe-area-inset-left));display:none;max-width:calc(100vw - 16px);flex-wrap:wrap;align-items:center;gap:7px;box-sizing:border-box;min-height:44px;padding:6px 7px;pointer-events:auto;color:#fff;background:rgba(3,6,4,.78);border:1px solid rgba(255,255,255,.32);border-radius:6px;font:700 11px/1.1 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-controls.is-editing .sp-mobile-editor{display:flex}",
       "#spawnpoint-mobile-controls .sp-mobile-sensitivity{display:grid;grid-template-columns:auto auto;align-items:center;gap:4px 7px;white-space:nowrap}",
       "#spawnpoint-mobile-controls .sp-mobile-sensitivity output{justify-self:end;color:rgba(255,255,255,.75)}",
       "#spawnpoint-mobile-controls .sp-mobile-sensitivity input{grid-column:1/3;width:min(34vw,150px);height:18px;margin:0;padding:0;pointer-events:auto;touch-action:pan-x;accent-color:#eef7e9}",
+      "#spawnpoint-mobile-controls .sp-mobile-key-adder{display:flex;align-items:center;gap:5px;min-height:44px}",
+      "#spawnpoint-mobile-controls .sp-mobile-key-adder select,#spawnpoint-mobile-controls .sp-mobile-key-adder button{box-sizing:border-box;min-height:36px;margin:0;padding:6px 8px;border:0;border-radius:5px;color:#fff;background:rgba(8,12,10,.72);font:inherit}",
+      "#spawnpoint-mobile-controls .sp-mobile-key-adder select{min-width:72px;touch-action:manipulation}",
       "#spawnpoint-mobile-controls .sp-mobile-reset{box-sizing:border-box;min-width:64px;min-height:44px;margin:0;padding:7px;pointer-events:auto;touch-action:manipulation;border:0;border-radius:5px;color:#fff;background:rgba(8,12,10,.62);font:inherit}",
+      "#spawnpoint-mobile-controls .sp-mobile-extra-controls{position:fixed;inset:0}",
       "#spawnpoint-mobile-controls .sp-mobile-move{position:absolute;left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(3,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
       "#spawnpoint-mobile-controls .sp-mobile-actions{position:absolute;right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(2,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
-      "#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-move,#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-actions{display:none}",
+      "#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-move,#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-actions,#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-extra-controls{display:none}",
       "#spawnpoint-mobile-controls .sp-mobile-button,#spawnpoint-mobile-chat .sp-mobile-button{box-sizing:border-box;display:grid;place-items:center;width:var(--sp-touch,44px);height:var(--sp-touch,44px);min-width:35px;min-height:35px;margin:0;padding:4px;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;border:0;border-radius:6px;outline:0;color:#fff;background:rgba(8,12,10,.46);box-shadow:none;font:inherit;text-align:center;transform:scale(1);transform-origin:center;transition:transform var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1)),background-color var(--sp-press-duration,150ms) var(--sp-press-ease,cubic-bezier(.22,1,.36,1));will-change:transform,background-color}",
       "#spawnpoint-mobile-controls .sp-mobile-icon,#spawnpoint-mobile-chat .sp-mobile-icon{display:block;width:24px;height:24px;pointer-events:none}",
       "#spawnpoint-mobile-controls .sp-mobile-pixel-icon{fill:currentColor;stroke:none;image-rendering:pixelated}",
@@ -2504,8 +2648,10 @@
       "#spawnpoint-mobile-controls .sp-mobile-button.is-toggled.is-pressed,#spawnpoint-mobile-controls .sp-mobile-button.is-toggled:active{background:rgba(0,3,1,.92)}",
       "#spawnpoint-mobile-controls .sp-mobile-resize-handle{position:absolute;right:1px;bottom:1px;display:none;width:19px;height:19px;place-items:center;pointer-events:none;color:#fff;background:rgba(2,5,3,.82);border-radius:4px 0 4px 0}",
       "#spawnpoint-mobile-controls .sp-mobile-resize-handle svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:square;stroke-linejoin:miter;pointer-events:none}",
+      "#spawnpoint-mobile-controls .sp-mobile-delete-handle{position:absolute;left:-6px;top:-6px;display:none;width:20px;height:20px;place-items:center;pointer-events:none;color:#fff;background:#9f342e;border:1px solid rgba(255,255,255,.75);border-radius:50%;font:900 16px/18px sans-serif}",
       "#spawnpoint-mobile-controls.is-editing [data-sp-editable=true]{cursor:move;outline:1px solid rgba(255,255,255,.82);outline-offset:-1px;transform:none}",
       "#spawnpoint-mobile-controls.is-editing [data-sp-editable=true] .sp-mobile-resize-handle{display:grid;pointer-events:auto;cursor:nwse-resize}",
+      "#spawnpoint-mobile-controls.is-editing .sp-mobile-extra-key .sp-mobile-delete-handle{display:grid;pointer-events:auto;cursor:pointer}",
       "#spawnpoint-mobile-controls [data-sp-custom-position=true] .sp-mobile-icon{width:clamp(24px,42%,40px);height:clamp(24px,42%,40px)}",
       "#spawnpoint-mobile-chat{position:fixed;left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));z-index:2147483300;display:none;align-items:stretch;gap:6px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;pointer-events:auto;font:400 16px/1.2 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-chat input{box-sizing:border-box;min-width:0;min-height:44px;flex:1;margin:0;padding:9px 11px;border:1px solid rgba(255,255,255,.32);border-radius:0;outline:none;color:#fff;background:rgba(3,6,4,.72);caret-color:#fff;font:400 16px/1.35 \"Spawnpoint Mark\",monospace;-webkit-user-select:text;user-select:text}",
@@ -2607,8 +2753,33 @@
     resetButton.setAttribute("aria-label", "컨트롤 배치 초기화");
     bindMobilePulseButton(resetButton, resetMobileControlLayout);
     editor.appendChild(resetButton);
+    var keyAdder = document.createElement("div");
+    keyAdder.className = "sp-mobile-key-adder";
+    mobileExtraKeySelect = document.createElement("select");
+    mobileExtraKeySelect.setAttribute("aria-label", "추가할 키");
+    mobileExtraKeyChoices.forEach(function (choice) {
+      var option = document.createElement("option");
+      option.value = choice.id;
+      option.textContent = choice.label;
+      mobileExtraKeySelect.appendChild(option);
+    });
+    keyAdder.appendChild(mobileExtraKeySelect);
+    var addKeyButton = document.createElement("button");
+    addKeyButton.type = "button";
+    addKeyButton.textContent = "키 추가";
+    addKeyButton.setAttribute("aria-label", "선택한 키 추가");
+    bindMobilePulseButton(addKeyButton, addSelectedMobileExtraControl);
+    keyAdder.appendChild(addKeyButton);
+    editor.appendChild(keyAdder);
     mobileControlsRoot.appendChild(editor);
     updateMobileSensitivityDisplay();
+
+    mobileExtraControlsContainer = document.createElement("div");
+    mobileExtraControlsContainer.className = "sp-mobile-gameplay sp-mobile-extra-controls";
+    mobileExtraControlsContainer.setAttribute("role", "group");
+    mobileExtraControlsContainer.setAttribute("aria-label", "추가한 키");
+    mobileControlsRoot.appendChild(mobileExtraControlsContainer);
+    syncMobileExtraControls(false);
 
     var move = document.createElement("div");
     move.className = "sp-mobile-gameplay sp-mobile-move";

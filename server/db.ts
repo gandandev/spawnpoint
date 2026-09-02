@@ -15,6 +15,8 @@ interface UserRow {
   password_reset_expires_at: number | null;
   session_version: number;
   created_at: number;
+  last_login_at: number | null;
+  password_updated_at: number;
   skin_type: SkinType;
   skin_ref: string;
   skin_model: SkinModel;
@@ -29,6 +31,8 @@ const LEGACY_USER_COLUMNS = [
   ["password_reset_digest", "BLOB"],
   ["password_reset_expires_at", "INTEGER"],
   ["session_version", "INTEGER NOT NULL DEFAULT 0"],
+  ["last_login_at", "INTEGER"],
+  ["password_updated_at", "INTEGER NOT NULL DEFAULT 0"],
   ["resource_pack", "TEXT NOT NULL DEFAULT 'new-default'"],
 ] as const;
 
@@ -45,6 +49,8 @@ function mapUser(row: UserRow | undefined): UserRecord | null {
     passwordResetExpiresAt: row.password_reset_expires_at,
     sessionVersion: row.session_version,
     createdAt: row.created_at,
+    lastLoginAt: row.last_login_at,
+    passwordUpdatedAt: row.password_updated_at,
     skinType: row.skin_type,
     skinRef: row.skin_ref,
     skinModel: row.skin_model,
@@ -61,6 +67,8 @@ function mapAdminUser(row: UserRow): AdminUser {
     gameUsername: row.game_username,
     displayName: row.display_name,
     createdAt: row.created_at,
+    lastLoginAt: row.last_login_at,
+    passwordUpdatedAt: row.password_updated_at,
     passwordResetPending: row.password_reset_digest !== null,
     passwordResetExpiresAt: row.password_reset_expires_at,
   };
@@ -75,6 +83,7 @@ export class AppDatabase {
   private readonly updateSkinStatement: Database.Statement;
   private readonly updateIdentityStatement: Database.Statement;
   private readonly updatePasswordStatement: Database.Statement;
+  private readonly recordLoginStatement: Database.Statement;
   private readonly updateResourcePackStatement: Database.Statement;
   private readonly requestPasswordResetStatement: Database.Statement;
   private readonly completePasswordResetStatement: Database.Statement;
@@ -99,6 +108,8 @@ export class AppDatabase {
         password_reset_expires_at INTEGER,
         session_version INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
+        last_login_at INTEGER,
+        password_updated_at INTEGER NOT NULL DEFAULT 0,
         skin_type TEXT NOT NULL DEFAULT 'preset',
         skin_ref TEXT NOT NULL DEFAULT 'spawnpoint',
         skin_model TEXT NOT NULL DEFAULT 'steve',
@@ -116,6 +127,7 @@ export class AppDatabase {
     this.db.exec("UPDATE users SET game_username = username WHERE game_username = ''");
     this.db.exec("UPDATE users SET display_name = username WHERE display_name != username");
     this.db.exec("UPDATE users SET password_reset_expires_at = NULL WHERE password_reset_digest IS NULL");
+    this.db.exec("UPDATE users SET password_updated_at = created_at WHERE password_updated_at = 0");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_game_username_unique ON users(game_username COLLATE NOCASE)");
     this.byUsername = this.db.prepare("SELECT * FROM users WHERE username = ?");
     this.byGameUsername = this.db.prepare("SELECT * FROM users WHERE game_username = ? COLLATE NOCASE");
@@ -123,9 +135,11 @@ export class AppDatabase {
     this.insertUser = this.db.prepare(`
       INSERT INTO users (
         id, username, game_username, display_name, password_hash, password_salt, created_at,
+        last_login_at, password_updated_at,
         skin_type, skin_ref, skin_model, skin_label, skin_updated_at
       ) VALUES (
         @id, @username, @gameUsername, @username, @passwordHash, @passwordSalt, @createdAt,
+        @createdAt, @createdAt,
         'preset', 'spawnpoint', 'steve', 'spawnpoint', @createdAt
       )
     `);
@@ -150,7 +164,13 @@ export class AppDatabase {
           password_salt = @passwordSalt,
           password_reset_digest = NULL,
           password_reset_expires_at = NULL,
+          password_updated_at = @passwordUpdatedAt,
           session_version = session_version + 1
+      WHERE id = @id
+    `);
+    this.recordLoginStatement = this.db.prepare(`
+      UPDATE users
+      SET last_login_at = @lastLoginAt
       WHERE id = @id
     `);
     this.updateResourcePackStatement = this.db.prepare(`
@@ -171,6 +191,7 @@ export class AppDatabase {
           password_salt = @passwordSalt,
           password_reset_digest = NULL,
           password_reset_expires_at = NULL,
+          password_updated_at = @passwordUpdatedAt,
           session_version = session_version + 1
       WHERE id = @id
         AND password_reset_digest = @expectedDigest
@@ -234,8 +255,13 @@ export class AppDatabase {
   }
 
   updatePassword(id: string, passwordHash: Buffer, passwordSalt: Buffer): UserRecord {
-    this.updatePasswordStatement.run({ id, passwordHash, passwordSalt });
+    this.updatePasswordStatement.run({ id, passwordHash, passwordSalt, passwordUpdatedAt: Date.now() });
     return this.requireUser(id, "updating password");
+  }
+
+  recordLogin(id: string, lastLoginAt = Date.now()): UserRecord {
+    this.recordLoginStatement.run({ id, lastLoginAt });
+    return this.requireUser(id, "recording login");
   }
 
   updateResourcePack(id: string, resourcePackPreference: ResourcePackPreference): UserRecord {
@@ -255,7 +281,14 @@ export class AppDatabase {
     passwordSalt: Buffer,
     now: number,
   ): UserRecord | null {
-    const result = this.completePasswordResetStatement.run({ id, expectedDigest, passwordHash, passwordSalt, now });
+    const result = this.completePasswordResetStatement.run({
+      id,
+      expectedDigest,
+      passwordHash,
+      passwordSalt,
+      now,
+      passwordUpdatedAt: now,
+    });
     return result.changes === 1 ? this.getUserById(id) : null;
   }
 
