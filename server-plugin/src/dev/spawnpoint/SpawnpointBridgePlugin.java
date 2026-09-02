@@ -1708,10 +1708,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         byte[] encoded = new byte[pixels.length * 3];
         for (int pixelIndex = 0, byteIndex = 0; pixelIndex < pixels.length; pixelIndex++, byteIndex += 3) {
             int argb = pixels[pixelIndex];
-            // Eagler V4 stores R and G directly, then seven bits of B with one-bit alpha.
-            encoded[byteIndex] = (byte) (argb >>> 16);
+            // Eagler V4 stores B and G directly, then seven bits of R with one-bit alpha.
+            encoded[byteIndex] = (byte) argb;
             encoded[byteIndex + 1] = (byte) (argb >>> 8);
-            encoded[byteIndex + 2] = (byte) (((argb >>> 1) & 0x7f) | ((argb >>> 24) & 0x80));
+            encoded[byteIndex + 2] = (byte) (((argb >>> 17) & 0x7f) | ((argb >>> 24) & 0x80));
         }
         return encoded;
     }

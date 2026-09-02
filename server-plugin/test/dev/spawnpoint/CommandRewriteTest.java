@@ -76,12 +76,12 @@ public final class CommandRewriteTest {
         for (int index = 0; index < colors.length; index++) {
             int source = colors[index];
             int expected = ((source & 0x80000000) == 0 ? 0 : 0xff000000)
-                | (source & 0x00fffffe);
+                | (source & 0x00feffff);
             int byteIndex = index * 4;
             int actual = (Byte.toUnsignedInt(decoded[byteIndex]) << 24)
-                | (Byte.toUnsignedInt(decoded[byteIndex + 1]) << 16)
+                | Byte.toUnsignedInt(decoded[byteIndex + 1])
                 | (Byte.toUnsignedInt(decoded[byteIndex + 2]) << 8)
-                | Byte.toUnsignedInt(decoded[byteIndex + 3]);
+                | (Byte.toUnsignedInt(decoded[byteIndex + 3]) << 16);
             if (actual != expected) {
                 throw new AssertionError(
                     "browser skin packet changed pixel " + index
