@@ -213,6 +213,16 @@ VERBOSE_FPS_LITERAL = b"\x09fps | C: "
 COMPACT_FPS_LITERAL = b"\x08fps | \xc2\xa7r"
 OLD_VERSION_STRING = b"\x10Minecraft 1.12.2\x05 Demo"
 SPAWNPOINT_VERSION_STRING = b"\x10spawnpoint v1.12\x05 Demo"
+# These are code-body ordinals inside the base module, not imported-function
+# indexes. Both bodies are hash-guarded before chat heads change their layout.
+CHAT_HEADS_DRAW_CODE_BODY = (
+    11_585,
+    "25c1cbc6ae52341d9b292874de1ab71bdbe6191ac5cd2983e76f2452cf251a09",
+)
+CHAT_HEADS_HIT_TEST_CODE_BODY = (
+    9_006,
+    "47d03313939abf9c07b9e39f65bc1733222c797771d70ec6a114816e5daf649a",
+)
 
 FONT_SIZE = 12
 CELL_SIZE = 16
@@ -639,6 +649,297 @@ def encode_uleb(value: int) -> bytes:
             return bytes(encoded)
 
 
+def encode_sleb(value: int) -> bytes:
+    encoded = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        done = (value == 0 and byte & 0x40 == 0) or (
+            value == -1 and byte & 0x40 != 0
+        )
+        encoded.append(byte if done else byte | 0x80)
+        if done:
+            return bytes(encoded)
+
+
+def encode_padded_uleb(value: int, width: int) -> bytes:
+    encoded = bytearray(encode_uleb(value))
+    if len(encoded) > width:
+        raise ValueError("WASM value no longer fits its existing ULEB128 field")
+    while len(encoded) < width:
+        encoded[-1] |= 0x80
+        encoded.append(0)
+    return bytes(encoded)
+
+
+def build_chat_head_wasm() -> bytes:
+    code = bytearray()
+
+    def opcode(value: int) -> None:
+        code.append(value)
+
+    def index(value: int) -> None:
+        code.extend(encode_uleb(value))
+
+    def local_get(value: int) -> None:
+        opcode(0x20)
+        index(value)
+
+    def local_set(value: int) -> None:
+        opcode(0x21)
+        index(value)
+
+    def i32_const(value: int) -> None:
+        opcode(0x41)
+        code.extend(encode_sleb(value))
+
+    def f32_const(value: float) -> None:
+        opcode(0x43)
+        code.extend(struct.pack("<f", value))
+
+    def call(value: int) -> None:
+        opcode(0x10)
+        index(value)
+
+    def block_ref(type_index: int) -> None:
+        code.extend((0x02, 0x63))
+        index(type_index)
+
+    def struct_get(type_index: int, field_index: int) -> None:
+        code.extend((0xFB, 0x02))
+        index(type_index)
+        index(field_index)
+
+    def require_non_null() -> None:
+        code.extend((0xD6, 0x00))
+        call(269)
+        code.extend((0x08, 0x00, 0x0B))
+
+    # chatline.getChatComponent().getUnformattedText()
+    block_ref(2_287)
+    local_get(13)
+    struct_get(4_549, 3)
+    code.extend((0xFB, 0x17))
+    index(2_287)
+    require_non_null()
+    call(1_090)
+    local_set(24)
+
+    # Only the server's normal "<display name> message" format gets a head.
+    block_ref(14)
+    local_get(24)
+    require_non_null()
+    local_set(24)
+    code.extend((0xD0,))
+    index(1_890)
+    local_set(25)
+
+    # plainText.length() > 3 && plainText.charAt(0) == '<'
+    code.extend((0x02, 0x7F))
+    i32_const(0)
+    local_get(24)
+    call(302)
+    i32_const(3)
+    opcode(0x4C)
+    code.extend((0x0D, 0x00, 0x1A))
+    local_get(24)
+    i32_const(0)
+    call(324)
+    i32_const(ord("<"))
+    opcode(0x46)
+    opcode(0x0B)
+    code.extend((0x04, 0x40))
+    local_get(24)
+    i32_const(ord(">"))
+    call(1_004)
+    local_set(18)
+    local_get(18)
+    i32_const(1)
+    opcode(0x4A)
+    code.extend((0x04, 0x40))
+
+    # The String overload of getPlayerInfo was removed from the shipped build
+    # because it was unused, so search the live tab-list values directly.
+    block_ref(3_158)
+    block_ref(5_919)
+    block_ref(2_000)
+    block_ref(1_998)
+    local_get(0)
+    struct_get(1_972, 3)
+    require_non_null()
+    call(1_561)
+    require_non_null()
+    call(5_376)
+    code.extend((0xFB, 0x17))
+    index(5_919)
+    require_non_null()
+    call(22_549)
+    code.extend((0xFB, 0x17))
+    index(3_158)
+    require_non_null()
+    local_set(26)
+    code.extend((0x02, 0x40, 0x03, 0x40))
+    local_get(26)
+    call(787)
+    opcode(0x45)
+    code.extend((0x0D, 0x01))
+    block_ref(1_890)
+    local_get(26)
+    call(38_389)
+    code.extend((0xFB, 0x17))
+    index(1_890)
+    require_non_null()
+    local_set(25)
+    block_ref(14)
+    block_ref(1_628)
+    local_get(25)
+    struct_get(1_890, 2)
+    require_non_null()
+    struct_get(1_628, 3)
+    require_non_null()
+    local_get(24)
+    i32_const(1)
+    local_get(18)
+    call(461)
+    call(296)
+    code.extend((0x04, 0x40, 0x0C, 0x02, 0x0B))
+    code.extend((0xD0,))
+    index(1_890)
+    local_set(25)
+    code.extend((0x0C, 0x00, 0x0B, 0x0B, 0x0B, 0x0B))
+
+    # Draw the base face and hat overlay with the same alpha as the chat line.
+    local_get(25)
+    opcode(0xD1)
+    opcode(0x45)
+    code.extend((0x04, 0x40))
+    f32_const(1.0)
+    f32_const(1.0)
+    f32_const(1.0)
+    local_get(11)
+    opcode(0xB2)
+    f32_const(255.0)
+    opcode(0x95)
+    call(350)
+
+    block_ref(1_542)
+    block_ref(1_998)
+    local_get(0)
+    struct_get(1_972, 3)
+    require_non_null()
+    struct_get(1_998, 3)
+    require_non_null()
+    local_get(25)
+    call(7_560)
+    call(371)
+
+    for texture_u in (8.0, 40.0):
+        i32_const(0)
+        local_get(16)
+        i32_const(8)
+        opcode(0x6B)
+        f32_const(texture_u)
+        f32_const(8.0)
+        for _ in range(4):
+            i32_const(8)
+        f32_const(64.0)
+        f32_const(64.0)
+        call(3_279)
+    opcode(0x0B)
+    return bytes(code)
+
+
+def patch_wasm_chat_heads(wasm: bytes) -> bytes:
+    if wasm[:8] != b"\x00asm\x01\x00\x00\x00":
+        raise ValueError("EPW main program is not a supported WASM module")
+
+    draw_ordinal, expected_draw_hash = CHAT_HEADS_DRAW_CODE_BODY
+    hit_ordinal, expected_hit_hash = CHAT_HEADS_HIT_TEST_CODE_BODY
+    output = bytearray(wasm[:8])
+    offset = 8
+    patched_draw = False
+    patched_hit = False
+    while offset < len(wasm):
+        section_id = wasm[offset]
+        offset += 1
+        section_length, payload_offset = read_uleb(wasm, offset)
+        payload_end = payload_offset + section_length
+        if payload_end > len(wasm):
+            raise ValueError("WASM section extends past the end of the module")
+        payload = wasm[payload_offset:payload_end]
+
+        if section_id == 10:
+            function_count, body_offset = read_uleb(payload, 0)
+            code_payload = bytearray(payload[:body_offset])
+            for ordinal in range(function_count):
+                body_length, body_start = read_uleb(payload, body_offset)
+                body_end = body_start + body_length
+                if body_end > len(payload):
+                    raise ValueError("WASM code body extends past the code section")
+                body = bytearray(payload[body_start:body_end])
+
+                body_changed = False
+                if ordinal == hit_ordinal:
+                    if hashlib.sha256(body).hexdigest() != expected_hit_hash:
+                        raise ValueError("EPW main program has an unexpected chat hit-test")
+                    if body[0x5E:0x60] != b"\x41\x02":
+                        raise ValueError("Chat hit-test does not contain its expected x offset")
+                    body[0x5F] = 12
+                    patched_hit = True
+                    body_changed = True
+
+                if ordinal == draw_ordinal:
+                    if hashlib.sha256(body).hexdigest() != expected_draw_hash:
+                        raise ValueError("EPW main program has an unexpected chat renderer")
+                    if body[0] != 11 or body[0x1C:0x20] != b"\x02\x63\xbf\x0f":
+                        raise ValueError("Chat renderer has an unexpected local layout")
+                    if body[0xFF:0x104] != b"\x20\x07\x6a\x41\x04":
+                        raise ValueError("Chat renderer has an unexpected background width")
+                    if body[0x230:0x235] != b"\x21\x11\x10\xfc\x03":
+                        raise ValueError("Chat renderer has an unexpected blend call")
+                    if body[0x25B:0x260] != b"\x43\x00\x00\x00\x00":
+                        raise ValueError("Chat renderer has an unexpected text x position")
+
+                    body[0] = 14
+                    added_locals = (
+                        b"\x01\x63" + encode_uleb(14)
+                        + b"\x01\x63" + encode_uleb(1_890)
+                        + b"\x01\x63" + encode_uleb(3_158)
+                    )
+                    body[0x1C:0x1C] = added_locals
+                    local_delta = len(added_locals)
+                    body[0x103 + local_delta] = 14
+                    body[
+                        0x25C + local_delta:0x260 + local_delta
+                    ] = struct.pack("<f", 10.0)
+                    insertion_offset = 0x235 + local_delta
+                    body[insertion_offset:insertion_offset] = build_chat_head_wasm()
+                    patched_draw = True
+                    body_changed = True
+
+                if body_changed:
+                    code_payload.extend(
+                        encode_padded_uleb(len(body), body_start - body_offset)
+                    )
+                else:
+                    code_payload.extend(payload[body_offset:body_start])
+                code_payload.extend(body)
+                body_offset = body_end
+
+            if body_offset != len(payload):
+                raise ValueError("WASM code section has trailing data")
+            payload = bytes(code_payload)
+
+        output.append(section_id)
+        output.extend(encode_uleb(len(payload)))
+        output.extend(payload)
+        offset = payload_end
+
+    if not patched_draw or not patched_hit:
+        raise ValueError("WASM module is missing the expected chat functions")
+    return bytes(output)
+
+
 def patch_wasm_data_string(wasm: bytes) -> bytes:
     if wasm[:8] != b"\x00asm\x01\x00\x00\x00":
         raise ValueError("EPW main program is not a supported WASM module")
@@ -810,7 +1111,7 @@ def patch_main_menu(epw: bytes) -> bytes:
         raise ValueError("EPW main program has an unexpected FPS label")
     fps_offset = wasm.index(VERBOSE_FPS_LITERAL)
     wasm[fps_offset : fps_offset + len(VERBOSE_FPS_LITERAL)] = COMPACT_FPS_LITERAL
-    patched_wasm = patch_wasm_data_string(bytes(wasm))
+    patched_wasm = patch_wasm_data_string(patch_wasm_chat_heads(bytes(wasm)))
     compressed = lzma.compress(
         patched_wasm,
         format=lzma.FORMAT_XZ,

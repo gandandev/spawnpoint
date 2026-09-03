@@ -72,7 +72,7 @@ describe("in-game bitmap font client", () => {
         + "ib||navigator.userActivation&&navigator.userActivation.hasBeenActive".length,
     );
     expect(patchedRuntime.compressedLength).not.toBe(baseRuntime.compressedLength);
-    expect(patchedMainProgram.rawLength).toBe(baseMainProgram.rawLength);
+    expect(patchedMainProgram.rawLength).toBe(baseMainProgram.rawLength + 431);
     expect(patchedMainProgram.compressedLength).not.toBe(baseMainProgram.compressedLength);
     expect(patchedAssets.dataOffset).toBe(
       baseAssets.dataOffset
@@ -106,6 +106,37 @@ from PIL import Image
 b = open(sys.argv[1], "rb").read()
 main_offset, main_compressed, _, _ = struct.unpack_from("<IIII", b, 228)
 wasm = lzma.decompress(b[main_offset:main_offset + main_compressed])
+chat_delta = 431
+def shifted(offset):
+  return offset + chat_delta if offset >= 0x32529C else offset
+def read_uleb(data, offset):
+  value = 0
+  shift = 0
+  while True:
+    byte = data[offset]
+    offset += 1
+    value |= (byte & 0x7f) << shift
+    if byte & 0x80 == 0:
+      return value, offset
+    shift += 7
+def code_body(ordinal):
+  offset = 8
+  while offset < len(wasm):
+    section_id = wasm[offset]
+    section_length, payload_offset = read_uleb(wasm, offset + 1)
+    payload_end = payload_offset + section_length
+    if section_id == 10:
+      function_count, body_offset = read_uleb(wasm, payload_offset)
+      if ordinal >= function_count:
+        raise ValueError("code body ordinal is out of range")
+      for index in range(function_count):
+        body_length, body_start = read_uleb(wasm, body_offset)
+        body_end = body_start + body_length
+        if index == ordinal:
+          return wasm[body_start:body_end]
+        body_offset = body_end
+    offset = payload_end
+  raise ValueError("WASM code section is missing")
 asset_offset, asset_compressed, _, _ = struct.unpack_from("<IIII", b, 292)
 assets = lzma.decompress(b[asset_offset:asset_offset + asset_compressed])
 def epk_file(path):
@@ -127,26 +158,31 @@ expected_load_screen.paste(
   bacon,
   ((256 - bacon.width) // 2, (256 - bacon.height) // 2),
 )
-ranges = [(0x38895C, 0x388A03), (0x388A2D, 0x388A86), (0x388AE1, 0x388B3D), (0x389058, 0x389076), (0x389076, 0x389098)]
+ranges = [(shifted(0x38895C), shifted(0x388A03)), (shifted(0x388A2D), shifted(0x388A86)), (shifted(0x388AE1), shifted(0x388B3D)), (shifted(0x389058), shifted(0x389076)), (shifted(0x389076), shifted(0x389098))]
 disabled_control_ranges = [(0x2D0929, 0x2D0937), (0x2D0937, 0x2D0945), (0x2D0953, 0x2D0961), (0x2D0961, 0x2D096F), (0x2D098B, 0x2D0999)]
-fnaw_skin_option_ranges = [(0x5BFEC3, 0x5BFEFE), (0x5BFF08, 0x5BFFC2)]
+fnaw_skin_option_ranges = [(shifted(0x5BFEC3), shifted(0x5BFEFE)), (shifted(0x5BFF08), shifted(0x5BFFC2))]
+chat_draw_body = code_body(11585)
+chat_hit_test_body = code_body(9006)
 print(json.dumps({
   "menu_ranges_are_nops": all(set(wasm[start:end]) == {1} for start, end in ranges),
-  "panorama_blur_chain_is_nops": set(wasm[0x4DF28A:0x4DF43A]) == {1},
-  "panorama_framebuffer_is_1024": all(wasm[offset:offset + 3] == b"\\x41\\x80\\x08" for offset in (0x388851, 0x388854, 0x4DF257, 0x4DF25A)),
-  "panorama_sample_count": wasm[0x5080BA],
+  "panorama_blur_chain_is_nops": set(wasm[shifted(0x4DF28A):shifted(0x4DF43A)]) == {1},
+  "panorama_framebuffer_is_1024": all(wasm[shifted(offset):shifted(offset) + 3] == b"\\x41\\x80\\x08" for offset in (0x388851, 0x388854, 0x4DF257, 0x4DF25A)),
+  "panorama_sample_count": wasm[shifted(0x5080BA)],
   "disabled_control_keycodes": [wasm[0x2D050C], wasm[0x2D0709], wasm[0x2D0730]],
   "disabled_control_rows_are_nops": all(set(wasm[start:end]) == {1} for start, end in disabled_control_ranges),
   "fullbright_toggle": hashlib.sha256(wasm[0x31F766:0x31F7C3]).hexdigest(),
   "bridge_close_keycode": wasm[0x2D05A8],
   "controls_array_length": wasm[0x2D082D],
   "remaining_control_indexes": [wasm[0x2D0948], wasm[0x2D0972], wasm[0x2D0980]],
-  "notification_button_range_is_nops": set(wasm[0x45A91F:0x45A9D8]) == {1},
+  "notification_button_range_is_nops": set(wasm[shifted(0x45A91F):shifted(0x45A9D8)]) == {1},
   "fnaw_skin_option_ranges_are_nops": all(set(wasm[start:end]) == {1} for start, end in fnaw_skin_option_ranges),
-  "skin_menu_done_button_y": wasm[0x5BFFF8],
-  "voice_warnings_disabled": wasm[0x45B032] == 0 and wasm[0x45B03C] == 0,
+  "skin_menu_done_button_y": wasm[shifted(0x5BFFF8)],
+  "voice_warnings_disabled": wasm[shifted(0x45B032)] == 0 and wasm[shifted(0x45B03C)] == 0,
   "compact_hud_renderer": hashlib.sha256(wasm[0x3240BF:0x3245F5]).hexdigest(),
-  "chunk_update_deferred_list": hashlib.sha256(wasm[0x337BBC:0x337CEC]).hexdigest(),
+  "chunk_update_deferred_list": hashlib.sha256(wasm[shifted(0x337BBC):shifted(0x337CEC)]).hexdigest(),
+  "chat_draw_body_length": len(chat_draw_body),
+  "chat_draw_body_sha256": hashlib.sha256(chat_draw_body).hexdigest(),
+  "chat_hit_test_body_sha256": hashlib.sha256(chat_hit_test_body).hexdigest(),
   "version_count": wasm.count(b"spawnpoint v1.12"),
   "verbose_fps_count": wasm.count(b"fps | C: "),
   "compact_fps_count": wasm.count(b"\\x08fps | \\xc2\\xa7r"),
@@ -178,6 +214,9 @@ print(json.dumps({
       voice_warnings_disabled: true,
       compact_hud_renderer: "d61fd78bf84b13e351568753fbb6c68d7b28c97bab69626fa46ceae1bdd7f978",
       chunk_update_deferred_list: "6a46c796868ffd4d263d1b303469ce8308f7a8a2d1c231c49572111dce560e92",
+      chat_draw_body_length: 1302,
+      chat_draw_body_sha256: "8e3d5767adb1b7bd801b6d849032e0d8b80e316ea00355620fa3f40f30ddccd5",
+      chat_hit_test_body_sha256: "ef3143c8c7944f7d0150f6e7c73cfb451b58f03e4d2d94f84d5ef2ac102dd2b3",
       version_count: 1,
       verbose_fps_count: 0,
       compact_fps_count: 1,
