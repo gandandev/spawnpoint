@@ -300,6 +300,16 @@ export class AppDatabase {
     return (this.listUsersStatement.all() as UserRow[]).map(mapAdminUser);
   }
 
+  listSkinSelections(): Array<Pick<UserRecord, "id" | "displayName" | "skinType" | "skinRef" | "skinLabel">> {
+    return (this.listUsersStatement.all() as UserRow[]).map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      skinType: row.skin_type,
+      skinRef: row.skin_ref,
+      skinLabel: row.skin_label,
+    }));
+  }
+
   close(): void {
     this.db.close();
   }

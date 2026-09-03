@@ -1146,8 +1146,30 @@ export function createApiRouter(context: ApiContext): express.Router {
     response.json({ resourcePackPreference: updated.resourcePackPreference });
   });
 
-  router.get("/skin/catalog", (_request, response) => {
-    response.json({ categories: SKIN_CATALOG });
+  router.get("/skin/catalog", (request, response) => {
+    if (!requireUser(request, response, context)) return;
+    const skins = SKIN_CATALOG.flatMap((category) => category.skins);
+    const skinIds = new Set(skins.map((skin) => skin.id));
+    const skinIdByLabel = new Map(skins.map((skin) => [skin.label, skin.id]));
+    const usersBySkinId = new Map<string, Array<{ id: string; displayName: string }>>();
+    for (const user of context.database.listSkinSelections()) {
+      const skinId = skinIds.has(user.skinRef)
+        ? user.skinRef
+        : user.skinType === "upload" && user.skinRef === user.id
+          ? skinIdByLabel.get(user.skinLabel)
+          : undefined;
+      if (!skinId) continue;
+      const users = usersBySkinId.get(skinId) ?? [];
+      users.push({ id: user.id, displayName: user.displayName });
+      usersBySkinId.set(skinId, users);
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.json({
+      categories: SKIN_CATALOG.map((category) => ({
+        ...category,
+        skins: category.skins.map((skin) => ({ ...skin, usedBy: usersBySkinId.get(skin.id) ?? [] })),
+      })),
+    });
   });
 
   router.get("/skin/catalog/:skinId.png", async (request, response) => {

@@ -94,6 +94,22 @@ describe("account skin storage", () => {
     database.close();
   });
 
+  it("keeps the catalog ID when a downloaded catalog skin is selected", async () => {
+    const database = createDatabase();
+    const user = database.createUser("cataloguser", Buffer.from("hash"), Buffer.from("salt"));
+    const source = fs.readFileSync(path.join(process.cwd(), "public", "assets", "skins", "spawnpoint.png"));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(source, {
+      status: 200,
+      headers: { "Content-Type": "image/png" },
+    })));
+
+    const updated = await new SkinService(database, dataDirectories[0], path.join(process.cwd(), "public"))
+      .applyCatalogSkin(user, "famous-1");
+
+    expect(updated).toMatchObject({ skinType: "upload", skinRef: "famous-1", skinLabel: "유명 스킨 1" });
+    database.close();
+  });
+
   it("updates account identity and invalidates old sessions after password changes", () => {
     const database = createDatabase();
     const user = database.createUser("oldplayer", Buffer.from("old-hash"), Buffer.from("old-salt"));

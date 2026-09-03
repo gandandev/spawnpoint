@@ -13,14 +13,8 @@ import type { BootstrapData, PublicUser, SkinCatalogCategory } from "@/types";
 
 type StudioMode = "catalog" | "lookup" | "upload";
 
-let catalogRequest: Promise<{ categories: SkinCatalogCategory[] }> | null = null;
-
 function loadCatalog() {
-  catalogRequest ??= api<{ categories: SkinCatalogCategory[] }>("/skin/catalog").catch((error) => {
-    catalogRequest = null;
-    throw error;
-  });
-  return catalogRequest;
+  return api<{ categories: SkinCatalogCategory[] }>("/skin/catalog");
 }
 
 interface SkinStudioProps {
@@ -59,6 +53,9 @@ export function SkinStudio({ data, onUser, onChanged, notice }: SkinStudioProps)
       });
       onUser(result.user);
       onChanged();
+      if (path === "/skin/catalog") {
+        void loadCatalog().then((catalog) => setCategories(catalog.categories)).catch(() => undefined);
+      }
     } catch (error) {
       notice(error instanceof Error ? error.message : "스킨을 변경하지 못했어요");
     } finally {
@@ -100,17 +97,20 @@ export function SkinStudio({ data, onUser, onChanged, notice }: SkinStudioProps)
             <h3 id={`skin-category-${category.id}`} className="col-span-3 px-1 pt-2 text-sm font-semibold first:pt-0">{category.label}</h3>
             {category.skins.map((skin, index) => {
               const selected = data.user?.skin.label === skin.label;
+              const usedBy = skin.usedBy ?? [];
+              const usedByLabel = usedBy.map((user) => user.displayName).join(", ");
               return <button
                 key={skin.id}
                 type="button"
-                className={cn("group relative flex min-h-44 cursor-pointer items-center justify-center rounded-lg border-0 bg-muted/35 p-2 transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-muted active:scale-[var(--scale-large)] active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100", selected && "bg-[#96ce4d]/10")}
-                aria-label={`${category.label} 스킨 ${index + 1} 선택`}
+                className={cn("group relative flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-lg border-0 bg-muted/35 p-2 transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-muted active:scale-[var(--scale-large)] active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100", selected && "bg-[#96ce4d]/10")}
+                aria-label={`${category.label} 스킨 ${index + 1} 선택${usedByLabel ? `, 사용 중: ${usedByLabel}` : ""}`}
                 aria-pressed={selected}
                 disabled={busy !== null}
                 onClick={() => void update(skin.id, "/skin/catalog", { method: "POST", body: JSON.stringify({ skinId: skin.id }), headers: { "Content-Type": "application/json" } })}
               >
                 <CatalogSkinPreview src={skin.textureUrl} />
                 {busy === skin.id ? <span className="absolute right-2 top-2"><Spinner /></span> : selected && <Check className="absolute right-2 top-2 size-3.5 text-[#65952c]" />}
+                {usedByLabel && <span className="mt-1 w-full rounded-md bg-background/90 px-1.5 py-1 text-center text-[10px] leading-tight text-muted-foreground shadow-sm"><span className="block font-medium text-foreground">사용 중</span>{usedByLabel}</span>}
               </button>;
             })}
           </section>)}

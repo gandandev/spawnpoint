@@ -676,7 +676,12 @@ describe("skin change flow", () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ categories: [{
       id: "famous",
       label: "유명",
-      skins: [{ id: "spawnpoint", label: "spawnpoint", textureUrl: "/api/skin/catalog/spawnpoint.png?v=texture-v1" }],
+      skins: [{
+        id: "spawnpoint",
+        label: "spawnpoint",
+        textureUrl: "/api/skin/catalog/spawnpoint.png?v=texture-v1",
+        usedBy: [{ id: "friend-id", displayName: "친구" }],
+      }],
     }] })));
     const container = document.createElement("div");
     document.body.append(container);
@@ -711,6 +716,16 @@ describe("skin change flow", () => {
   });
 
   it("uses action labels and actual 3D skin renders without visible catalog names", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ categories: [{
+      id: "famous",
+      label: "유명",
+      skins: [{
+        id: "spawnpoint",
+        label: "spawnpoint",
+        textureUrl: "/api/skin/catalog/spawnpoint.png?v=texture-v1",
+        usedBy: [{ id: "friend-id", displayName: "친구" }],
+      }],
+    }] })));
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -728,6 +743,8 @@ describe("skin change flow", () => {
     expect([...container.querySelectorAll('[data-slot="toggle-group-item"]')].every((item) => item.className.includes("min-w-0") && item.className.includes("whitespace-normal") && !item.className.includes("active:scale-"))).toBe(true);
     const preview = container.querySelector('[data-testid="catalog-skin-3d"]');
     expect(preview?.getAttribute("data-src")).toBe("/api/skin/catalog/spawnpoint.png?v=texture-v1");
+    expect(container.textContent).toContain("사용 중친구");
+    expect(preview?.closest("button")?.getAttribute("aria-label")).toContain("사용 중: 친구");
     expect(preview?.closest("button")?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
     const animatedHeight = preview?.closest(".p-1")?.parentElement;
     expect(animatedHeight?.className).toContain("transition-[height]");

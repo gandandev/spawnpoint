@@ -341,7 +341,7 @@ export class SkinService {
       return this.database.updateSkin(user.id, "preset", source.ref, source.model, skin.label);
     }
     const body = await this.catalogSkinBuffer(skinId, source);
-    return this.applySkinBuffer(user, body, "upload", source.model, skin.label);
+    return this.applySkinBuffer(user, body, "upload", source.model, skin.label, skin.id);
   }
 
   catalogTexture(skinId: unknown): Promise<Buffer> | null {
@@ -388,12 +388,19 @@ export class SkinService {
     return this.applySkinBuffer(user, body, skinType, model, label);
   }
 
-  private async applySkinBuffer(user: UserRecord, body: Buffer, skinType: SkinType, model: SkinModel, label: string): Promise<UserRecord> {
+  private async applySkinBuffer(
+    user: UserRecord,
+    body: Buffer,
+    skinType: SkinType,
+    model: SkinModel,
+    label: string,
+    skinRef = user.id,
+  ): Promise<UserRecord> {
     const resolvedModel = skinType === "upload" ? await detectSkinModel(body) : model;
     const destination = this.skinFile(user.id);
     if (!destination) throw new Error("Invalid user ID.");
     await normalizeSkin(body, destination);
-    return this.database.updateSkin(user.id, skinType, user.id, resolvedModel, label);
+    return this.database.updateSkin(user.id, skinType, skinRef, resolvedModel, label);
   }
 
   createClientProfile(user: UserRecord): Promise<string> {

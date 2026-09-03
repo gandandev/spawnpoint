@@ -37,6 +37,7 @@ export interface SkinCatalogEntry {
   id: string;
   label: string;
   textureUrl: string;
+  usedBy: Array<{ id: string; displayName: string }>;
 }
 
 export interface SkinCatalogCategory {

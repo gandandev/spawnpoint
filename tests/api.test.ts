@@ -576,6 +576,30 @@ describe("account session updates", () => {
   });
 });
 
+describe("skin catalog usage", () => {
+  it("shows signed-in players who already use each catalog skin", async () => {
+    const harness = await createHarness();
+    harness.database.updateSkin(harness.user.id, "preset", "alex", "alex", "알렉스");
+
+    const response = await fetch(`${harness.origin}/api/skin/catalog`, { headers: harness.adminHeaders });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json() as {
+      categories: Array<{ skins: Array<{ id: string; usedBy: Array<{ id: string; displayName: string }> }> }>;
+    };
+    const skins = body.categories.flatMap((category) => category.skins);
+    expect(skins.find((skin) => skin.id === "spawnpoint")?.usedBy).toEqual([
+      { id: harness.admin.id, displayName: harness.admin.displayName },
+    ]);
+    expect(skins.find((skin) => skin.id === "alex")?.usedBy).toEqual([
+      { id: harness.user.id, displayName: harness.user.displayName },
+    ]);
+
+    const anonymous = await fetch(`${harness.origin}/api/skin/catalog`);
+    expect(anonymous.status).toBe(401);
+  });
+});
+
 describe("game launch", () => {
   it("creates the client profile without returning a discarded game ticket", async () => {
     const harness = await createHarness({ serverStatus: { ...serverStatus, phase: "online" } });
