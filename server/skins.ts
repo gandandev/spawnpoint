@@ -61,6 +61,9 @@ export const SKIN_CATALOG = [
     "saved-02", "saved-03", "saved-04", "saved-05", "saved-06", "saved-12", "saved-13", "saved-14", "saved-15", "saved-16",
     "saved-27", "saved-28", "saved-29", "saved-30", "saved-31", "saved-39", "saved-40", "saved-41", "saved-42",
   ]),
+  category("uncategorized", "미분류", [
+    "steve", "saved-07", "saved-09", "saved-10", "saved-17", "saved-18", "saved-21", "saved-46",
+  ]),
 ] as const;
 
 type CatalogSkinSource =

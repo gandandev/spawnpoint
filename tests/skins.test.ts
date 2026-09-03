@@ -36,11 +36,14 @@ describe("account skin storage", () => {
   });
 
   it("groups every stable catalog skin once", () => {
-    expect(SKIN_CATALOG.map((category) => category.label)).toEqual(["마인크래프트", "유튜버", "중2병", "ㅆㄷ"]);
+    expect(SKIN_CATALOG.map((category) => category.label)).toEqual(["마인크래프트", "유튜버", "중2병", "ㅆㄷ", "미분류"]);
     expect(SKIN_CATALOG[0].skins.map((skin) => skin.id)).toEqual(["saved-47", "saved-50", "saved-49", "spawnpoint", "alex", "saved-48", "saved-24"]);
+    expect(SKIN_CATALOG.at(-1)?.skins.map((skin) => skin.id)).toEqual([
+      "steve", "saved-07", "saved-09", "saved-10", "saved-17", "saved-18", "saved-21", "saved-46",
+    ]);
     const skins = SKIN_CATALOG.flatMap((category) => category.skins);
-    expect(skins).toHaveLength(54);
-    expect(new Set(skins.map((skin) => skin.id)).size).toBe(54);
+    expect(skins).toHaveLength(62);
+    expect(new Set(skins.map((skin) => skin.id)).size).toBe(62);
     expect(skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);
   });
 
