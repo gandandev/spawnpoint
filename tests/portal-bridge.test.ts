@@ -9,6 +9,7 @@ const resourcePackBridgeSource = fs.readFileSync(path.join(process.cwd(), "publi
 
 type BridgeEnvironment = {
   coarsePointer?: boolean;
+  devicePixelRatio?: number;
   hostname?: string;
   maxTouchPoints?: number;
   mobileControlLayout?: string;
@@ -213,6 +214,7 @@ function loadBridge(
     },
     innerHeight: environment.viewportHeight ?? 844,
     innerWidth: environment.viewportWidth ?? 390,
+    devicePixelRatio: environment.devicePixelRatio ?? 1,
     location: {
       search: "?account=mossrunner&launch=launch-123",
       protocol: "https:",
@@ -553,6 +555,67 @@ describe("portal game bridge", () => {
     );
   });
 
+  it("keeps the native render density and video defaults on desktop", () => {
+    const { storage, windowObject } = loadBridge(undefined, true, undefined, {
+      devicePixelRatio: 2,
+      viewportHeight: 800,
+      viewportWidth: 1280,
+    });
+    const settings = Buffer.from(storage.get("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary");
+
+    expect(windowObject.devicePixelRatio).toBe(2);
+    expect(windowObject.__spawnpointRenderProfile).toEqual({
+      mobile: false,
+      nativeDevicePixelRatio: 2,
+      gameDevicePixelRatio: 2,
+    });
+    expect(settings).toContain("enableDynamicLights:true\n");
+    expect(settings).toContain("ao:2\n");
+    expect(settings).not.toContain("fancyGraphics:");
+  });
+
+  it("reduces tablet fill rate and seeds cheaper mobile video settings once", () => {
+    const { storage, windowObject } = loadBridge(
+      "renderDistance:12\nfancyGraphics:true\nrenderClouds:true\nparticles:0\nentityShadows:true\n",
+      true,
+      undefined,
+      {
+        coarsePointer: true,
+        devicePixelRatio: 2,
+        maxTouchPoints: 5,
+        userAgent: "Mozilla/5.0 (Linux; Android 13; SM-T733)",
+        viewportHeight: 800,
+        viewportWidth: 1280,
+      },
+    );
+    const settings = Buffer.from(storage.get("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary");
+
+    expect(windowObject.devicePixelRatio).toBe(1);
+    expect(windowObject.__spawnpointRenderProfile).toEqual({
+      mobile: true,
+      nativeDevicePixelRatio: 2,
+      gameDevicePixelRatio: 1,
+    });
+    expect(storage.get("_spawnpoint_mossrunner.mobile-performance-v1")).toBe("1");
+    expect(settings).toContain("renderDistance:6\n");
+    expect(settings).toContain("enableDynamicLights:false\n");
+    expect(settings).toContain("ao:0\n");
+    expect(settings).toContain("fancyGraphics:false\n");
+    expect(settings).toContain("renderClouds:false\n");
+    expect(settings).toContain("particles:1\n");
+    expect(settings).toContain("entityShadows:false\n");
+
+    const hooks = windowObject.eaglercraftXOpts?.hooks ?? (windowObject.eaglercraftXOptsHints?.hooks as Record<string, any>);
+    hooks.localStorageSaved(
+      "g",
+      Buffer.from("fancyGraphics:true\nrenderClouds:true\nparticles:0\n", "binary").toString("base64"),
+    );
+    const savedSettings = Buffer.from(storage.get("_spawnpoint_mossrunner.g") ?? "", "base64").toString("binary");
+    expect(savedSettings).toContain("fancyGraphics:true\n");
+    expect(savedSettings).toContain("renderClouds:true\n");
+    expect(savedSettings).toContain("particles:0\n");
+  });
+
   it("serves Korean settings through the WASM local-storage hook", () => {
     const { options } = loadBridge("version:1343\nlang:en_us\nmouseSensitivity:0.75\n");
     const hooks = options.hooks as {
@@ -716,6 +779,7 @@ describe("portal game bridge", () => {
     const track = root.children[0];
     const marker = track.children[0].children[0];
     const headCanvas = marker.children[0];
+    const distanceLabel = marker.children[1];
     const locatorStyle = locatorElementsById.get("spawnpoint-locator-style");
     expect(root.style).toMatchObject({
       left: "0px",
@@ -730,7 +794,11 @@ describe("portal game bridge", () => {
     expect(locatorStyle?.textContent).toContain("#spawnpoint-player-locator{position:fixed;display:none;pointer-events:none;z-index:2147483000;background:none!important");
     expect(locatorStyle?.textContent).not.toContain("transition:left");
     expect(locatorStyle?.textContent).not.toContain("will-change:left");
+    expect(locatorStyle?.textContent).toContain("/game/fonts/Galmuri11.woff2");
+    expect(locatorStyle?.textContent).toContain(".sp-locator-distance{position:absolute");
+    expect(locatorStyle?.textContent).toContain("text-shadow:-1px -1px 0 #000");
     expect(headCanvas).toMatchObject({ width: 10, height: 10 });
+    expect(distanceLabel).toMatchObject({ className: "sp-locator-distance", textContent: "18.3블록" });
     expect(locatorContexts[0].fillRect).toHaveBeenCalledWith(0, 0, 10, 10);
     expect(locatorContexts[0].drawImage.mock.calls.map((call) => call.slice(1))).toEqual([
       [8, 8, 8, 8, 1, 1, 8, 8],
@@ -1690,13 +1758,12 @@ describe("portal game bridge", () => {
       credentials: "same-origin",
       body: JSON.stringify({ launchId: "launch-123", message: "/say 안" }),
     }));
-    expect(canvasEvents.map(({ type }) => type)).toEqual(["keydown", "keyup"]);
-    canvasEvents.forEach((event) => expect(event).toMatchObject({
-      key: "Escape",
-      code: "Escape",
-      keyCode: 27,
-      __spawnpointClientChatClose: true,
-    }));
+    expect(canvasEvents.map(({ type }) => type)).toEqual(["mousedown", "mouseup", "click"]);
+    expect(canvasEvents).toEqual([
+      expect.objectContaining({ clientX: 910, clientY: 12, button: 0, buttons: 1 }),
+      expect.objectContaining({ clientX: 910, clientY: 12, button: 0, buttons: 0 }),
+      expect.objectContaining({ clientX: 910, clientY: 12, button: 0, buttons: 0 }),
+    ]);
     expect(canvasEvents.some(({ key }) => key === "Enter")).toBe(false);
 
     const style = documentObject.head.children.find(
@@ -2161,7 +2228,7 @@ describe("portal game bridge", () => {
       code: "Backquote",
       __spawnpointRelayedBackquote: true,
     }));
-    expect(canvas.style.cursor).toBe("none");
+    expect(canvas.style.cursor).toBe("");
   });
 
   it("reclaims pointer lock inside the physical Escape that closes an inventory UI", () => {
@@ -2174,6 +2241,7 @@ describe("portal game bridge", () => {
     const hooks = options.hooks as {
       screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
     };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
     hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
     expect(canvas.style.cursor).toBe("");
 
@@ -2190,7 +2258,36 @@ describe("portal game bridge", () => {
 
     expect(canvas.requestPointerLock).toHaveBeenCalledOnce();
     expect(documentObject.pointerLockElement).toBe(canvas);
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
     expect(canvas.style.cursor).toBe("none");
+  });
+
+  it("reclaims pointer lock when Escape closes a nested in-game UI", () => {
+    const { canvas, documentObject, options, windowHandlers } = loadBridge(
+      undefined,
+      true,
+      undefined,
+      { nativePointerLock: true },
+    );
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    hooks.screenChanged("net.minecraft.client.gui.GuiVideoSettings", 480, 300, 960, 600, 2);
+
+    windowHandlers.get("keydown")?.[1]({
+      target: canvas,
+      type: "keydown",
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+      repeat: false,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(canvas.requestPointerLock).toHaveBeenCalledOnce();
+    expect(documentObject.pointerLockElement).toBe(canvas);
   });
 
   it("maps physical Escape to marked back action on gameplay and menu targets", () => {
@@ -2274,30 +2371,25 @@ describe("portal game bridge", () => {
     expect(runtimeListener).toHaveBeenCalledOnce();
   });
 
-  it("lets the marked client-chat Escape reach the runtime without becoming another portal Escape", () => {
+  it("keeps physical Escape out of later runtime keyboard listeners", () => {
     const { canvas, windowHandlers, windowObject } = loadBridge();
     const runtimeListener = vi.fn();
     windowObject.addEventListener("keydown", runtimeListener, true);
-    let stopped = false;
     const event = {
       target: canvas,
       type: "keydown",
       key: "Escape",
       code: "Escape",
       keyCode: 27,
-      __spawnpointClientChatClose: true,
       preventDefault: vi.fn(),
-      stopImmediatePropagation: vi.fn(() => { stopped = true; }),
+      stopImmediatePropagation: vi.fn(),
     };
 
-    for (const listener of windowHandlers.get("keydown") ?? []) {
-      listener(event);
-      if (stopped) break;
-    }
+    windowHandlers.get("keydown")?.at(-1)?.(event);
 
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(event.stopImmediatePropagation).not.toHaveBeenCalled();
-    expect(runtimeListener).toHaveBeenCalledOnce();
+    expect(runtimeListener).not.toHaveBeenCalled();
   });
 
   it("blocks Backquote at window capture before the vendored runtime sees it", () => {
@@ -2501,12 +2593,18 @@ describe("portal game bridge", () => {
   });
 
   it("does not turn a pointer-lock release into a menu key", () => {
-    const { canvas, canvasEvents, documentObject, handlers } = loadBridge();
+    const { canvas, canvasEvents, documentObject, handlers, options } = loadBridge();
+    const hooks = options.hooks as {
+      screenChanged: (screenName: string, scaledWidth: number, scaledHeight: number, realWidth: number, realHeight: number, scaleFactor: number) => void;
+    };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
 
     documentObject.pointerLockElement = canvas;
     handlers.get("pointerlockchange")?.forEach((handler) => handler({}));
+    expect(canvas.style.cursor).toBe("none");
     documentObject.pointerLockElement = null;
     handlers.get("pointerlockchange")?.forEach((handler) => handler({}));
+    expect(canvas.style.cursor).toBe("");
 
     expect(canvasEvents).toEqual([]);
   });

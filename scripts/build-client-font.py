@@ -85,6 +85,19 @@ PANORAMA_RENDER_PATCHES = (
     ("title viewport height", 0x4DF25A, b"\x41\x80\x02", b"\x41\x80\x08"),
     ("title panorama sample count", 0x5080B9, b"\x41\x10", b"\x41\x01"),
 )
+# ChunkUpdateManager.updateChunks runs inside RenderGlobal.updateChunks. The u2
+# source allocates an empty LinkedList on every rendered frame, even when every
+# queued chunk is ready. Keep the same ordering and timeout behavior, but create
+# the deferred-update list only when a task actually has to be deferred.
+CHUNK_UPDATE_DEFERRED_LIST_RANGE = (
+    0x337BBC,
+    0x337CEC,
+    "6cadc9333180f5ed0ffd4fb5bfe0f19c6ea077d3d1bf44dcbaa398c300541a85",
+)
+CHUNK_UPDATE_LAZY_LIST_WASM = bytes.fromhex(
+    "20 08 d1 04 40 fb 01 a6 15 22 11 23 f0 02 fb 05 a6 15 00 20 11 21 08 0b 20 08"
+)
+CHUNK_UPDATE_SKIP_EMPTY_LIST_WASM = bytes.fromhex("02 40 20 08 d1 0d 00")
 # Close Screen stays available only to the bridge's marked synthetic Backquote
 # event, which preserves Escape and mobile menu behavior. Real Backquote input
 # is blocked before it reaches the runtime. The hidden cinematic-camera slot is
@@ -707,6 +720,24 @@ def patch_main_menu(epw: bytes) -> bytes:
         if len(replacement) != len(expected):
             raise ValueError(f"Replacement for {name} must preserve the WASM byte layout")
         wasm[offset : offset + len(expected)] = replacement
+    chunk_start, chunk_end, expected_chunk_hash = CHUNK_UPDATE_DEFERRED_LIST_RANGE
+    chunk_update = bytes(wasm[chunk_start:chunk_end])
+    if hashlib.sha256(chunk_update).hexdigest() != expected_chunk_hash:
+        raise ValueError("EPW main program has an unexpected chunk-update queue implementation")
+    lazy_chunk_update = (
+        b"\x01" * 4
+        + chunk_update[0x18:0xD0]
+        + CHUNK_UPDATE_LAZY_LIST_WASM
+        + chunk_update[0xDE:0x115]
+        + CHUNK_UPDATE_SKIP_EMPTY_LIST_WASM
+        + chunk_update[0x115:0x12A]
+        + b"\x20\x08"
+        + chunk_update[0x12C:0x130]
+        + b"\x0B"
+    )
+    if len(lazy_chunk_update) != len(chunk_update):
+        raise ValueError("Lazy chunk-update queue patch must preserve the WASM byte layout")
+    wasm[chunk_start:chunk_end] = lazy_chunk_update
     for name, offset, expected_keycode, replacement_keycode in CONTROL_KEYCODE_PATCHES:
         if wasm[offset : offset + 2] != bytes((0x41, expected_keycode)):
             raise ValueError(f"EPW main program has an unexpected {name} key mapping")

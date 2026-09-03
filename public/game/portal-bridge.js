@@ -15,6 +15,50 @@
   var resourcePackSyncCsrf = "";
   var profileDismissTimer = null;
 
+  function isTouchRenderDevice() {
+    var navigatorObject = window.navigator || {};
+    var hasTouch = Number(navigatorObject.maxTouchPoints || 0) > 0;
+    var coarsePointer = false;
+    try {
+      coarsePointer = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    } catch (_error) {
+      coarsePointer = false;
+    }
+    return hasTouch && (coarsePointer || /Android/i.test(String(navigatorObject.userAgent || "")));
+  }
+
+  var touchRenderDevice = isTouchRenderDevice();
+  var nativeDevicePixelRatio = Number(window.devicePixelRatio || 1);
+  if (!isFinite(nativeDevicePixelRatio) || nativeDevicePixelRatio < 1) nativeDevicePixelRatio = 1;
+  var gameDevicePixelRatio = nativeDevicePixelRatio;
+
+  // The Eaglercraft runtime sizes its WebGL canvas from devicePixelRatio on
+  // every frame. Large Android tablets can otherwise shade more than four
+  // million pixels per frame. Keep touch clients near one megapixel while the
+  // CSS-sized canvas and desktop rendering stay unchanged.
+  if (touchRenderDevice) {
+    var cssPixelCount = Math.max(1, Number(window.innerWidth || 1) * Number(window.innerHeight || 1));
+    var pixelBudgetScale = Math.sqrt(1000000 / cssPixelCount);
+    gameDevicePixelRatio = Math.min(nativeDevicePixelRatio, Math.max(1, pixelBudgetScale));
+    gameDevicePixelRatio = Math.floor(gameDevicePixelRatio * 20) / 20;
+    if (gameDevicePixelRatio < nativeDevicePixelRatio) {
+      try {
+        Object.defineProperty(window, "devicePixelRatio", {
+          configurable: true,
+          enumerable: true,
+          get: function () { return gameDevicePixelRatio; },
+        });
+      } catch (_error) {
+        gameDevicePixelRatio = nativeDevicePixelRatio;
+      }
+    }
+  }
+  window.__spawnpointRenderProfile = {
+    mobile: touchRenderDevice,
+    nativeDevicePixelRatio: nativeDevicePixelRatio,
+    gameDevicePixelRatio: gameDevicePixelRatio,
+  };
+
   if (!options || !launchId) {
     document.addEventListener("DOMContentLoaded", function () {
       document.body.innerHTML = "<main style='display:grid;place-items:center;height:100%;background:#111411;color:#d8ddcf;font:14px monospace'>open this client from " + siteName + " after logging in</main>";
@@ -73,8 +117,37 @@
     return gameSettings + key + ":" + value + "\n";
   }
 
+  function gameSettingValue(gameSettings, key) {
+    var match = new RegExp("(?:^|\\n)" + key + ":([^\\r\\n]*)").exec(gameSettings);
+    return match ? match[1] : null;
+  }
+
+  function applyMobilePerformanceSettings(gameSettings) {
+    gameSettings = setGameSetting(gameSettings, "enableDynamicLights", "false", true);
+    gameSettings = setGameSetting(gameSettings, "ao", "0", true);
+    gameSettings = setGameSetting(gameSettings, "fancyGraphics", "false", true);
+    gameSettings = setGameSetting(gameSettings, "renderClouds", "false", true);
+    gameSettings = setGameSetting(gameSettings, "particles", "1", true);
+    gameSettings = setGameSetting(gameSettings, "entityShadows", "false", true);
+    var renderDistance = Number(gameSettingValue(gameSettings, "renderDistance"));
+    if (isFinite(renderDistance) && renderDistance > 6) {
+      gameSettings = setGameSetting(gameSettings, "renderDistance", "6", true);
+    }
+    return gameSettings;
+  }
+
   function isGzipGameSettings(binary) {
     return binary.length >= 2 && binary.charCodeAt(0) === 31 && binary.charCodeAt(1) === 139;
+  }
+
+  var mobilePerformanceStorageKey = storageNamespace + ".mobile-performance-v1";
+  var shouldSeedMobilePerformance = false;
+  if (touchRenderDevice) {
+    try {
+      shouldSeedMobilePerformance = window.localStorage.getItem(mobilePerformanceStorageKey) !== "1";
+    } catch (_error) {
+      shouldSeedMobilePerformance = true;
+    }
   }
 
   function applySpawnpointGameSettings(encodedGameSettings) {
@@ -91,6 +164,10 @@
     gameSettings = setGameSetting(gameSettings, "showSubtitles", "true", false);
     gameSettings = setGameSetting(gameSettings, "tutorialStep", "none", true);
     gameSettings = setGameSetting(gameSettings, "acknowledgeDisclaimer", "true", true);
+    if (shouldSeedMobilePerformance) {
+      gameSettings = applyMobilePerformanceSettings(gameSettings);
+      shouldSeedMobilePerformance = false;
+    }
     return typeof window.btoa === "function" ? window.btoa(gameSettings) : encodeBase64(gameSettings);
   }
 
@@ -102,6 +179,7 @@
     var gameSettingsKey = storageNamespace + ".g";
     var encodedGameSettings = window.localStorage.getItem(gameSettingsKey);
     window.localStorage.setItem(gameSettingsKey, applySpawnpointGameSettings(encodedGameSettings));
+    if (touchRenderDevice) window.localStorage.setItem(mobilePerformanceStorageKey, "1");
   } catch (_error) {
     // Storage can be unavailable in private browsing. Keep the launch hint as
     // a best-effort fallback instead of preventing the client from starting.
@@ -216,14 +294,19 @@
     locatorScreenObserved = true;
     var previousScreenName = currentScreenName;
     currentScreenName = typeof screenName === "string" ? screenName : "";
+    if (!currentScreenName) gameplaySessionObserved = true;
+    else if (/Gui(?:MainMenu|Multiplayer|Connecting|Disconnected)$/.test(currentScreenName)) gameplaySessionObserved = false;
     // A single Escape can close a client screen and then reach gameplay again
     // during the same browser key press. Undo only that duplicate pause menu.
     var duplicatePauseMenu = uiEscapeSourceScreen && /GuiIngameMenu$/.test(currentScreenName)
       && !/GuiIngameMenu$/.test(uiEscapeSourceScreen) && Date.now() - uiEscapeHandledAt < 1_000;
-    setDesktopGameCursorHidden(!currentScreenName || duplicatePauseMenu);
+    syncDesktopGameCursor();
     if (duplicatePauseMenu) {
       clearUiEscapeSuppression();
-      setTimeout(function () { dispatchRelayedBackquote(null); }, 0);
+      // Queue the corrective close during the same client tick so the pause
+      // screen cannot render a visible frame or release a restored pointer lock.
+      dispatchRelayedBackquote(null);
+      restoreGameplayForUiEscape();
     }
     if (typeof scaleFactor === "number" && isFinite(scaleFactor) && scaleFactor > 0) {
       locatorGuiScale = scaleFactor;
@@ -287,6 +370,7 @@
   var dispatchingIMECommit = false;
   var desktopChatInputActive = false;
   var currentScreenName = "";
+  var gameplaySessionObserved = false;
   var uiEscapeSourceScreen = "";
   var uiEscapeHandledAt = 0;
   var uiEscapeClearTimer = null;
@@ -415,6 +499,7 @@
     var style = document.createElement("style");
     style.id = "spawnpoint-locator-style";
     style.textContent = [
+      "@font-face{font-family:'Spawnpoint Mark';src:url('/game/fonts/Galmuri11.woff2') format('woff2');font-display:swap}",
       "#spawnpoint-player-locator{position:fixed;display:none;pointer-events:none;z-index:2147483000;background:none!important;image-rendering:auto!important;--sp-locator-pixel:2px;--sp-locator-width:364px}",
       "#spawnpoint-player-locator .sp-locator-track{position:absolute;left:50%;top:calc(var(--sp-locator-pixel)*8);width:var(--sp-locator-width);height:calc(var(--sp-locator-pixel)*5);transform:translateX(-50%);background:#050505;box-shadow:0 var(--sp-locator-pixel) 0 rgba(0,0,0,.35);image-rendering:pixelated}",
       "#spawnpoint-player-locator .sp-locator-track:before{content:'';position:absolute;inset:var(--sp-locator-pixel);background:#294b31;border-top:var(--sp-locator-pixel) solid #426f48;box-sizing:border-box}",
@@ -423,6 +508,7 @@
       "#spawnpoint-player-locator .sp-locator-marker{position:absolute;top:50%;width:calc(var(--sp-locator-pixel)*10);height:calc(var(--sp-locator-pixel)*10);transform:translate(-50%,-50%)}",
       "#spawnpoint-player-locator .sp-locator-marker.is-behind{opacity:.72}",
       "#spawnpoint-player-locator .sp-locator-marker canvas{display:block;width:100%;height:100%;image-rendering:pixelated}",
+      "#spawnpoint-player-locator .sp-locator-distance{position:absolute;left:50%;top:calc(100% + var(--sp-locator-pixel));transform:translateX(-50%);color:#fff;font-family:'Spawnpoint Mark',sans-serif;font-size:calc(var(--sp-locator-pixel)*5);font-weight:400;line-height:1;white-space:nowrap;text-align:center;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,-1px 0 0 #000,1px 0 0 #000,0 -1px 0 #000,0 1px 0 #000}",
     ].join("");
     document.head.appendChild(style);
   }
@@ -472,11 +558,15 @@
     canvas.width = 10;
     canvas.height = 10;
     element.appendChild(canvas);
+    var distanceLabel = document.createElement("span");
+    distanceLabel.className = "sp-locator-distance";
+    element.appendChild(distanceLabel);
     locatorMarkerLayer.appendChild(element);
     drawLocatorHead(canvas, target.skinUrl);
     return {
       element: element,
       canvas: canvas,
+      distanceLabel: distanceLabel,
       skinUrl: target.skinUrl,
       rawAngle: null,
       displayAngle: null,
@@ -551,7 +641,9 @@
     marker.rawAngle = target.angle;
     marker.element.style.zIndex = String(count - index);
     marker.element.className = "sp-locator-marker" + (Math.abs(target.angle) > 90 ? " is-behind" : "");
-    marker.element.title = target.displayName + " " + Math.round(target.distance) + "m";
+    var distanceText = String(Math.round(target.distance * 10) / 10) + "블록";
+    marker.distanceLabel.textContent = distanceText;
+    marker.element.title = target.displayName + " " + distanceText;
   }
 
   function renderLocatorSnapshot(snapshot) {
@@ -976,10 +1068,13 @@
     if (typeof canvas.requestPointerLock !== "function") return;
     try {
       var request = canvas.requestPointerLock();
-      if (request && typeof request.catch === "function") request.catch(function () {});
+      if (request && typeof request.then === "function") {
+        request.then(syncDesktopGameCursor, syncDesktopGameCursor);
+      }
     } catch (_error) {
       // The canvas still keeps keyboard focus if pointer lock is unavailable.
     }
+    syncDesktopGameCursor();
   }
 
   function setDesktopGameCursorHidden(hidden) {
@@ -988,13 +1083,14 @@
     if (canvas && canvas.style) canvas.style.cursor = hidden ? "none" : "";
   }
 
-  function screenClosesToGameplayWithEscape(screenName) {
-    return /Gui(?:Chat|IngameMenu|ScreenBook|EditSign|ScreenAdvancements)$/.test(screenName)
-      || /\.gui\.inventory\.[^.]+$/.test(screenName);
+  function syncDesktopGameCursor() {
+    if (mobileTouchCapable) return;
+    var canvas = findMinecraftCanvas();
+    setDesktopGameCursorHidden(!!canvas && !currentScreenName && document.pointerLockElement === canvas);
   }
 
   function restoreGameplayForUiEscape() {
-    if (!screenClosesToGameplayWithEscape(currentScreenName)) return;
+    if (!gameplaySessionObserved || !currentScreenName || /GuiGameOver$/.test(currentScreenName)) return;
     // Pointer lock requests made later from the synthetic Backquote event have
     // no browser user activation. Arc rejects that request, then the client
     // retries after 3.1 seconds. Re-lock during the physical Escape instead.
@@ -2435,9 +2531,10 @@
       rememberSentChat(message);
       if (submittedFromPortal && portalChatActive) closePortalChat(true);
       else if (!submittedFromPortal) {
-        // GuiChat still contains the slash that opened it. Escape closes that stale draft without submitting it.
+        // GuiChat still contains the slash that opened it. Use its real Exit
+        // Chat button so the stale draft is discarded without submitting it.
         markUiEscape(currentScreenName || "GuiChat");
-        if (!dispatchClientChatClose()) dismissClientChat();
+        dismissClientChat();
         desktopChatInputActive = false;
         chatDraft = "";
         updateTPAPickerVisibility();
@@ -2872,8 +2969,8 @@
     return !!event && event.__spawnpointRelayedBackquote === true;
   }
 
-  function isClientChatCloseEvent(event) {
-    return !!event && event.__spawnpointClientChatClose === true;
+  function isEscapeEvent(event) {
+    return !!event && (event.key === "Escape" || event.code === "Escape" || event.keyCode === 27 || event.which === 27);
   }
 
   function isBackquoteEvent(event) {
@@ -2973,34 +3070,6 @@
     });
   }
 
-  function dispatchClientChatClose() {
-    var canvas = findMinecraftCanvas();
-    if (!canvas || typeof canvas.dispatchEvent !== "function" || typeof window.KeyboardEvent !== "function") return false;
-    if (typeof canvas.focus === "function") canvas.focus();
-    ["keydown", "keyup"].forEach(function (eventName) {
-      var event = new window.KeyboardEvent(eventName, {
-        key: "Escape",
-        code: "Escape",
-        keyCode: 27,
-        which: 27,
-        charCode: 0,
-        bubbles: true,
-        cancelable: true,
-      });
-      try {
-        Object.defineProperties(event, {
-          keyCode: { value: 27 },
-          which: { value: 27 },
-          __spawnpointClientChatClose: { value: true },
-        });
-      } catch (_error) {
-        event.__spawnpointClientChatClose = true;
-      }
-      canvas.dispatchEvent(event);
-    });
-    return true;
-  }
-
   function clearUiEscapeSuppression() {
     uiEscapeSourceScreen = "";
     uiEscapeHandledAt = 0;
@@ -3026,8 +3095,7 @@
 
   function relayNativeEscape(event) {
     trackChatDraftKey(event);
-    var isEscape = event.key === "Escape" || event.code === "Escape" || event.keyCode === 27 || event.which === 27;
-    if (!isEscape || isRelayedBackquote(event) || isClientChatCloseEvent(event)) return;
+    if (!isEscapeEvent(event) || isRelayedBackquote(event)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.type === "keyup") {
@@ -3146,6 +3214,9 @@
             // text input is focused, let the browser own text and IME keys so
             // macOS and Windows can compose through beforeinput exactly once.
             if (isClientTextKeyboardEvent(event)) return;
+            // Never let the physical Escape reach the client as a second key.
+            // relayNativeEscape translates it to one marked Backquote action.
+            if (isEscapeEvent(event)) return;
             if (!isRelayedBackquote(event) && !isClientTextInput(event.target) && isBackquoteEvent(event)) {
               event.preventDefault();
               event.stopImmediatePropagation();
@@ -3210,6 +3281,7 @@
           var runtimeHandler = assignedHandler;
           nativeSetter.call(target, function (event) {
             if (isClientTextKeyboardEvent(event)) return;
+            if (isEscapeEvent(event)) return;
             if (!isRelayedBackquote(event) && !isClientTextInput(event.target) && isBackquoteEvent(event)) {
               event.preventDefault();
               event.stopImmediatePropagation();
@@ -3319,6 +3391,7 @@
     document.addEventListener("beforeinput", interceptIMEBeforeInput, true);
     document.addEventListener("input", interceptIMEInput, true);
     document.addEventListener("keydown", relayClientTextInputKey, true);
+    document.addEventListener("pointerlockchange", syncDesktopGameCursor, true);
     backquoteEventNames.forEach(function (eventName) {
       document.addEventListener(eventName, blockClientBackquote, true);
     });

@@ -708,7 +708,9 @@ describe("skin change flow", () => {
     expect(document.body.textContent).not.toContain("유명 스킨을 고르거나");
     const skinButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "스킨 변경");
     const serverButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "서버 시작");
-    expect(skinButton?.className).toContain("h-8");
+    expect(skinButton?.className).toContain("h-9");
+    expect(skinButton?.className).toContain("border-0");
+    expect(skinButton?.className).toContain("text-base");
     expect(serverButton?.className).toContain("h-7");
     expect(skinButton?.className).not.toContain("max-sm:min-h-");
     expect(serverButton?.className).not.toContain("max-sm:min-h-");
