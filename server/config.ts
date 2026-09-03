@@ -39,6 +39,7 @@ export const config = {
   startCooldownSeconds: integerEnv("MC_START_COOLDOWN_SECONDS", 45, 15, 600),
   maxPlayers: integerEnv("MC_MAX_PLAYERS", 12, 2, 40),
   mockServer: process.env.MC_MOCK === "true",
+  frontendVersionUrl: process.env.SPAWNPOINT_FRONTEND_VERSION_URL?.trim() ?? "",
   sessionDays: 30,
   gameTicketMinutes: 10,
 } as const;

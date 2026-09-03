@@ -15,6 +15,13 @@
 		respond "{\"ok\":true,\"service\":\"frontend\"}" 200
 	}
 
+	@frontendVersion path /frontend-version
+	handle @frontendVersion {
+		header Content-Type application/json
+		header Cache-Control "no-store"
+		respond "{\"version\":\"{$RAILWAY_DEPLOYMENT_ID:local}\"}" 200
+	}
+
 	@backend path /api /api/* /gateway /gateway/* /healthz
 	handle @backend {
 		reverse_proxy {$BACKEND_ORIGIN:http://server:3000}

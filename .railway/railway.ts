@@ -57,6 +57,7 @@ export default defineRailway(() => {
     },
     healthcheck: "/healthz",
     healthcheckTimeout: 120,
+    deploy: { drainingSeconds: 60 },
     replicas: { "asia-southeast1-eqsg3a": 1 },
     volumeMounts: { "/data": backendData },
     env: {
@@ -70,6 +71,7 @@ export default defineRailway(() => {
       SERVER_PASSWORD: preserve(),
       SESSION_SECRET: preserve(),
       SPAWNPOINT_ADMIN_PASSWORD: preserve(),
+      SPAWNPOINT_FRONTEND_VERSION_URL: "https://meeduck.up.railway.app/frontend-version",
     },
   });
 

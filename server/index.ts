@@ -14,6 +14,7 @@ import { presetSkinFile, SkinService, skinPathForUser } from "./skins.js";
 import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
 import { HistoryStore, type LegacyServerLogEntry } from "./history-store.js";
 import { siteIndexForHostname } from "./site-index.js";
+import { announceServerUpdateCountdown, FrontendReleaseMonitor } from "./deployment-notices.js";
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 const sessionSecret = loadOrCreateSecret(config.dataDir, config.sessionSecret);
@@ -35,6 +36,7 @@ const serverManager = new MinecraftServerManager({
   mockServer: config.mockServer,
   onLog: (line, occurredAt) => history.recordServerLog(line, occurredAt),
 });
+const frontendReleaseMonitor = new FrontendReleaseMonitor(serverManager, config.frontendVersionUrl);
 
 const app = express();
 const gameDir = path.join(config.clientDir, "game");
@@ -327,6 +329,7 @@ server.on("upgrade", (request, socket, head) => {
 server.listen(config.port, "0.0.0.0", () => {
   console.log(`spawnpoint is listening on port ${config.port}`);
   void importLegacyServerLogs();
+  frontendReleaseMonitor.start();
 });
 
 function legacyLogTimestamp(source: string, line: string, fallback: number): number {
@@ -366,9 +369,17 @@ async function importLegacyServerLogs(): Promise<void> {
 }
 
 let closing = false;
-async function shutdown(): Promise<void> {
+async function shutdown(announceUpdate = false): Promise<void> {
   if (closing) return;
   closing = true;
+  frontendReleaseMonitor.stop();
+  if (announceUpdate) {
+    try {
+      await announceServerUpdateCountdown(serverManager);
+    } catch (error) {
+      console.error("Could not finish the server update countdown:", error);
+    }
+  }
   await serverManager.shutdown();
   proxy.close();
   server.close(() => {
@@ -380,5 +391,5 @@ async function shutdown(): Promise<void> {
   setTimeout(() => process.exit(1), 25_000).unref();
 }
 
-process.on("SIGTERM", () => void shutdown());
+process.on("SIGTERM", () => void shutdown(true));
 process.on("SIGINT", () => void shutdown());
