@@ -1234,6 +1234,12 @@ describe("administrator console and account actions", () => {
             gameUsername: "friend",
             displayName: "친구",
             skinUrl: "/assets/skins/spawnpoint.png",
+            channel: "whisper",
+            recipientAccountId: "00000000-0000-4000-8000-000000000003",
+            recipientUuid: "00000000-0000-4000-8000-000000000004",
+            recipientGameUsername: "recipient",
+            recipientDisplayName: "받는 친구",
+            recipientSkinUrl: "/assets/skins/spawnpoint.png",
             message: "영구 채팅입니다",
           }],
           nextCursor: null,
@@ -1305,7 +1311,10 @@ describe("administrator console and account actions", () => {
     });
 
     expect(document.body.textContent).toContain("영구 채팅입니다");
+    expect(document.body.textContent).toContain("귓속말");
+    expect(document.body.textContent).toContain("받는 친구");
     expect(document.body.querySelector('[aria-label="친구 머리"]')?.querySelectorAll("img")).toHaveLength(2);
+    expect(document.body.querySelector('[aria-label="받는 친구 머리"]')?.querySelectorAll("img")).toHaveLength(2);
     const historyNav = document.body.querySelector('[aria-label="기록 분류"]')!;
     await act(async () => {
       ([...historyNav.querySelectorAll("button")].find((button) => button.textContent === "접속") as HTMLButtonElement).click();

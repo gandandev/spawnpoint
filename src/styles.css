@@ -407,6 +407,10 @@
     image-rendering: pixelated;
   }
 
+  .minecraft-player-head.is-compact {
+    @apply size-5 rounded-sm;
+  }
+
   .minecraft-player-head > img {
     @apply pointer-events-none absolute max-w-none select-none;
     top: -100%;

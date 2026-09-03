@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Clock3, Eye, EyeOff, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "lucide-react";
+import { ArrowRight, Clock3, Eye, EyeOff, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,12 +50,12 @@ function parseLocalDateTime(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function PlayerHead({ src, name }: { src: string; name: string }) {
+function PlayerHead({ src, name, compact = false }: { src: string; name: string; compact?: boolean }) {
   const fallback = "/assets/skins/spawnpoint.png";
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   const texture = failed ? fallback : src;
-  return <div className="minecraft-player-head" title={`${name} 스킨`} aria-label={`${name} 머리`}>
+  return <div className={cn("minecraft-player-head", compact && "is-compact")} title={`${name} 스킨`} aria-label={`${name} 머리`}>
     <img src={texture} alt="" className="minecraft-player-head-face" onError={() => setFailed(true)} />
     <img src={texture} alt="" className="minecraft-player-head-hat" onError={() => setFailed(true)} />
   </div>;
@@ -70,6 +70,11 @@ function ChatHistory({ entries }: { entries: AdminChatHistoryEntry[] }) {
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <strong className="font-mark text-sm text-[#65952c]">{entry.displayName}</strong>
           <span className="text-[11px] text-muted-foreground">{entry.gameUsername}</span>
+          {entry.channel === "whisper" && <>
+            <Badge variant="outline" className="gap-1 text-[10px]"><ArrowRight className="size-3" />귓속말</Badge>
+            {entry.recipientSkinUrl && entry.recipientDisplayName && <PlayerHead src={entry.recipientSkinUrl} name={entry.recipientDisplayName} compact />}
+            <span className="text-[11px] text-muted-foreground">{entry.recipientDisplayName}</span>
+          </>}
           <time className="ml-auto text-[11px] tabular-nums text-muted-foreground" dateTime={new Date(entry.occurredAt).toISOString()}>{formatDateTime(entry.occurredAt)}</time>
         </div>
         <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.message}</p>

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { HistoryStore, maskIpAddress } from "../server/history-store.js";
 
@@ -18,6 +19,38 @@ afterEach(() => {
 });
 
 describe("permanent administrator history", () => {
+  it("migrates existing public chat rows without losing them", () => {
+    const dataDir = temporaryDataDirectory();
+    const database = new Database(path.join(dataDir, "spawnpoint.sqlite"));
+    database.exec(`
+      CREATE TABLE chat_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        occurred_at INTEGER NOT NULL,
+        account_id TEXT,
+        player_uuid TEXT NOT NULL,
+        game_username TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        message TEXT NOT NULL
+      );
+    `);
+    database.prepare(`
+      INSERT INTO chat_history (
+        event_id, occurred_at, account_id, player_uuid, game_username, display_name, message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(crypto.randomUUID(), 1_000, null, crypto.randomUUID(), "legacy", "기존 유저", "기존 공개 채팅");
+    database.close();
+
+    const store = new HistoryStore(dataDir);
+    expect(store.listChatHistory().entries[0]).toMatchObject({
+      channel: "public",
+      recipientAccountId: null,
+      recipientDisplayName: null,
+      message: "기존 공개 채팅",
+    });
+    store.close();
+  });
+
   it("stores searchable access sessions with masked and explicit IP views", () => {
     const store = new HistoryStore(temporaryDataDirectory());
     const accountId = crypto.randomUUID();
@@ -61,6 +94,11 @@ describe("permanent administrator history", () => {
       uuid: crypto.randomUUID(),
       gameUsername: "game_player",
       displayName: "친구",
+      channel: "public" as const,
+      recipientAccountId: null,
+      recipientUuid: null,
+      recipientGameUsername: null,
+      recipientDisplayName: null,
       message: "영구 채팅 테스트",
     };
     first.recordChat(chat);
@@ -70,8 +108,24 @@ describe("permanent administrator history", () => {
 
     const reopened = new HistoryStore(dataDir);
     expect(reopened.listChatHistory({ query: "영구", from: 9_000, to: 10_000 }).entries).toEqual([
-      expect.objectContaining({ message: "영구 채팅 테스트", displayName: "친구" }),
+      expect.objectContaining({ message: "영구 채팅 테스트", displayName: "친구", channel: "public" }),
     ]);
+    reopened.recordChat({
+      ...chat,
+      eventId: crypto.randomUUID(),
+      occurredAt: 10_100,
+      channel: "whisper",
+      recipientAccountId: crypto.randomUUID(),
+      recipientUuid: crypto.randomUUID(),
+      recipientGameUsername: "recipient",
+      recipientDisplayName: "받는 친구",
+      message: "비밀 메시지",
+    });
+    expect(reopened.listChatHistory({ query: "받는 친구" }).entries[0]).toMatchObject({
+      channel: "whisper",
+      recipientDisplayName: "받는 친구",
+      message: "비밀 메시지",
+    });
     expect(reopened.listServerLogs({ query: "Done", from: 10_500 }).entries).toEqual([
       expect.objectContaining({ occurredAt: 11_000, line: "Done (1.234s)!" }),
     ]);

@@ -41,6 +41,11 @@ export interface ChatHistoryEntry {
   uuid: string;
   gameUsername: string;
   displayName: string;
+  channel: "public" | "whisper";
+  recipientAccountId: string | null;
+  recipientUuid: string | null;
+  recipientGameUsername: string | null;
+  recipientDisplayName: string | null;
   message: string;
 }
 
@@ -79,6 +84,11 @@ interface ChatHistoryRow {
   player_uuid: string;
   game_username: string;
   display_name: string;
+  channel: "public" | "whisper";
+  recipient_account_id: string | null;
+  recipient_uuid: string | null;
+  recipient_game_username: string | null;
+  recipient_display_name: string | null;
   message: string;
 }
 
@@ -129,6 +139,11 @@ function mapChatRow(row: ChatHistoryRow): ChatHistoryEntry {
     uuid: row.player_uuid,
     gameUsername: row.game_username,
     displayName: row.display_name,
+    channel: row.channel,
+    recipientAccountId: row.recipient_account_id,
+    recipientUuid: row.recipient_uuid,
+    recipientGameUsername: row.recipient_game_username,
+    recipientDisplayName: row.recipient_display_name,
     message: row.message,
   };
 }
@@ -200,6 +215,11 @@ export class HistoryStore {
         player_uuid TEXT NOT NULL,
         game_username TEXT NOT NULL,
         display_name TEXT NOT NULL,
+        channel TEXT NOT NULL DEFAULT 'public',
+        recipient_account_id TEXT,
+        recipient_uuid TEXT,
+        recipient_game_username TEXT,
+        recipient_display_name TEXT,
         message TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS chat_history_time_idx ON chat_history(occurred_at DESC);
@@ -217,6 +237,24 @@ export class HistoryStore {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+    `);
+
+    const chatColumns = new Set(
+      (this.db.prepare("PRAGMA table_info(chat_history)").all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    const missingChatColumns = [
+      ["channel", "TEXT NOT NULL DEFAULT 'public'"],
+      ["recipient_account_id", "TEXT"],
+      ["recipient_uuid", "TEXT"],
+      ["recipient_game_username", "TEXT"],
+      ["recipient_display_name", "TEXT"],
+    ] as const;
+    for (const [name, definition] of missingChatColumns) {
+      if (!chatColumns.has(name)) this.db.exec(`ALTER TABLE chat_history ADD COLUMN ${name} ${definition}`);
+    }
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS chat_history_recipient_idx
+        ON chat_history(recipient_account_id, occurred_at DESC);
     `);
 
     this.db.prepare(`
@@ -276,9 +314,11 @@ export class HistoryStore {
     `);
     this.insertChatStatement = this.db.prepare(`
       INSERT INTO chat_history (
-        event_id, occurred_at, account_id, player_uuid, game_username, display_name, message
+        event_id, occurred_at, account_id, player_uuid, game_username, display_name,
+        channel, recipient_account_id, recipient_uuid, recipient_game_username, recipient_display_name, message
       ) VALUES (
-        @eventId, @occurredAt, @accountId, @uuid, @gameUsername, @displayName, @message
+        @eventId, @occurredAt, @accountId, @uuid, @gameUsername, @displayName,
+        @channel, @recipientAccountId, @recipientUuid, @recipientGameUsername, @recipientDisplayName, @message
       )
       ON CONFLICT(event_id) DO NOTHING
     `);
@@ -384,6 +424,8 @@ export class HistoryStore {
           @query = ''
           OR game_username LIKE @pattern ESCAPE '\\' COLLATE NOCASE
           OR display_name LIKE @pattern ESCAPE '\\' COLLATE NOCASE
+          OR recipient_game_username LIKE @pattern ESCAPE '\\' COLLATE NOCASE
+          OR recipient_display_name LIKE @pattern ESCAPE '\\' COLLATE NOCASE
           OR message LIKE @pattern ESCAPE '\\' COLLATE NOCASE
         )
       ORDER BY id DESC

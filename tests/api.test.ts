@@ -1201,9 +1201,50 @@ describe("permanent player and server history", () => {
         displayName: harness.user.displayName,
         gameUsername: harness.user.gameUsername,
         message: "기록할 공개 채팅",
+        channel: "public",
+        recipientDisplayName: null,
         skinUrl: "/assets/skins/spawnpoint.png",
       }),
     ]);
+  });
+
+  it("stores whisper participants and message text in permanent chat history", async () => {
+    const harness = await createHarness();
+    const recipient = harness.database.createUser(
+      "recipient",
+      Buffer.alloc(32, 1),
+      Buffer.alloc(16, 2),
+    );
+    const response = await fetch(`${harness.origin}/api/internal/player-history`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventId: crypto.randomUUID(),
+        type: "whisper",
+        occurredAt: Date.now(),
+        accountId: harness.user.id,
+        uuid: crypto.randomUUID(),
+        gameUsername: harness.user.gameUsername,
+        displayName: harness.user.displayName,
+        recipientUuid: crypto.randomUUID(),
+        recipientGameUsername: recipient.gameUsername,
+        recipientDisplayName: "위조된 수신자",
+        message: "귓속말 원문",
+      }),
+    });
+
+    expect(response.status).toBe(204);
+    const historyResponse = await fetch(`${harness.origin}/api/admin/history/chats?q=${encodeURIComponent(recipient.displayName)}`, {
+      headers: harness.adminHeaders,
+    });
+    const history = await historyResponse.json() as { entries: Array<Record<string, unknown>> };
+    expect(history.entries[0]).toMatchObject({
+      channel: "whisper",
+      recipientAccountId: recipient.id,
+      recipientGameUsername: recipient.gameUsername,
+      recipientDisplayName: recipient.displayName,
+      message: "귓속말 원문",
+    });
   });
 
   it("returns masked access history until the administrator explicitly reveals IP addresses", async () => {

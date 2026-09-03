@@ -162,6 +162,12 @@ export interface AdminChatHistoryEntry {
   gameUsername: string;
   displayName: string;
   skinUrl: string;
+  channel: "public" | "whisper";
+  recipientAccountId: string | null;
+  recipientUuid: string | null;
+  recipientGameUsername: string | null;
+  recipientDisplayName: string | null;
+  recipientSkinUrl: string | null;
   message: string;
 }
 

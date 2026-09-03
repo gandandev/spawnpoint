@@ -118,6 +118,9 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private static final Set<String> TITLE_COLORS = Set.of(
         "white", "gray", "red", "gold", "yellow", "green", "aqua", "blue", "light_purple"
     );
+    private static final Set<String> WHISPER_COMMANDS = Set.of(
+        "tell", "msg", "w", "whisper", "message", "pm", "dm"
+    );
 
     private byte[] secret;
     private String portalOrigin;
@@ -263,6 +266,8 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
         if (!getServer().dispatchCommand(sender, rewrite.message.substring(1))) {
             sender.sendMessage("귓속말을 보내지 못했어요. 받는 사람과 문구를 확인하세요.");
+        } else if (sender instanceof Player player) {
+            recordWhisperHistory(player, rewrite.message);
         }
         return true;
     }
@@ -528,6 +533,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerWhisperCommand(PlayerCommandPreprocessEvent event) {
+        recordWhisperHistory(event.getPlayer(), event.getMessage());
+    }
+
     private void refreshCommandTargets() {
         HttpURLConnection connection = null;
         try {
@@ -569,6 +579,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     }
 
     private void recordPlayerHistory(String type, Player player, String message) {
+        recordPlayerHistory(type, player, message, null);
+    }
+
+    private void recordPlayerHistory(String type, Player player, String message, Player recipient) {
         PlayerIdentity identity = activeIdentities.get(player.getUniqueId());
         JsonObject event = new JsonObject();
         event.addProperty("eventId", UUID.randomUUID().toString());
@@ -579,6 +593,15 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         event.addProperty("gameUsername", player.getName());
         event.addProperty("displayName", identity == null ? player.getName() : identity.displayName);
         if (message != null) event.addProperty("message", message);
+        if (recipient != null) {
+            PlayerIdentity recipientIdentity = activeIdentities.get(recipient.getUniqueId());
+            event.addProperty("recipientUuid", recipient.getUniqueId().toString());
+            event.addProperty("recipientGameUsername", recipient.getName());
+            event.addProperty(
+                "recipientDisplayName",
+                recipientIdentity == null ? playerLabel(recipient) : recipientIdentity.displayName
+            );
+        }
         byte[] body = event.toString().getBytes(StandardCharsets.UTF_8);
         if (body.length > MAX_REQUEST_BYTES) return;
         ExecutorService executor = historyExecutor;
@@ -588,6 +611,19 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         } catch (RejectedExecutionException exception) {
             warnHistoryFailure("history queue is full; one event was skipped");
         }
+    }
+
+    private void recordWhisperHistory(Player sender, String commandMessage) {
+        WhisperCommand whisper = parseWhisperCommand(commandMessage);
+        if (whisper == null) return;
+        Player recipient = null;
+        for (Player candidate : getServer().getOnlinePlayers()) {
+            if (candidate.getName().equalsIgnoreCase(whisper.target) && sender.canSee(candidate)) {
+                recipient = candidate;
+                break;
+            }
+        }
+        if (recipient != null) recordPlayerHistory("whisper", sender, whisper.message, recipient);
     }
 
     private void postPlayerHistory(byte[] body) {
@@ -662,6 +698,22 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             case "scoreboard" -> rewriteScoreboardTargets(message, targets);
             default -> new CommandRewrite(message, false);
         };
+    }
+
+    static WhisperCommand parseWhisperCommand(String message) {
+        List<CommandSpan> spans = commandSpans(message);
+        if (spans.size() < 3) return null;
+        String command = spanValue(message, spans.get(0));
+        if (!command.startsWith("/")) return null;
+        command = command.substring(1);
+        int namespaceSeparator = command.lastIndexOf(':');
+        if (namespaceSeparator >= 0) command = command.substring(namespaceSeparator + 1);
+        if (!WHISPER_COMMANDS.contains(command.toLowerCase(Locale.ROOT))) return null;
+        String target = spanValue(message, spans.get(1));
+        if (target.startsWith("@")) return null;
+        String whisperMessage = message.substring(spans.get(2).start).trim();
+        if (target.isEmpty() || whisperMessage.isEmpty()) return null;
+        return new WhisperCommand(target, whisperMessage);
     }
 
     private static CommandRewrite rewriteScoreboardTargets(String message, List<CommandTargetName> targets) {
@@ -1535,7 +1587,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (player == null || !player.isOnline()) return null;
         boolean command = message.startsWith("/");
         if (command) {
-            player.performCommand(message.substring(1));
+            if (player.performCommand(message.substring(1))) recordWhisperHistory(player, message);
         } else {
             player.chat(message);
         }
@@ -2149,6 +2201,8 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     record CommandTargetName(String displayName, String technicalName) {}
 
     record CommandRewrite(String message, boolean ambiguousDisplayName) {}
+
+    record WhisperCommand(String target, String message) {}
 
     private record TargetRewrite(String message, boolean ambiguousDisplayName) {}
 

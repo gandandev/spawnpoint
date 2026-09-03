@@ -38,6 +38,11 @@ public final class CommandRewriteTest {
         assertRewrite("/tell @a 안녕", "/tell @a 안녕");
         assertRewrite("/tell " + FRIEND + " 안녕", "/tell " + FRIEND + " 안녕");
         assertRewrite("/say 친구", "/say 친구");
+        assertWhisper("sp_bbbbbbbbbbbbb", "안녕 친구", "/tell sp_bbbbbbbbbbbbb 안녕 친구");
+        assertWhisper("sp_bbbbbbbbbbbbb", "반가워", "/minecraft:msg sp_bbbbbbbbbbbbb 반가워");
+        assertNoWhisper("/say sp_bbbbbbbbbbbbb 안녕");
+        assertNoWhisper("/tell @a 안녕");
+        assertNoWhisper("/tell sp_bbbbbbbbbbbbb");
 
         String decomposedFriend = Normalizer.normalize("친구", Normalizer.Form.NFD);
         assertRewrite("/tell " + FRIEND + " 안녕", "/tell " + decomposedFriend + " 안녕");
@@ -103,6 +108,19 @@ public final class CommandRewriteTest {
         SpawnpointBridgePlugin.CommandRewrite rewrite = SpawnpointBridgePlugin.rewriteTellAliasCommand(args, TARGETS);
         if (rewrite.ambiguousDisplayName() || !expected.equals(rewrite.message())) {
             throw new AssertionError("expected <" + expected + "> but got <" + rewrite.message() + ">");
+        }
+    }
+
+    private static void assertWhisper(String expectedTarget, String expectedMessage, String command) {
+        SpawnpointBridgePlugin.WhisperCommand whisper = SpawnpointBridgePlugin.parseWhisperCommand(command);
+        if (whisper == null || !expectedTarget.equals(whisper.target()) || !expectedMessage.equals(whisper.message())) {
+            throw new AssertionError("could not parse whisper command <" + command + ">");
+        }
+    }
+
+    private static void assertNoWhisper(String command) {
+        if (SpawnpointBridgePlugin.parseWhisperCommand(command) != null) {
+            throw new AssertionError("non-whisper command was captured <" + command + ">");
         }
     }
 }

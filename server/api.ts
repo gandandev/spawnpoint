@@ -336,13 +336,16 @@ function validateHistoryQuery(query: Request["query"]): HistoryQuery {
 
 interface BridgeHistoryEvent {
   eventId: string;
-  type: "join" | "quit" | "chat";
+  type: "join" | "quit" | "chat" | "whisper";
   occurredAt: number;
   accountId: string | null;
   uuid: string;
   gameUsername: string;
   displayName: string;
   message: string | null;
+  recipientUuid: string | null;
+  recipientGameUsername: string | null;
+  recipientDisplayName: string | null;
 }
 
 function isUuid(value: unknown): value is string {
@@ -355,7 +358,9 @@ function validateBridgeHistoryEvent(input: unknown): BridgeHistoryEvent {
   if (!isUuid(value.eventId)) {
     throw new Error("기록 ID가 올바르지 않아요.");
   }
-  if (value.type !== "join" && value.type !== "quit" && value.type !== "chat") throw new Error("기록 종류가 올바르지 않아요.");
+  if (value.type !== "join" && value.type !== "quit" && value.type !== "chat" && value.type !== "whisper") {
+    throw new Error("기록 종류가 올바르지 않아요.");
+  }
   const occurredAt = numberInput(value.occurredAt, "기록 시간", 0, Date.now() + 5 * 60_000, true);
   if (value.accountId !== null && !isUuid(value.accountId)) throw new Error("계정 ID가 올바르지 않아요.");
   const accountId = value.accountId;
@@ -367,7 +372,23 @@ function validateBridgeHistoryEvent(input: unknown): BridgeHistoryEvent {
     throw new Error("표시 이름이 올바르지 않아요.");
   }
   let message: string | null = null;
-  if (value.type === "chat") message = validateGameChatMessage(value.message);
+  if (value.type === "chat" || value.type === "whisper") message = validateGameChatMessage(value.message);
+  let recipientUuid: string | null = null;
+  let recipientGameUsername: string | null = null;
+  let recipientDisplayName: string | null = null;
+  if (value.type === "whisper") {
+    if (!isUuid(value.recipientUuid)) throw new Error("귓속말 수신자 UUID가 올바르지 않아요.");
+    if (typeof value.recipientGameUsername !== "string" || !/^[A-Za-z0-9_]{3,16}$/.test(value.recipientGameUsername)) {
+      throw new Error("귓속말 수신자 게임 이름이 올바르지 않아요.");
+    }
+    if (typeof value.recipientDisplayName !== "string" || !value.recipientDisplayName.trim()
+      || value.recipientDisplayName.length > 64 || /[\r\n\0]/.test(value.recipientDisplayName)) {
+      throw new Error("귓속말 수신자 표시 이름이 올바르지 않아요.");
+    }
+    recipientUuid = value.recipientUuid;
+    recipientGameUsername = value.recipientGameUsername;
+    recipientDisplayName = value.recipientDisplayName.trim();
+  }
   return {
     eventId: value.eventId,
     type: value.type,
@@ -377,6 +398,9 @@ function validateBridgeHistoryEvent(input: unknown): BridgeHistoryEvent {
     gameUsername: value.gameUsername,
     displayName: value.displayName.trim(),
     message,
+    recipientUuid,
+    recipientGameUsername,
+    recipientDisplayName,
   };
 }
 
@@ -779,6 +803,9 @@ export function createApiRouter(context: ApiContext): express.Router {
       } else if (event.type === "quit") {
         if (accountId) context.history.markPlayerLeft(accountId, event.occurredAt);
       } else {
+        const recipientUser = event.recipientGameUsername
+          ? context.database.getUserByGameUsername(event.recipientGameUsername)
+          : null;
         context.history.recordChat({
           eventId: event.eventId,
           occurredAt: event.occurredAt,
@@ -786,6 +813,11 @@ export function createApiRouter(context: ApiContext): express.Router {
           uuid: event.uuid,
           gameUsername: user?.gameUsername ?? event.gameUsername,
           displayName: user?.displayName ?? event.displayName,
+          channel: event.type === "whisper" ? "whisper" : "public",
+          recipientAccountId: recipientUser?.id ?? null,
+          recipientUuid: event.recipientUuid,
+          recipientGameUsername: recipientUser?.gameUsername ?? event.recipientGameUsername,
+          recipientDisplayName: recipientUser?.displayName ?? event.recipientDisplayName,
           message: event.message!,
         });
       }
@@ -1356,9 +1388,11 @@ export function createApiRouter(context: ApiContext): express.Router {
         ...page,
         entries: page.entries.map((entry) => {
           const user = entry.accountId ? context.database.getUserById(entry.accountId) : null;
+          const recipient = entry.recipientAccountId ? context.database.getUserById(entry.recipientAccountId) : null;
           return {
             ...entry,
             skinUrl: user ? publicUser(user, context).skin.previewUrl : "/assets/skins/spawnpoint.png",
+            recipientSkinUrl: recipient ? publicUser(recipient, context).skin.previewUrl : null,
           };
         }),
       });
