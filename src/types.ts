@@ -53,6 +53,7 @@ export interface AdminUser {
   displayName: string;
   createdAt: number;
   lastLoginAt: number | null;
+  archivedAt: number | null;
   passwordUpdatedAt: number;
   passwordResetExpiresAt: number | null;
   resetRequired: boolean;

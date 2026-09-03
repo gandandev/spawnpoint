@@ -17,6 +17,7 @@ export interface UserRecord {
   sessionVersion: number;
   createdAt: number;
   lastLoginAt: number | null;
+  archivedAt: number | null;
   passwordUpdatedAt: number;
   skinType: SkinType;
   skinRef: string;
@@ -59,6 +60,7 @@ export interface AdminUser {
   displayName: string;
   createdAt: number;
   lastLoginAt: number | null;
+  archivedAt: number | null;
   passwordUpdatedAt: number;
   passwordResetPending: boolean;
   passwordResetExpiresAt: number | null;

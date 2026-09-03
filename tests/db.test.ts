@@ -44,6 +44,22 @@ describe("account database migrations", () => {
     database.close();
   });
 
+  it("stores archived users and restores them when they return", () => {
+    const dataDir = temporaryDataDirectory();
+    const database = new AppDatabase(dataDir);
+    const created = database.createUser("returningplayer", Buffer.from("hash"), Buffer.from("salt"));
+    const archived = database.setUserArchived(created.id, true);
+
+    expect(archived.archivedAt).toEqual(expect.any(Number));
+    expect(database.listUsers()).toContainEqual(expect.objectContaining({ id: created.id, archivedAt: archived.archivedAt }));
+    database.close();
+
+    const reopened = new AppDatabase(dataDir);
+    expect(reopened.getUserById(created.id)?.archivedAt).toBe(archived.archivedAt);
+    expect(reopened.recordLogin(created.id).archivedAt).toBeNull();
+    reopened.close();
+  });
+
   it("gives a Korean account name a separate Minecraft-safe identity", () => {
     const database = new AppDatabase(temporaryDataDirectory());
     const created = database.createUser("텔레그램", Buffer.from("hash"), Buffer.from("salt"));
@@ -102,6 +118,7 @@ describe("account database migrations", () => {
     expect(user?.displayName).toBe("legacyplayer");
     expect(user?.passwordResetDigest).toBeNull();
     expect(user?.sessionVersion).toBe(0);
+    expect(user?.archivedAt).toBeNull();
     expect(user?.resourcePackPreference).toBe("new-default");
     migrated.close();
   });

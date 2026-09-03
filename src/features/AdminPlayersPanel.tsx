@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Box, Check, Clock3, Copy, DoorOpen, HeartPulse, KeyRound, PackagePlus, Shield, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Ban, Box, Check, ChevronDown, Clock3, Copy, DoorOpen, HeartPulse, KeyRound, PackagePlus, Shield, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -287,7 +287,7 @@ function AccountEditor({ user, currentUserId, busy, temporaryPassword, onSave, o
   </section>;
 }
 
-function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, temporaryPassword, onTemporaryPassword, onCopyPassword }: {
+function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, temporaryPassword, onTemporaryPassword, onCopyPassword, onArchive }: {
   user: AdminUser;
   player: PlayerDetails | null;
   currentUserId: string;
@@ -297,6 +297,7 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
   temporaryPassword: string | null;
   onTemporaryPassword: () => Promise<void>;
   onCopyPassword: () => void;
+  onArchive: (archived: boolean) => Promise<void>;
 }) {
   const [reason, setReason] = useState("");
   const playerId = user.id;
@@ -309,13 +310,14 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
     <div className="flex flex-wrap items-start gap-3 rounded-lg border p-3">
       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#96ce4d]/15 font-semibold text-[#65952c]">{user.displayName.slice(0, 1)}</div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2"><span className="truncate font-medium">{user.displayName}</span><Badge variant={player?.online ? "secondary" : "outline"}>{player?.online ? "온라인" : "오프라인"}</Badge>{player?.banned && <Badge variant="destructive">차단됨</Badge>}</div>
+        <div className="flex items-center gap-2"><span className="truncate font-medium">{user.displayName}</span><Badge variant={player?.online ? "secondary" : "outline"}>{player?.online ? "온라인" : "오프라인"}</Badge>{user.archivedAt !== null && <Badge variant="outline">보관됨</Badge>}{player?.banned && <Badge variant="destructive">차단됨</Badge>}</div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground">{user.gameUsername} · {player?.uuid ?? "월드 기록 없음"}</div>
       </div>
-      <div className="grid w-full grid-cols-3 gap-1.5 sm:flex sm:w-auto sm:flex-wrap">
+      <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap">
         <Button type="button" className="min-w-0 px-2 sm:px-3" variant={player?.operator ? "destructive" : "outline"} size="sm" disabled={isBusy(`op:${playerId}`)} onClick={() => void run(`op:${playerId}`, `/admin/players/${playerId}/operator`, "PUT", { operator: !player?.operator }, player?.operator ? "OP를 회수했어요." : "OP를 부여했어요.")}>{isBusy(`op:${playerId}`) ? <Spinner /> : <Shield />}{player?.operator ? "OP 회수" : "OP 부여"}</Button>
         <Button type="button" className="min-w-0 px-2 sm:px-3" variant="outline" size="sm" disabled={!player?.online || isBusy(`kick:${playerId}`)} onClick={() => void run(`kick:${playerId}`, `/admin/players/${playerId}/kick`, "POST", { reason }, "플레이어를 내보냈어요.")}><DoorOpen />킥</Button>
         <Button type="button" className="min-w-0 px-2 sm:px-3" variant={player?.banned ? "outline" : "destructive"} size="sm" disabled={isBusy(`ban:${playerId}`)} onClick={() => void run(`ban:${playerId}`, `/admin/players/${playerId}/ban`, "PUT", { banned: !player?.banned, reason }, player?.banned ? "차단을 풀었어요." : "플레이어를 차단했어요.")}><Ban />{player?.banned ? "밴 해제" : "밴"}</Button>
+        <Button type="button" className="min-w-0 px-2 sm:px-3" variant="outline" size="sm" title={user.archivedAt === null && user.id === currentUserId ? "내 계정은 보관할 수 없어요." : user.archivedAt === null && player?.online ? "게임에 접속 중인 사용자는 보관할 수 없어요." : undefined} disabled={isBusy(`archive:${playerId}`) || (user.archivedAt === null && (user.id === currentUserId || player?.online))} onClick={() => void onArchive(user.archivedAt === null)}>{isBusy(`archive:${playerId}`) ? <Spinner /> : user.archivedAt !== null ? <ArchiveRestore /> : <Archive />}{user.archivedAt !== null ? "보관 해제" : "보관"}</Button>
       </div>
       <Input className="basis-full" value={reason} maxLength={160} onChange={(event) => setReason(event.target.value)} placeholder="킥 또는 밴 사유, 비워 두면 기본 문구 사용" aria-label="킥 또는 밴 사유" />
     </div>
@@ -353,6 +355,19 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
   </div>;
 }
 
+function PlayerListButton({ user, player, selected, archived, onSelect }: {
+  user: AdminUser;
+  player: PlayerDetails | undefined;
+  selected: boolean;
+  archived: boolean;
+  onSelect: () => void;
+}) {
+  return <button type="button" className={cn("admin-list-button", selected && "is-selected", archived && "is-archived")} onClick={onSelect}>
+    <span className="flex min-w-0 items-center gap-2"><span className={cn("size-2 shrink-0 rounded-full bg-muted-foreground/35", player?.online && "bg-[#96ce4d]")} aria-label={player?.online ? "온라인" : "오프라인"} /><span className={cn("truncate font-mark text-sm", player?.online && "text-[#65952c]")}>{user.displayName}</span>{archived ? <Archive className="ml-auto size-3.5 text-muted-foreground" /> : player?.banned && <Ban className="ml-auto size-3.5 text-destructive" />}</span>
+    <span className="flex items-center gap-1 truncate pl-4 text-xs text-muted-foreground"><Clock3 className="size-3" />{player?.online ? player.world : formatDate(player?.lastSeenAt ?? user.lastLoginAt)}</span>
+  </button>;
+}
+
 export function AdminPlayersPanel({ overview, currentUserId, isBusy, mutate, notice }: {
   overview: AdminOverview;
   currentUserId: string;
@@ -360,13 +375,16 @@ export function AdminPlayersPanel({ overview, currentUserId, isBusy, mutate, not
   mutate: AdminMutate;
   notice: (message: string) => void;
 }) {
-  const [selectedUserId, setSelectedUserId] = useState(overview.users[0]?.id ?? null);
+  const [selectedUserId, setSelectedUserId] = useState(overview.users.find((user) => user.archivedAt === null)?.id ?? overview.users[0]?.id ?? null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState<{ userId: string; value: string } | null>(null);
   const playersByAccount = useMemo(() => new Map(overview.players.flatMap((player) => player.accountId ? [[player.accountId, player] as const] : [])), [overview.players]);
+  const activeUsers = useMemo(() => overview.users.filter((user) => user.archivedAt === null), [overview.users]);
+  const archivedUsers = useMemo(() => overview.users.filter((user) => user.archivedAt !== null), [overview.users]);
 
   useEffect(() => {
-    if (!selectedUserId || !overview.users.some((user) => user.id === selectedUserId)) setSelectedUserId(overview.users[0]?.id ?? null);
-  }, [overview.users, selectedUserId]);
+    if (!selectedUserId || !overview.users.some((user) => user.id === selectedUserId)) setSelectedUserId(activeUsers[0]?.id ?? overview.users[0]?.id ?? null);
+  }, [activeUsers, overview.users, selectedUserId]);
 
   const selectedUser = overview.users.find((user) => user.id === selectedUserId) ?? null;
   const selectedPlayer = selectedUser ? playersByAccount.get(selectedUser.id) ?? null : null;
@@ -374,13 +392,11 @@ export function AdminPlayersPanel({ overview, currentUserId, isBusy, mutate, not
 
   return <div className="admin-split-panel">
     <div className="admin-list-panel">
-      {overview.users.map((user) => {
-        const player = playersByAccount.get(user.id);
-        return <button key={user.id} type="button" className={cn("admin-list-button", user.id === selectedUserId && "is-selected")} onClick={() => { setSelectedUserId(user.id); setTemporaryPassword(null); }}>
-          <span className="flex min-w-0 items-center gap-2"><span className={cn("size-2 shrink-0 rounded-full bg-muted-foreground/35", player?.online && "bg-[#96ce4d]")} aria-label={player?.online ? "온라인" : "오프라인"} /><span className={cn("truncate font-mark text-sm", player?.online && "text-[#65952c]")}>{user.displayName}</span>{player?.banned && <Ban className="ml-auto size-3.5 text-destructive" />}</span>
-          <span className="flex items-center gap-1 truncate pl-4 text-xs text-muted-foreground"><Clock3 className="size-3" />{player?.online ? player.world : formatDate(player?.lastSeenAt ?? user.lastLoginAt)}</span>
-        </button>;
-      })}
+      {activeUsers.map((user) => <PlayerListButton key={user.id} user={user} player={playersByAccount.get(user.id)} selected={user.id === selectedUserId} archived={false} onSelect={() => { setSelectedUserId(user.id); setTemporaryPassword(null); }} />)}
+      {archivedUsers.length > 0 && <div className="admin-archive-group">
+        <button type="button" className="admin-archive-toggle" aria-expanded={archivedOpen} onClick={() => setArchivedOpen((open) => !open)}><Archive className="size-3.5" /><span>보관함</span><span className="tabular-nums text-muted-foreground">{archivedUsers.length}</span><ChevronDown className={cn("ml-auto size-3.5 transition-transform", archivedOpen && "rotate-180")} /></button>
+        {archivedOpen && <div className="admin-archived-list">{archivedUsers.map((user) => <PlayerListButton key={user.id} user={user} player={playersByAccount.get(user.id)} selected={user.id === selectedUserId} archived onSelect={() => { setSelectedUserId(user.id); setTemporaryPassword(null); }} />)}</div>}
+      </div>}
     </div>
     <div className="min-w-0">{selectedUser ? <PlayerEditor
       user={selectedUser}
@@ -389,6 +405,15 @@ export function AdminPlayersPanel({ overview, currentUserId, isBusy, mutate, not
       isBusy={isBusy}
       mutate={mutate}
       notice={notice}
+      onArchive={async (archived) => {
+        const result = await mutate(`archive:${selectedUser.id}`, `/admin/users/${selectedUser.id}/archive`, { method: "PUT", body: JSON.stringify({ archived }), headers: { "Content-Type": "application/json" } });
+        if (!result) return;
+        notice(archived ? "사용자를 보관했어요." : "사용자를 보관함에서 꺼냈어요.");
+        if (archived) {
+          setArchivedOpen(true);
+          setSelectedUserId(activeUsers.find((user) => user.id !== selectedUser.id)?.id ?? selectedUser.id);
+        }
+      }}
       temporaryPassword={temporaryPassword?.userId === selectedUser.id ? temporaryPassword.value : null}
       onTemporaryPassword={async () => {
         const result = await mutate(`user:${selectedUser.id}`, `/admin/users/${selectedUser.id}/temporary-password`, { method: "POST" });

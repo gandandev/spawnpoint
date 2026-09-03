@@ -51,7 +51,7 @@ describe("gateway sessions", () => {
       id: "user-1", username: "mossrunner", gameUsername: "mossrunner", displayName: "이끼 러너",
       passwordHash: Buffer.alloc(0), passwordSalt: Buffer.alloc(0), passwordResetDigest: null,
       passwordResetExpiresAt: null, sessionVersion: 0,
-      createdAt: now, skinType: "preset", skinRef: "moss", skinModel: "steve", skinLabel: "moss", skinUpdatedAt: now,
+      createdAt: now, archivedAt: null, skinType: "preset", skinRef: "moss", skinModel: "steve", skinLabel: "moss", skinUpdatedAt: now,
     }, secret, 1);
     expect(sessionFromCookieHeader(`other=value; spawnpoint_session=${session.token}`, secret)?.sub).toBe("user-1");
   });

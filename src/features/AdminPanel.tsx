@@ -179,7 +179,7 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
         <DialogDescription>플레이어, 서버 설정, 영구 기록, 공지와 콘솔을 한곳에서 관리하세요.</DialogDescription>
       </DialogHeader>
       <ToggleGroup type="single" value={tab} onValueChange={(value) => { if (value === "players" || value === "settings" || value === "history" || value === "title" || value === "console") setTab(value); }} variant="outline" spacing={0} className="admin-primary-tabs grid w-full grid-cols-5 p-1">
-        <ToggleGroupItem value="players" className="admin-primary-tab"><Users /><span>플레이어 {overview?.users.length ?? 0}</span></ToggleGroupItem>
+        <ToggleGroupItem value="players" className="admin-primary-tab"><Users /><span>플레이어 {overview?.users.filter((user) => user.archivedAt === null).length ?? 0}</span></ToggleGroupItem>
         <ToggleGroupItem value="settings" className="admin-primary-tab"><Settings2 /><span>설정</span></ToggleGroupItem>
         <ToggleGroupItem value="history" className="admin-primary-tab"><History /><span>기록</span></ToggleGroupItem>
         <ToggleGroupItem value="title" className="admin-primary-tab"><Megaphone /><span>타이틀</span></ToggleGroupItem>

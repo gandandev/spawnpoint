@@ -16,6 +16,7 @@ interface UserRow {
   session_version: number;
   created_at: number;
   last_login_at: number | null;
+  archived_at: number | null;
   password_updated_at: number;
   skin_type: SkinType;
   skin_ref: string;
@@ -32,6 +33,7 @@ const LEGACY_USER_COLUMNS = [
   ["password_reset_expires_at", "INTEGER"],
   ["session_version", "INTEGER NOT NULL DEFAULT 0"],
   ["last_login_at", "INTEGER"],
+  ["archived_at", "INTEGER"],
   ["password_updated_at", "INTEGER NOT NULL DEFAULT 0"],
   ["resource_pack", "TEXT NOT NULL DEFAULT 'new-default'"],
 ] as const;
@@ -50,6 +52,7 @@ function mapUser(row: UserRow | undefined): UserRecord | null {
     sessionVersion: row.session_version,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
+    archivedAt: row.archived_at,
     passwordUpdatedAt: row.password_updated_at,
     skinType: row.skin_type,
     skinRef: row.skin_ref,
@@ -68,6 +71,7 @@ function mapAdminUser(row: UserRow): AdminUser {
     displayName: row.display_name,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
+    archivedAt: row.archived_at,
     passwordUpdatedAt: row.password_updated_at,
     passwordResetPending: row.password_reset_digest !== null,
     passwordResetExpiresAt: row.password_reset_expires_at,
@@ -84,6 +88,7 @@ export class AppDatabase {
   private readonly updateIdentityStatement: Database.Statement;
   private readonly updatePasswordStatement: Database.Statement;
   private readonly recordLoginStatement: Database.Statement;
+  private readonly updateArchivedStatement: Database.Statement;
   private readonly updateResourcePackStatement: Database.Statement;
   private readonly requestPasswordResetStatement: Database.Statement;
   private readonly completePasswordResetStatement: Database.Statement;
@@ -109,6 +114,7 @@ export class AppDatabase {
         session_version INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         last_login_at INTEGER,
+        archived_at INTEGER,
         password_updated_at INTEGER NOT NULL DEFAULT 0,
         skin_type TEXT NOT NULL DEFAULT 'preset',
         skin_ref TEXT NOT NULL DEFAULT 'spawnpoint',
@@ -170,7 +176,13 @@ export class AppDatabase {
     `);
     this.recordLoginStatement = this.db.prepare(`
       UPDATE users
-      SET last_login_at = @lastLoginAt
+      SET last_login_at = @lastLoginAt,
+          archived_at = NULL
+      WHERE id = @id
+    `);
+    this.updateArchivedStatement = this.db.prepare(`
+      UPDATE users
+      SET archived_at = @archivedAt
       WHERE id = @id
     `);
     this.updateResourcePackStatement = this.db.prepare(`
@@ -262,6 +274,11 @@ export class AppDatabase {
   recordLogin(id: string, lastLoginAt = Date.now()): UserRecord {
     this.recordLoginStatement.run({ id, lastLoginAt });
     return this.requireUser(id, "recording login");
+  }
+
+  setUserArchived(id: string, archived: boolean): UserRecord {
+    this.updateArchivedStatement.run({ id, archivedAt: archived ? Date.now() : null });
+    return this.requireUser(id, archived ? "archiving user" : "restoring user");
   }
 
   updateResourcePack(id: string, resourcePackPreference: ResourcePackPreference): UserRecord {

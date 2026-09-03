@@ -45,6 +45,7 @@ const overview: AdminOverview = {
     displayName: "관리자",
     createdAt: Date.now() - 86_400_000,
     lastLoginAt: Date.now(),
+    archivedAt: null,
     passwordUpdatedAt: Date.now(),
     passwordResetExpiresAt: null,
     resetRequired: false,
@@ -152,6 +153,57 @@ describe("Minecraft inventory editor", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(notice).toHaveBeenCalledWith("아이템을 저장했어요.");
+
+    await act(async () => root.unmount());
+  });
+
+  it("keeps archived users in a collapsed list and restores them", async () => {
+    const activeUser = { ...overview.users[0], id: "active-2", username: "active", gameUsername: "active", displayName: "활성 사용자", isAdmin: false };
+    const archivedUser = { ...overview.users[0], id: "archived-3", username: "dormant", gameUsername: "dormant", displayName: "보관 사용자", archivedAt: Date.now() - 86_400_000, isAdmin: false };
+    const inactivePlayer = { ...player, accountId: activeUser.id, uuid: activeUser.id, username: activeUser.gameUsername, displayName: activeUser.displayName, online: false, dataAvailable: false, inventory: [], enderChest: [] };
+    const archivedPlayer = { ...inactivePlayer, accountId: archivedUser.id, uuid: archivedUser.id, username: archivedUser.gameUsername, displayName: archivedUser.displayName };
+    const archiveOverview = { ...overview, users: [overview.users[0], activeUser, archivedUser], players: [player, inactivePlayer, archivedPlayer] };
+    const mutate = vi.fn().mockResolvedValue({});
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<AdminPlayersPanel overview={archiveOverview} currentUserId="account-1" isBusy={() => false} mutate={mutate} notice={vi.fn()} />);
+    });
+    expect(container.textContent).not.toContain("보관 사용자");
+    const archiveToggle = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("보관함"))!;
+    expect(archiveToggle.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => archiveToggle.click());
+    expect(container.textContent).toContain("보관 사용자");
+    const archivedUserButton = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("보관 사용자"))!;
+    await act(async () => archivedUserButton.click());
+    const restoreButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "보관 해제")!;
+    await act(async () => {
+      restoreButton.click();
+      await Promise.resolve();
+    });
+    expect(mutate).toHaveBeenLastCalledWith("archive:archived-3", "/admin/users/archived-3/archive", {
+      method: "PUT",
+      body: JSON.stringify({ archived: false }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    mutate.mockClear();
+    const activeUserButton = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("활성 사용자"))!;
+    await act(async () => activeUserButton.click());
+    const archiveButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "보관")!;
+    expect(archiveButton.disabled).toBe(false);
+    await act(async () => {
+      archiveButton.click();
+      await Promise.resolve();
+    });
+    expect(mutate).toHaveBeenLastCalledWith("archive:active-2", "/admin/users/active-2/archive", {
+      method: "PUT",
+      body: JSON.stringify({ archived: true }),
+      headers: { "Content-Type": "application/json" },
+    });
 
     await act(async () => root.unmount());
   });

@@ -138,12 +138,13 @@ function requireSameOrigin(request: Request, response: Response): boolean {
 function userForRequest(request: Request, context: ApiContext): UserAuthentication | null {
   const session = sessionFromRequest(request, context.sessionSecret);
   if (!session?.csrf) return null;
-  const user = context.database.getUserById(session.sub);
+  let user = context.database.getUserById(session.sub);
   if (
     !user
     || user.username.toLowerCase() !== session.username.toLowerCase()
     || user.sessionVersion !== (session.sessionVersion ?? 0)
   ) return null;
+  if (user.archivedAt !== null) user = context.database.setUserArchived(user.id, false);
   const admin = adminFromRequest(request, context.sessionSecret);
   const adminExpiresAt = admin
     && admin.sub === user.id
@@ -1594,6 +1595,32 @@ export function createApiRouter(context: ApiContext): express.Router {
     } catch (error) {
       failFromError(response, 400, error, "사용자 정보를 변경하지 못했어요.", "INVALID_PROFILE");
     }
+  });
+
+  router.put("/admin/users/:id/archive", (request, response) => {
+    const authorization = requireAdminMutation(request, response, context, adminLimiter);
+    if (!authorization) return;
+    const { admin } = authorization;
+    const archived = request.body?.archived;
+    if (typeof archived !== "boolean") {
+      fail(response, 400, "보관 설정을 확인하세요.", "INVALID_ARCHIVE_STATE");
+      return;
+    }
+    const target = context.database.getUserById(request.params.id);
+    if (!target) {
+      fail(response, 404, "사용자를 찾을 수 없어요.", "USER_NOT_FOUND");
+      return;
+    }
+    if (archived && target.id === admin.id) {
+      fail(response, 400, "내 계정은 보관할 수 없어요.", "SELF_ARCHIVE_NOT_ALLOWED");
+      return;
+    }
+    if (archived && context.serverManager.isPlayerOnline(target.gameUsername)) {
+      fail(response, 409, "게임에 접속 중인 사용자는 보관할 수 없어요.", "PLAYER_ONLINE");
+      return;
+    }
+    const updated = context.database.setUserArchived(target.id, archived);
+    response.json({ archived: updated.archivedAt !== null });
   });
 
   router.post("/admin/users/:id/password-reset", async (request, response) => {

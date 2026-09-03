@@ -871,6 +871,51 @@ describe("administrator route guards", () => {
     expect(harness.database.getUserById(harness.user.id)?.username).toBe("normaluser");
   });
 
+  it("archives an inactive user and restores the account when it returns", async () => {
+    const harness = await createHarness();
+    const userSession = createSessionToken(harness.user, secret, 1);
+    const archive = await fetch(`${harness.origin}/api/admin/users/${harness.user.id}/archive`, {
+      method: "PUT",
+      headers: { ...harness.adminHeaders, "Content-Type": "application/json", Origin: harness.origin },
+      body: JSON.stringify({ archived: true }),
+    });
+
+    expect(archive.status).toBe(200);
+    expect(await archive.json()).toEqual({ archived: true });
+    expect(harness.database.getUserById(harness.user.id)?.archivedAt).toEqual(expect.any(Number));
+
+    const overview = await fetch(`${harness.origin}/api/admin/overview`, { headers: harness.adminHeaders });
+    const overviewBody = await overview.json() as { users: Array<{ id: string; archivedAt: number | null }> };
+    expect(overviewBody.users.find((user) => user.id === harness.user.id)?.archivedAt).toEqual(expect.any(Number));
+
+    const returned = await fetch(`${harness.origin}/api/bootstrap`, {
+      headers: { Cookie: `spawnpoint_session=${userSession.token}` },
+    });
+    expect(returned.status).toBe(200);
+    expect(harness.database.getUserById(harness.user.id)?.archivedAt).toBeNull();
+
+    const selfArchive = await fetch(`${harness.origin}/api/admin/users/${harness.admin.id}/archive`, {
+      method: "PUT",
+      headers: { ...harness.adminHeaders, "Content-Type": "application/json", Origin: harness.origin },
+      body: JSON.stringify({ archived: true }),
+    });
+    expect(selfArchive.status).toBe(400);
+    expect(await selfArchive.json()).toMatchObject({ error: { code: "SELF_ARCHIVE_NOT_ALLOWED" } });
+  });
+
+  it("does not archive a player who is still in the game", async () => {
+    const harness = await createHarness({ serverStatus: { ...serverStatus, phase: "online", players: ["normaluser"] } });
+    const response = await fetch(`${harness.origin}/api/admin/users/${harness.user.id}/archive`, {
+      method: "PUT",
+      headers: { ...harness.adminHeaders, "Content-Type": "application/json", Origin: harness.origin },
+      body: JSON.stringify({ archived: true }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "PLAYER_ONLINE" } });
+    expect(harness.database.getUserById(harness.user.id)?.archivedAt).toBeNull();
+  });
+
   it("allows three overview polling tabs plus refresh headroom", async () => {
     const harness = await createHarness();
     const statuses: number[] = [];
