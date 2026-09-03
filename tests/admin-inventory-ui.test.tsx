@@ -98,6 +98,11 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, value);
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 describe("Minecraft inventory editor", () => {
   it("renders native inventory windows and edits the selected slot", async () => {
     const mutate = vi.fn().mockResolvedValue({});
@@ -204,6 +209,68 @@ describe("Minecraft inventory editor", () => {
       body: JSON.stringify({ archived: true }),
       headers: { "Content-Type": "application/json" },
     });
+
+    await act(async () => root.unmount());
+  });
+
+  it("sorts active and archived users by last online time, play time, and Korean name", async () => {
+    const user = (id: string, displayName: string, archivedAt: number | null = null) => ({
+      ...overview.users[0],
+      id,
+      username: id,
+      gameUsername: id,
+      displayName,
+      archivedAt,
+      isAdmin: false,
+    });
+    const activeUsers = [user("garam", "가람"), user("nari", "나리"), user("daon", "다온")];
+    const archivedUsers = [user("maeum", "마음", 1), user("raon", "라온", 1)];
+    const makePlayer = (accountId: string, online: boolean, lastSeenAt: number, playTimeTicks: number): PlayerDetails => ({
+      ...player,
+      accountId,
+      uuid: accountId,
+      username: accountId,
+      displayName: accountId,
+      online,
+      dataAvailable: false,
+      lastSeenAt,
+      playTimeTicks,
+      inventory: [],
+      enderChest: [],
+    });
+    const sortedOverview = {
+      ...overview,
+      users: [...activeUsers, ...archivedUsers],
+      players: [
+        makePlayer("garam", false, 100, 900),
+        makePlayer("nari", true, 50, 100),
+        makePlayer("daon", false, 200, 500),
+        makePlayer("maeum", false, 400, 200),
+        makePlayer("raon", false, 300, 700),
+      ],
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const ids = (selector: string) => [...container.querySelectorAll<HTMLElement>(selector)].map((element) => element.dataset.userId);
+
+    await act(async () => {
+      root.render(<AdminPlayersPanel overview={sortedOverview} currentUserId="none" isBusy={() => false} mutate={vi.fn()} notice={vi.fn()} />);
+    });
+
+    expect(ids(".admin-list-panel > .admin-list-button")).toEqual(["nari", "daon", "garam"]);
+    const archiveToggle = container.querySelector<HTMLButtonElement>(".admin-archive-toggle")!;
+    await act(async () => archiveToggle.click());
+    expect(ids(".admin-archived-list .admin-list-button")).toEqual(["maeum", "raon"]);
+
+    const sortSelect = container.querySelector<HTMLSelectElement>('select[aria-label="플레이어 정렬"]')!;
+    await act(async () => setSelectValue(sortSelect, "playtime"));
+    expect(ids(".admin-list-panel > .admin-list-button")).toEqual(["garam", "daon", "nari"]);
+    expect(ids(".admin-archived-list .admin-list-button")).toEqual(["raon", "maeum"]);
+
+    await act(async () => setSelectValue(sortSelect, "name"));
+    expect(ids(".admin-list-panel > .admin-list-button")).toEqual(["garam", "nari", "daon"]);
+    expect(ids(".admin-archived-list .admin-list-button")).toEqual(["raon", "maeum"]);
 
     await act(async () => root.unmount());
   });

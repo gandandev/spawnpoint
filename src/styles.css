@@ -307,6 +307,14 @@
     @apply flex max-h-[32rem] min-h-24 flex-col gap-1 overflow-y-auto rounded-lg border p-1;
   }
 
+  .admin-player-sort {
+    @apply sticky top-0 z-10 flex items-center gap-2 border-b bg-background px-2 pb-1.5 pt-0.5 text-[11px] font-medium text-muted-foreground;
+  }
+
+  .admin-player-sort select {
+    @apply ml-auto h-7 min-w-0 cursor-pointer rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
   .admin-list-button {
     @apply flex min-w-0 touch-manipulation cursor-pointer flex-col rounded-md px-2.5 py-2 text-left transition-all duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-muted active:scale-[var(--scale-large)] active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:active:scale-100;
   }

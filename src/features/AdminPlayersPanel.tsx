@@ -25,6 +25,36 @@ function formatPlayTime(ticks: number) {
   return `${rest}분`;
 }
 
+type PlayerSort = "last-online" | "playtime" | "name";
+
+const koreanNameCollator = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+
+function comparePlayerNames(left: AdminUser, right: AdminUser) {
+  return koreanNameCollator.compare(left.displayName, right.displayName)
+    || koreanNameCollator.compare(left.username, right.username)
+    || left.id.localeCompare(right.id);
+}
+
+function lastOnlineAt(user: AdminUser, player: PlayerDetails | undefined) {
+  return player?.lastSeenAt ?? user.lastLoginAt ?? 0;
+}
+
+function comparePlayers(sort: PlayerSort, playersByAccount: Map<string, PlayerDetails>) {
+  return (left: AdminUser, right: AdminUser) => {
+    const leftPlayer = playersByAccount.get(left.id);
+    const rightPlayer = playersByAccount.get(right.id);
+    if (sort === "name") return comparePlayerNames(left, right);
+    if (sort === "playtime") {
+      return (rightPlayer?.playTimeTicks ?? 0) - (leftPlayer?.playTimeTicks ?? 0)
+        || comparePlayerNames(left, right);
+    }
+    const onlineDifference = Number(Boolean(rightPlayer?.online)) - Number(Boolean(leftPlayer?.online));
+    if (onlineDifference) return onlineDifference;
+    return lastOnlineAt(right, rightPlayer) - lastOnlineAt(left, leftPlayer)
+      || comparePlayerNames(left, right);
+  };
+}
+
 function itemName(item: InventoryItem) {
   return item.displayName ?? item.type.replaceAll("_", " ");
 }
@@ -355,16 +385,23 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
   </div>;
 }
 
-function PlayerListButton({ user, player, selected, archived, onSelect }: {
+function PlayerListButton({ user, player, selected, archived, sort, onSelect }: {
   user: AdminUser;
   player: PlayerDetails | undefined;
   selected: boolean;
   archived: boolean;
+  sort: PlayerSort;
   onSelect: () => void;
 }) {
-  return <button type="button" className={cn("admin-list-button", selected && "is-selected", archived && "is-archived")} onClick={onSelect}>
+  const detail = sort === "playtime"
+    ? `플레이 ${formatPlayTime(player?.playTimeTicks ?? 0)}`
+    : sort === "name"
+      ? `@${user.username}`
+      : player?.online ? player.world : formatDate(player?.lastSeenAt ?? user.lastLoginAt);
+
+  return <button type="button" data-user-id={user.id} className={cn("admin-list-button", selected && "is-selected", archived && "is-archived")} onClick={onSelect}>
     <span className="flex min-w-0 items-center gap-2"><span className={cn("size-2 shrink-0 rounded-full bg-muted-foreground/35", player?.online && "bg-[#96ce4d]")} aria-label={player?.online ? "온라인" : "오프라인"} /><span className={cn("truncate font-mark text-sm", player?.online && "text-[#65952c]")}>{user.displayName}</span>{archived ? <Archive className="ml-auto size-3.5 text-muted-foreground" /> : player?.banned && <Ban className="ml-auto size-3.5 text-destructive" />}</span>
-    <span className="flex items-center gap-1 truncate pl-4 text-xs text-muted-foreground"><Clock3 className="size-3" />{player?.online ? player.world : formatDate(player?.lastSeenAt ?? user.lastLoginAt)}</span>
+    <span className="flex items-center gap-1 truncate pl-4 text-xs text-muted-foreground"><Clock3 className="size-3" />{detail}</span>
   </button>;
 }
 
@@ -377,10 +414,12 @@ export function AdminPlayersPanel({ overview, currentUserId, isBusy, mutate, not
 }) {
   const [selectedUserId, setSelectedUserId] = useState(overview.users.find((user) => user.archivedAt === null)?.id ?? overview.users[0]?.id ?? null);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [sort, setSort] = useState<PlayerSort>("last-online");
   const [temporaryPassword, setTemporaryPassword] = useState<{ userId: string; value: string } | null>(null);
   const playersByAccount = useMemo(() => new Map(overview.players.flatMap((player) => player.accountId ? [[player.accountId, player] as const] : [])), [overview.players]);
-  const activeUsers = useMemo(() => overview.users.filter((user) => user.archivedAt === null), [overview.users]);
-  const archivedUsers = useMemo(() => overview.users.filter((user) => user.archivedAt !== null), [overview.users]);
+  const sortedUsers = useMemo(() => [...overview.users].sort(comparePlayers(sort, playersByAccount)), [overview.users, playersByAccount, sort]);
+  const activeUsers = useMemo(() => sortedUsers.filter((user) => user.archivedAt === null), [sortedUsers]);
+  const archivedUsers = useMemo(() => sortedUsers.filter((user) => user.archivedAt !== null), [sortedUsers]);
 
   useEffect(() => {
     if (!selectedUserId || !overview.users.some((user) => user.id === selectedUserId)) setSelectedUserId(activeUsers[0]?.id ?? overview.users[0]?.id ?? null);
@@ -392,10 +431,11 @@ export function AdminPlayersPanel({ overview, currentUserId, isBusy, mutate, not
 
   return <div className="admin-split-panel">
     <div className="admin-list-panel">
-      {activeUsers.map((user) => <PlayerListButton key={user.id} user={user} player={playersByAccount.get(user.id)} selected={user.id === selectedUserId} archived={false} onSelect={() => { setSelectedUserId(user.id); setTemporaryPassword(null); }} />)}
+      <label className="admin-player-sort"><span>정렬</span><select aria-label="플레이어 정렬" value={sort} onChange={(event) => setSort(event.target.value as PlayerSort)}><option value="last-online">마지막 온라인순</option><option value="playtime">플레이타임순</option><option value="name">가나다순</option></select></label>
+      {activeUsers.map((user) => <PlayerListButton key={user.id} user={user} player={playersByAccount.get(user.id)} selected={user.id === selectedUserId} archived={false} sort={sort} onSelect={() => { setSelectedUserId(user.id); setTemporaryPassword(null); }} />)}
       {archivedUsers.length > 0 && <div className="admin-archive-group">
         <button type="button" className="admin-archive-toggle" aria-expanded={archivedOpen} onClick={() => setArchivedOpen((open) => !open)}><Archive className="size-3.5" /><span>보관함</span><span className="tabular-nums text-muted-foreground">{archivedUsers.length}</span><ChevronDown className={cn("ml-auto size-3.5 transition-transform", archivedOpen && "rotate-180")} /></button>
-        {archivedOpen && <div className="admin-archived-list">{archivedUsers.map((user) => <PlayerListButton key={user.id} user={user} player={playersByAccount.get(user.id)} selected={user.id === selectedUserId} archived onSelect={() => { setSelectedUserId(user.id); setTemporaryPassword(null); }} />)}</div>}
+        {archivedOpen && <div className="admin-archived-list">{archivedUsers.map((user) => <PlayerListButton key={user.id} user={user} player={playersByAccount.get(user.id)} selected={user.id === selectedUserId} archived sort={sort} onSelect={() => { setSelectedUserId(user.id); setTemporaryPassword(null); }} />)}</div>}
       </div>}
     </div>
     <div className="min-w-0">{selectedUser ? <PlayerEditor
