@@ -211,8 +211,8 @@ function standaloneAdminPublicUser() {
     skin: {
       type: "preset" as const,
       model: "steve" as const,
-      label: "spawnpoint",
-      previewUrl: "/assets/skins/spawnpoint.png",
+      label: "스티브",
+      previewUrl: "/assets/skins/steve.png?v=texture-v2",
     },
   };
 }
@@ -1381,7 +1381,7 @@ export function createApiRouter(context: ApiContext): express.Router {
           const user = context.database.getUserById(entry.accountId);
           return {
             ...entry,
-            skinUrl: user ? publicUser(user, context).skin.previewUrl : "/assets/skins/spawnpoint.png",
+            skinUrl: user ? publicUser(user, context).skin.previewUrl : "/assets/skins/steve.png?v=texture-v2",
           };
         }),
       });
@@ -1414,7 +1414,7 @@ export function createApiRouter(context: ApiContext): express.Router {
           const recipient = entry.recipientAccountId ? context.database.getUserById(entry.recipientAccountId) : null;
           return {
             ...entry,
-            skinUrl: user ? publicUser(user, context).skin.previewUrl : "/assets/skins/spawnpoint.png",
+            skinUrl: user ? publicUser(user, context).skin.previewUrl : "/assets/skins/steve.png?v=texture-v2",
             recipientSkinUrl: recipient ? publicUser(recipient, context).skin.previewUrl : null,
           };
         }),

@@ -6,7 +6,7 @@ import type { AppDatabase } from "./db.js";
 import type { PublicUser, SkinModel, SkinType, UserRecord } from "./types.js";
 
 export function skinPathForUser(user: UserRecord): string {
-  if (user.skinType === "preset") return `/assets/skins/${user.skinRef}.png`;
+  if (user.skinType === "preset") return `/assets/skins/${user.skinRef}.png?v=texture-v2`;
   return `/api/skins/${user.id}.png?v=${user.skinUpdatedAt}`;
 }
 
@@ -29,7 +29,7 @@ export function toPublicUser(user: UserRecord): PublicUser {
   };
 }
 
-const CATALOG_TEXTURE_VERSION = "texture-v1";
+const CATALOG_TEXTURE_VERSION = "texture-v2";
 const CATALOG_SOURCE_CACHE_VERSION = "source-v1";
 const catalogTextureUrl = (skinId: string): string => `/api/skin/catalog/${skinId}.png?v=${CATALOG_TEXTURE_VERSION}`;
 

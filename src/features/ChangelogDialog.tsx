@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 const latestChanges = [
+  "기본 스킨을 진짜 마인크래프트 스티브로 바꿨어요.",
   "위치 표시기에 플레이어 머리와 직선 거리를 추가했어요.",
   "게임 UI를 닫으면 마우스가 바로 고정되고, 채팅 입력 뒤 기본 채팅창이 남지 않게 고쳤어요.",
   "채팅 메시지에 플레이어 머리를 추가했어요.",

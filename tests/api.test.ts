@@ -588,7 +588,7 @@ describe("skin catalog usage", () => {
       categories: Array<{ skins: Array<{ id: string; usedBy: Array<{ id: string; displayName: string }> }> }>;
     };
     const skins = body.categories.flatMap((category) => category.skins);
-    expect(skins.find((skin) => skin.id === "spawnpoint")?.usedBy).toEqual([
+    expect(skins.find((skin) => skin.id === "steve")?.usedBy).toEqual([
       { id: harness.admin.id, displayName: harness.admin.displayName },
     ]);
     expect(skins.find((skin) => skin.id === "alex")?.usedBy).toEqual([
@@ -1272,7 +1272,7 @@ describe("permanent player and server history", () => {
         message: "기록할 공개 채팅",
         channel: "public",
         recipientDisplayName: null,
-        skinUrl: "/assets/skins/spawnpoint.png",
+        skinUrl: "/assets/skins/steve.png?v=texture-v2",
       }),
     ]);
   });

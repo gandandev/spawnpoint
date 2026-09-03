@@ -21,17 +21,17 @@ afterEach(() => {
 });
 
 describe("account skin storage", () => {
-  it("uses the Spawnpoint catalog skin as the default for new accounts", () => {
+  it("uses the official Steve skin as the default for new accounts", () => {
     const database = createDatabase();
     const user = database.createUser("newplayer", Buffer.from("hash"), Buffer.from("salt"));
 
     expect(user.skinType).toBe("preset");
-    expect(user.skinRef).toBe("spawnpoint");
+    expect(user.skinRef).toBe("steve");
     expect(user.skinModel).toBe("steve");
-    expect(user.skinLabel).toBe("spawnpoint");
+    expect(user.skinLabel).toBe("스티브");
     expect(user.displayName).toBe("newplayer");
     expect(user.gameUsername).toBe("newplayer");
-    expect(skinPathForUser(user)).toBe("/assets/skins/spawnpoint.png");
+    expect(skinPathForUser(user)).toBe("/assets/skins/steve.png?v=texture-v2");
     database.close();
   });
 
@@ -44,7 +44,7 @@ describe("account skin storage", () => {
     const skins = SKIN_CATALOG.flatMap((category) => category.skins);
     expect(skins).toHaveLength(62);
     expect(new Set(skins.map((skin) => skin.id)).size).toBe(62);
-    expect(skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v1"))).toBe(true);
+    expect(skins.every((skin) => skin.textureUrl.endsWith("?v=texture-v2"))).toBe(true);
   });
 
   it("resolves only flat preset PNG paths for the backend skin loader", () => {
@@ -135,7 +135,7 @@ describe("account skin storage", () => {
     const updatedSecond = database.updateSkin(second.id, "preset", "slate", "steve", "slate");
 
     expect(skinPathForUser(updatedFirst)).toMatch(new RegExp(`^/api/skins/${first.id}\\.png\\?v=`));
-    expect(skinPathForUser(updatedSecond)).toBe("/assets/skins/slate.png");
+    expect(skinPathForUser(updatedSecond)).toBe("/assets/skins/slate.png?v=texture-v2");
     expect(database.getUserById(first.id)?.skinLabel).toBe("first upload");
     expect(database.getUserById(second.id)?.skinLabel).toBe("slate");
 

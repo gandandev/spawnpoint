@@ -117,9 +117,9 @@ export class AppDatabase {
         archived_at INTEGER,
         password_updated_at INTEGER NOT NULL DEFAULT 0,
         skin_type TEXT NOT NULL DEFAULT 'preset',
-        skin_ref TEXT NOT NULL DEFAULT 'spawnpoint',
+        skin_ref TEXT NOT NULL DEFAULT 'steve',
         skin_model TEXT NOT NULL DEFAULT 'steve',
-        skin_label TEXT NOT NULL DEFAULT 'spawnpoint',
+        skin_label TEXT NOT NULL DEFAULT '스티브',
         skin_updated_at INTEGER NOT NULL,
         resource_pack TEXT NOT NULL DEFAULT 'new-default'
       );
@@ -146,7 +146,7 @@ export class AppDatabase {
       ) VALUES (
         @id, @username, @gameUsername, @username, @passwordHash, @passwordSalt, @createdAt,
         @createdAt, @createdAt,
-        'preset', 'spawnpoint', 'steve', 'spawnpoint', @createdAt
+        'preset', 'steve', 'steve', '스티브', @createdAt
       )
     `);
     this.updateSkinStatement = this.db.prepare(`

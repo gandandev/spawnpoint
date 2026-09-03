@@ -51,7 +51,7 @@ function parseLocalDateTime(value: string): number | null {
 }
 
 function PlayerHead({ src, name, compact = false }: { src: string; name: string; compact?: boolean }) {
-  const fallback = "/assets/skins/spawnpoint.png";
+  const fallback = "/assets/skins/steve.png?v=texture-v2";
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   const texture = failed ? fallback : src;
