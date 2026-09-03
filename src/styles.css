@@ -327,8 +327,54 @@
     @apply break-words font-medium tabular-nums;
   }
 
-  .admin-inventory-list {
-    @apply flex max-h-48 flex-col gap-1 overflow-y-auto pr-1;
+  .minecraft-inventory-shell {
+    @apply flex min-w-0 justify-center overflow-hidden rounded-lg bg-[#181818] p-3 shadow-inner;
+  }
+
+  .minecraft-inventory-window {
+    @apply relative w-full max-w-[22rem] select-none;
+    image-rendering: pixelated;
+  }
+
+  .minecraft-inventory-window > img {
+    @apply pointer-events-none absolute inset-0 size-full;
+    image-rendering: pixelated;
+  }
+
+  .minecraft-inventory-caption {
+    @apply pointer-events-none absolute z-[1] whitespace-nowrap text-[clamp(6px,0.8vw,12px)] leading-none text-[#3f3f3f];
+  }
+
+  .minecraft-inventory-slot {
+    @apply absolute cursor-pointer border-0 bg-transparent p-0 outline-none;
+    image-rendering: pixelated;
+  }
+
+  .minecraft-inventory-slot:hover {
+    background: rgb(255 255 255 / 38%);
+  }
+
+  .minecraft-inventory-slot:focus-visible,
+  .minecraft-inventory-slot[aria-pressed="true"] {
+    background: rgb(255 255 255 / 28%);
+    box-shadow: inset 0 0 0 2px #55ffff, inset 0 0 0 3px #151515;
+    z-index: 2;
+  }
+
+  .minecraft-item-icon {
+    @apply absolute inset-[5.56%] bg-no-repeat;
+    image-rendering: pixelated;
+  }
+
+  .minecraft-item-amount {
+    @apply absolute bottom-[-1%] right-[4%] font-mono text-[clamp(8px,2vw,16px)] leading-none text-white;
+    text-shadow: 1px 1px 0 #3f3f3f, -1px 0 0 #3f3f3f, 0 -1px 0 #3f3f3f;
+  }
+
+  .minecraft-slot-fallback {
+    @apply absolute inset-[12%] flex items-center justify-center overflow-hidden bg-[#765b3a] font-mono text-[clamp(6px,1.5vw,11px)] font-bold leading-none text-white;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 25%);
+    text-shadow: 1px 1px 0 #202020;
   }
 
   .admin-compact-field {

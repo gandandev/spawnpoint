@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Ban, Box, Check, Clock3, Copy, DoorOpen, HeartPulse, KeyRound, PackagePlus, Shield, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { MINECRAFT_ITEM_ATLAS_COLUMNS, MINECRAFT_ITEM_ATLAS_ROWS, MINECRAFT_ITEM_TEXTURES } from "@/generated/minecraft-item-atlas";
 import { cn } from "@/lib/utils";
 import type { AdminMutate } from "@/features/admin-hooks";
 import type { AdminOverview, AdminUser, InventoryItem, PlayerDetails, ServerGameMode } from "@/types";
@@ -78,21 +79,144 @@ function StateEditor({ player, busy, onSave }: { player: PlayerDetails; busy: bo
   </form>;
 }
 
-function InventorySection({ title, section, items, playerId, isBusy, mutate, notice }: {
-  title: string;
-  section: "storage" | "armor" | "extra" | "ender";
-  items: InventoryItem[];
+type InventorySectionId = "storage" | "armor" | "extra" | "ender";
+
+interface SelectedInventorySlot {
+  section: InventorySectionId;
+  slot: number;
+}
+
+interface InventorySlotPosition extends SelectedInventorySlot {
+  x: number;
+  y: number;
+}
+
+const storageSlots = (mainY: number, hotbarY: number): InventorySlotPosition[] => [
+  ...Array.from({ length: 27 }, (_, index) => ({ section: "storage" as const, slot: index + 9, x: 8 + (index % 9) * 18, y: mainY + Math.floor(index / 9) * 18 })),
+  ...Array.from({ length: 9 }, (_, index) => ({ section: "storage" as const, slot: index, x: 8 + index * 18, y: hotbarY })),
+];
+
+const PLAYER_SLOT_POSITIONS: InventorySlotPosition[] = [
+  ...[3, 2, 1, 0].map((slot, index) => ({ section: "armor" as const, slot, x: 8, y: 8 + index * 18 })),
+  { section: "extra", slot: 0, x: 77, y: 62 },
+  ...storageSlots(84, 142),
+];
+
+const ENDER_SLOT_POSITIONS: InventorySlotPosition[] = [
+  ...Array.from({ length: 27 }, (_, index) => ({ section: "ender" as const, slot: index, x: 8 + (index % 9) * 18, y: 18 + Math.floor(index / 9) * 18 })),
+  ...storageSlots(85, 143),
+];
+
+const ITEM_TEXTURE_ALIASES: Readonly<Record<string, string[]>> = {
+  torch: ["block:torch_on"],
+  redstone_torch: ["block:redstone_torch_on"],
+  golden_apple: ["item:apple_golden"],
+  enchanted_golden_apple: ["item:apple_golden"],
+  cooked_beef: ["item:beef_cooked"],
+  beef: ["item:beef_raw"],
+  cooked_chicken: ["item:chicken_cooked"],
+  chicken: ["item:chicken_raw"],
+};
+
+function inventorySlotKey(section: InventorySectionId, slot: number) {
+  return `${section}:${slot}`;
+}
+
+function inventorySectionName(section: InventorySectionId, slot: number) {
+  if (section === "armor") return ["장화", "레깅스", "흉갑", "투구"][slot] ?? "방어구";
+  if (section === "extra") return "보조 손";
+  if (section === "ender") return "엔더 상자";
+  return slot < 9 ? "단축바" : "인벤토리";
+}
+
+function itemTextureIndex(type: string) {
+  const id = type.toLowerCase().replace(/^minecraft:/, "");
+  const shortenedMaterial = id.replace(/^golden_/, "gold_").replace(/^wooden_/, "wood_");
+  const candidates = [`item:${id}`, `item:${shortenedMaterial}`, ...(ITEM_TEXTURE_ALIASES[id] ?? []), `block:${id}`];
+  return candidates.map((candidate) => MINECRAFT_ITEM_TEXTURES[candidate]).find((index) => index !== undefined);
+}
+
+function MinecraftItemIcon({ item }: { item: InventoryItem }) {
+  const textureIndex = itemTextureIndex(item.type);
+  if (textureIndex === undefined) return <span className="minecraft-slot-fallback" aria-hidden="true">{item.type.slice(0, 2).toUpperCase()}</span>;
+  const x = textureIndex % MINECRAFT_ITEM_ATLAS_COLUMNS;
+  const y = Math.floor(textureIndex / MINECRAFT_ITEM_ATLAS_COLUMNS);
+  return <span className="minecraft-item-icon" aria-hidden="true" style={{
+    backgroundImage: "url('/assets/minecraft/admin-inventory/items.png')",
+    backgroundPosition: `${x / (MINECRAFT_ITEM_ATLAS_COLUMNS - 1) * 100}% ${y / (MINECRAFT_ITEM_ATLAS_ROWS - 1) * 100}%`,
+    backgroundSize: `${MINECRAFT_ITEM_ATLAS_COLUMNS * 100}% ${MINECRAFT_ITEM_ATLAS_ROWS * 100}%`,
+  }} />;
+}
+
+function MinecraftInventoryWindow({ label, texture, height, positions, countSections, itemsBySlot, selected, onSelect }: {
+  label: string;
+  texture: string;
+  height: number;
+  positions: InventorySlotPosition[];
+  countSections: InventorySectionId[];
+  itemsBySlot: ReadonlyMap<string, InventoryItem>;
+  selected: SelectedInventorySlot;
+  onSelect: (slot: SelectedInventorySlot) => void;
+}) {
+  const filledCount = countSections.reduce((count, section) => count + [...itemsBySlot.keys()].filter((key) => key.startsWith(`${section}:`)).length, 0);
+  return <section className="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/25 p-3">
+    <div className="flex items-center gap-2 text-sm font-medium"><Box className="size-4" />{label}<span className="ml-auto text-xs tabular-nums text-muted-foreground">{filledCount}</span></div>
+    <div className="minecraft-inventory-shell">
+      <div className="minecraft-inventory-window" style={{ aspectRatio: `176 / ${height}` }}>
+        <img src={texture} alt={`${label} Minecraft UI`} draggable={false} />
+        {label === "플레이어 인벤토리" ? <span className="minecraft-inventory-caption" style={{ left: `${86 / 176 * 100}%`, top: `${16 / height * 100}%` }}>제작</span> : <>
+          <span className="minecraft-inventory-caption" style={{ left: `${8 / 176 * 100}%`, top: `${6 / height * 100}%` }}>엔더 상자</span>
+          <span className="minecraft-inventory-caption" style={{ left: `${8 / 176 * 100}%`, top: `${73 / height * 100}%` }}>인벤토리</span>
+        </>}
+        {positions.map((position) => {
+          const key = inventorySlotKey(position.section, position.slot);
+          const item = itemsBySlot.get(key);
+          const slotLabel = `${inventorySectionName(position.section, position.slot)} ${position.slot}번 칸, ${item ? `${itemName(item)} ${item.amount}개` : "비어 있음"}`;
+          return <button
+            type="button"
+            key={key}
+            className="minecraft-inventory-slot"
+            style={{ left: `${position.x / 176 * 100}%`, top: `${position.y / height * 100}%`, width: `${18 / 176 * 100}%`, height: `${18 / height * 100}%` }}
+            aria-label={slotLabel}
+            aria-pressed={selected.section === position.section && selected.slot === position.slot}
+            title={slotLabel}
+            onClick={() => onSelect({ section: position.section, slot: position.slot })}
+          >
+            {item && <><MinecraftItemIcon item={item} />{item.amount > 1 && <span className="minecraft-item-amount">{item.amount}</span>}</>}
+          </button>;
+        })}
+      </div>
+    </div>
+  </section>;
+}
+
+function InventoryManager({ player, playerId, isBusy, mutate, notice }: {
+  player: PlayerDetails;
   playerId: string;
   isBusy: (key: string) => boolean;
   mutate: AdminMutate;
   notice: (message: string) => void;
 }) {
-  const [slot, setSlot] = useState("0");
+  const [selected, setSelected] = useState<SelectedInventorySlot>({ section: "storage", slot: 0 });
   const [type, setType] = useState("");
   const [amount, setAmount] = useState("1");
   const [durability, setDurability] = useState("0");
-  const mutationKey = `inventory:${playerId}:${section}`;
-  const maximumSlot = section === "storage" ? 35 : section === "armor" ? 3 : section === "extra" ? 0 : 26;
+  const itemsBySlot = useMemo(() => new Map([...player.inventory, ...player.enderChest].map((item) => [inventorySlotKey(item.section as InventorySectionId, item.slot), item])), [player.enderChest, player.inventory]);
+  const selectedItem = itemsBySlot.get(inventorySlotKey(selected.section, selected.slot));
+  const selectedItemType = selectedItem?.type ?? "";
+  const selectedItemAmount = selectedItem?.amount ?? 1;
+  const selectedItemDurability = selectedItem?.durability ?? 0;
+  const mutationKey = `inventory:${playerId}:${selected.section}`;
+
+  useEffect(() => {
+    setSelected({ section: "storage", slot: 0 });
+  }, [playerId]);
+
+  useEffect(() => {
+    setType(selectedItemType);
+    setAmount(String(selectedItemAmount));
+    setDurability(String(selectedItemDurability));
+  }, [selected.section, selected.slot, selectedItemAmount, selectedItemDurability, selectedItemType]);
 
   const update = async (body: unknown, message: string) => {
     const result = await mutate(mutationKey, `/admin/players/${encodeURIComponent(playerId)}/inventory`, {
@@ -103,25 +227,24 @@ function InventorySection({ title, section, items, playerId, isBusy, mutate, not
     if (result) notice(message);
   };
 
-  return <section className="flex min-w-0 flex-col gap-2 rounded-lg border p-3">
-    <div className="flex items-center gap-2 text-sm font-medium"><Box className="size-4" />{title}<span className="ml-auto text-xs tabular-nums text-muted-foreground">{items.length}</span></div>
-    {items.length ? <ul className="admin-inventory-list">
-      {items.map((item) => <li key={`${item.section}-${item.slot}`} className="flex min-w-0 items-center gap-2 rounded-md bg-muted/60 px-2.5 py-1.5 text-xs">
-        <span className="w-5 shrink-0 tabular-nums text-muted-foreground">{item.slot}</span>
-        <span className="truncate capitalize">{itemName(item)}</span>
-        <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">×{item.amount}</span>
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={`${itemName(item)} 제거`} disabled={isBusy(mutationKey)} onClick={() => void update({ section, slot: item.slot, item: null }, "아이템을 제거했어요.")}><Trash2 /></Button>
-      </li>)}
-    </ul> : <div className="rounded-md bg-muted/45 px-3 py-4 text-center text-xs text-muted-foreground">비어 있음</div>}
-    <form className="grid grid-cols-[4.5rem_minmax(0,1fr)_4rem] gap-2 border-t pt-3" onSubmit={(event) => {
+  return <section className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
+    <div className="flex items-center gap-2 text-sm font-medium"><Box className="size-4" />아이템 관리<span className="ml-auto text-xs font-normal text-muted-foreground">빈 칸도 눌러서 편집할 수 있어요.</span></div>
+    <div className="grid min-w-0 gap-3 2xl:grid-cols-2">
+      <MinecraftInventoryWindow label="플레이어 인벤토리" texture="/assets/minecraft/admin-inventory/player.png" height={166} positions={PLAYER_SLOT_POSITIONS} countSections={["storage", "armor", "extra"]} itemsBySlot={itemsBySlot} selected={selected} onSelect={setSelected} />
+      <MinecraftInventoryWindow label="엔더 상자" texture="/assets/minecraft/admin-inventory/ender.png" height={167} positions={ENDER_SLOT_POSITIONS} countSections={["ender"]} itemsBySlot={itemsBySlot} selected={selected} onSelect={setSelected} />
+    </div>
+    <form className="grid gap-2 border-t pt-3 sm:grid-cols-[7rem_minmax(0,1fr)_5rem_7rem_auto]" onSubmit={(event) => {
       event.preventDefault();
-      void update({ section, slot: Number(slot), item: { type, amount: Number(amount), durability: Number(durability) } }, "아이템을 저장했어요.");
+      void update({ section: selected.section, slot: selected.slot, item: { type, amount: Number(amount), durability: Number(durability) } }, "아이템을 저장했어요.");
     }}>
-      <label className="admin-compact-field">칸<Input type="number" min={0} max={maximumSlot} value={slot} onChange={(event) => setSlot(event.target.value)} required /></label>
+      <div className="admin-compact-field">선택한 칸<div className="flex h-8 items-center rounded-lg border bg-muted/40 px-2 text-sm text-foreground"><span>{inventorySectionName(selected.section, selected.slot)}</span><span className="ml-auto tabular-nums">{selected.slot}</span></div></div>
       <label className="admin-compact-field">아이템 ID<Input value={type} onChange={(event) => setType(event.target.value)} placeholder="diamond_sword" pattern="(?:minecraft:)?[a-z0-9_]+" required /></label>
       <label className="admin-compact-field">수량<Input type="number" min={1} max={64} value={amount} onChange={(event) => setAmount(event.target.value)} required /></label>
-      <label className="admin-compact-field col-span-2">내구도 값<Input type="number" min={0} max={32767} value={durability} onChange={(event) => setDurability(event.target.value)} required /></label>
-      <Button type="submit" className="self-end" disabled={isBusy(mutationKey)}>{isBusy(mutationKey) ? <Spinner /> : <PackagePlus />}저장</Button>
+      <label className="admin-compact-field">내구도 값<Input type="number" min={0} max={32767} value={durability} onChange={(event) => setDurability(event.target.value)} required /></label>
+      <div className="flex items-end gap-1.5">
+        {selectedItem && <Button type="button" variant="outline" size="icon" aria-label={`${itemName(selectedItem)} 제거`} disabled={isBusy(mutationKey)} onClick={() => void update({ section: selected.section, slot: selected.slot, item: null }, "아이템을 제거했어요.")}><Trash2 /></Button>}
+        <Button type="submit" disabled={isBusy(mutationKey)}>{isBusy(mutationKey) ? <Spinner /> : <PackagePlus />}저장</Button>
+      </div>
     </form>
   </section>;
 }
@@ -212,12 +335,7 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
       <StateEditor player={player} busy={isBusy(`state:${playerId}`)} onSave={async (body) => {
         await run(`state:${playerId}`, `/admin/players/${playerId}/state`, "PATCH", body, "플레이어 상태를 적용했어요.");
       }} />
-      <div className="grid min-w-0 gap-3 xl:grid-cols-2">
-        <InventorySection title="인벤토리" section="storage" items={player.inventory.filter((item) => item.section === "storage")} playerId={playerId} isBusy={isBusy} mutate={mutate} notice={notice} />
-        <InventorySection title="엔더 상자" section="ender" items={player.enderChest} playerId={playerId} isBusy={isBusy} mutate={mutate} notice={notice} />
-        <InventorySection title="방어구" section="armor" items={player.inventory.filter((item) => item.section === "armor")} playerId={playerId} isBusy={isBusy} mutate={mutate} notice={notice} />
-        <InventorySection title="보조 손" section="extra" items={player.inventory.filter((item) => item.section === "extra")} playerId={playerId} isBusy={isBusy} mutate={mutate} notice={notice} />
-      </div>
+      <InventoryManager player={player} playerId={playerId} isBusy={isBusy} mutate={mutate} notice={notice} />
     </> : <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">아직 월드에 접속한 기록이 없어서 상태와 아이템 데이터가 없습니다.</div>}
 
     <AccountEditor
