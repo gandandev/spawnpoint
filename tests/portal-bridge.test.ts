@@ -760,7 +760,7 @@ describe("portal game bridge", () => {
           id: "c7aa85c9-1a36-4fb2-a38d-62c0aa26bceb",
           displayName: "Moss Runner",
           angle: -45,
-          distance: 18.25,
+          distance: 18.3,
           skinUrl: "/api/skins/c7aa85c9-1a36-4fb2-a38d-62c0aa26bceb.png?v=1",
         }],
       },
@@ -798,7 +798,7 @@ describe("portal game bridge", () => {
     expect(locatorStyle?.textContent).toContain(".sp-locator-distance{position:absolute");
     expect(locatorStyle?.textContent).toContain("text-shadow:-1px -1px 0 #000");
     expect(headCanvas).toMatchObject({ width: 10, height: 10 });
-    expect(distanceLabel).toMatchObject({ className: "sp-locator-distance", textContent: "18.3블록" });
+    expect(distanceLabel).toMatchObject({ className: "sp-locator-distance", textContent: "18블록" });
     expect(locatorContexts[0].fillRect).toHaveBeenCalledWith(0, 0, 10, 10);
     expect(locatorContexts[0].drawImage.mock.calls.map((call) => call.slice(1))).toEqual([
       [8, 8, 8, 8, 1, 1, 8, 8],

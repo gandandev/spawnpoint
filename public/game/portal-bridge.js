@@ -641,7 +641,7 @@
     marker.rawAngle = target.angle;
     marker.element.style.zIndex = String(count - index);
     marker.element.className = "sp-locator-marker" + (Math.abs(target.angle) > 90 ? " is-behind" : "");
-    var distanceText = String(Math.round(target.distance * 10) / 10) + "블록";
+    var distanceText = String(Math.round(target.distance)) + "블록";
     marker.distanceLabel.textContent = distanceText;
     marker.element.title = target.displayName + " " + distanceText;
   }
