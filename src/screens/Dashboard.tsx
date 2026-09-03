@@ -55,7 +55,7 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
         <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={() => void onLogout()} aria-label="로그아웃" title="로그아웃"><LogOut /></Button>
       </div>
     </header>
-    <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} onStart={onStart} compact showPlayerDropdown />
+    <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} compact showPlayerDropdown />
     {!data.setup.eulaAccepted && <Alert><ShieldCheck /><AlertTitle>서버 설정이 필요해요</AlertTitle><AlertDescription>소유자가 아직 마인크래프트 EULA에 동의하지 않았어요. <code>MC_EULA=true</code>로 설정하세요.</AlertDescription></Alert>}
     <section className="character-stage" aria-label="캐릭터 미리보기">
       <SkinPreview src={data.user!.skin.previewUrl} model={data.user!.skin.model} nameTag={data.user!.displayName} className="character-preview" paused={skinDialogOpen} />

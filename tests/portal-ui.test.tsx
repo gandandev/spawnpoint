@@ -711,9 +711,8 @@ describe("skin change flow", () => {
     expect(skinButton?.className).toContain("h-9");
     expect(skinButton?.className).toContain("border-0");
     expect(skinButton?.className).toContain("text-base");
-    expect(serverButton?.className).toContain("h-7");
+    expect(serverButton).toBeUndefined();
     expect(skinButton?.className).not.toContain("max-sm:min-h-");
-    expect(serverButton?.className).not.toContain("max-sm:min-h-");
     await act(async () => root.unmount());
   });
 
