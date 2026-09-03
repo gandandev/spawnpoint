@@ -291,6 +291,18 @@
     grid-template-columns: minmax(10rem, 0.7fr) minmax(0, 1.6fr);
   }
 
+  .admin-primary-tab {
+    @apply h-9 min-w-0 w-full cursor-pointer gap-1 overflow-hidden whitespace-nowrap px-2 text-sm;
+  }
+
+  .admin-primary-tab > svg {
+    @apply size-4 shrink-0;
+  }
+
+  .admin-primary-tab > span {
+    @apply min-w-0 truncate;
+  }
+
   .admin-list-panel {
     @apply flex max-h-[32rem] min-h-24 flex-col gap-1 overflow-y-auto rounded-lg border p-1;
   }
@@ -312,7 +324,7 @@
   }
 
   .admin-stat > strong {
-    @apply truncate font-medium tabular-nums;
+    @apply break-words font-medium tabular-nums;
   }
 
   .admin-inventory-list {
@@ -367,6 +379,68 @@
 
   .admin-log-view {
     @apply h-[min(32rem,60dvh)] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#111411] p-3 font-mono text-[11px] leading-relaxed text-[#d8ddcf];
+  }
+
+  .admin-history-layout {
+    @apply grid min-w-0 gap-4;
+    grid-template-columns: 7.5rem minmax(0, 1fr);
+  }
+
+  .admin-history-nav {
+    @apply flex flex-col gap-1 rounded-lg border bg-muted/20 p-1;
+  }
+
+  .admin-history-nav-button {
+    @apply flex min-h-10 touch-manipulation cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .admin-history-nav-button > svg {
+    @apply size-4 shrink-0;
+  }
+
+  .admin-history-nav-button.is-selected {
+    @apply bg-muted font-medium text-foreground;
+  }
+
+  .minecraft-player-head {
+    @apply relative size-10 shrink-0 overflow-hidden rounded-md bg-muted shadow-sm;
+    image-rendering: pixelated;
+  }
+
+  .minecraft-player-head > img {
+    @apply pointer-events-none absolute max-w-none select-none;
+    top: -100%;
+    width: 800%;
+    image-rendering: pixelated;
+  }
+
+  .minecraft-player-head-face {
+    left: -100%;
+  }
+
+  .minecraft-player-head-hat {
+    left: -500%;
+  }
+
+  .admin-permanent-log {
+    @apply flex max-h-[min(34rem,62dvh)] flex-col overflow-auto rounded-lg bg-[#111411] p-2 font-mono text-[11px] leading-relaxed text-[#d8ddcf];
+  }
+
+  .admin-permanent-log > li {
+    @apply grid items-start gap-x-3 gap-y-1 border-b border-white/5 px-1.5 py-2 last:border-b-0;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .admin-permanent-log-meta {
+    @apply flex items-center gap-2 whitespace-nowrap text-[#8f9a87];
+  }
+
+  .admin-permanent-log-meta > span {
+    @apply rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] leading-none;
+  }
+
+  .admin-permanent-log code {
+    @apply min-w-0 whitespace-pre-wrap break-words;
   }
 
 }
@@ -432,6 +506,18 @@
 }
 
 @media (max-width: 640px) {
+  .admin-primary-tabs {
+    @apply gap-0.5 p-0.5;
+  }
+
+  .admin-primary-tab {
+    @apply h-12 flex-col gap-0.5 px-0.5 text-[10px] leading-none;
+  }
+
+  .admin-primary-tab > svg {
+    @apply size-3.5;
+  }
+
   .admin-split-panel {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -441,7 +527,27 @@
   }
 
   .admin-settings-layout {
-    grid-template-columns: 5.5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-settings-nav {
+    @apply grid grid-cols-4;
+  }
+
+  .admin-history-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-history-nav {
+    @apply grid grid-cols-3;
+  }
+
+  .admin-history-nav-button {
+    @apply justify-center px-1 text-xs;
+  }
+
+  .admin-permanent-log > li {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-settings-nav-button {

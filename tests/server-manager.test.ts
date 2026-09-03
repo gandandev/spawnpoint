@@ -9,7 +9,7 @@ import { MinecraftServerManager } from "../server/server-manager.js";
 const managers: MinecraftServerManager[] = [];
 const temporaryDirectories: string[] = [];
 
-function manager(mockServer = true, dataDir = "/tmp/spawnpoint-server-manager-test") {
+function manager(mockServer = true, dataDir = "/tmp/spawnpoint-server-manager-test", onLog?: (line: string, occurredAt: number) => void) {
   const instance = new MinecraftServerManager({
     dataDir,
     seedDir: "/tmp/spawnpoint-server-manager-test-seed",
@@ -22,6 +22,7 @@ function manager(mockServer = true, dataDir = "/tmp/spawnpoint-server-manager-te
     maxPlayers: 12,
     eulaAccepted: false,
     mockServer,
+    onLog,
   });
   managers.push(instance);
   return instance;
@@ -70,12 +71,15 @@ describe("MinecraftServerManager player tracking", () => {
   });
 
   it("records commands sent through the administrator console", async () => {
-    const instance = manager();
+    const onLog = vi.fn();
+    const instance = manager(true, "/tmp/spawnpoint-server-manager-test", onLog);
     log(instance, "[Server thread/INFO]: Done (1.234s)! For help, type \"help\"");
 
     await instance.sendCommand("say 안녕하세요");
 
     expect(instance.getRecentLogs()).toContain("> say 안녕하세요");
+    expect(onLog).toHaveBeenCalledWith("[Server thread/INFO]: Done (1.234s)! For help, type \"help\"", expect.any(Number));
+    expect(onLog).toHaveBeenCalledWith("> say 안녕하세요", expect.any(Number));
   });
 
   it("reads and searches current and compressed logs from earlier server runs", async () => {

@@ -148,9 +148,9 @@ function AccountEditor({ user, currentUserId, busy, temporaryPassword, onSave, o
       <div className="admin-stat"><span>최근 로그인</span><strong>{formatDate(user.lastLoginAt)}</strong></div>
       <div className="admin-stat"><span>비밀번호 변경</span><strong>{formatDate(user.passwordUpdatedAt)}</strong></div>
     </div>
-    <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); void onSave(name); }}>
+    <form className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-end" onSubmit={(event) => { event.preventDefault(); void onSave(name); }}>
       <Field className="min-w-0 flex-1"><FieldLabel htmlFor={`admin-name-${user.id}`}>로그인 이름</FieldLabel><Input id={`admin-name-${user.id}`} value={name} minLength={1} maxLength={16} onChange={(event) => setName(event.target.value)} required /></Field>
-      <Button type="submit" disabled={busy || name === user.username}>{busy ? <Spinner /> : <Check />}이름 변경</Button>
+      <Button type="submit" className="w-full sm:w-auto" disabled={busy || name === user.username}>{busy ? <Spinner /> : <Check />}이름 변경</Button>
     </form>
     {user.id !== currentUserId && <div className="rounded-lg bg-muted/40 p-3">
       <div className="flex items-center gap-2 text-sm font-medium"><KeyRound className="size-4" />임시 비밀번호</div>
@@ -189,10 +189,10 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
         <div className="flex items-center gap-2"><span className="truncate font-medium">{user.displayName}</span><Badge variant={player?.online ? "secondary" : "outline"}>{player?.online ? "온라인" : "오프라인"}</Badge>{player?.banned && <Badge variant="destructive">차단됨</Badge>}</div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground">{user.gameUsername} · {player?.uuid ?? "월드 기록 없음"}</div>
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        <Button type="button" variant={player?.operator ? "destructive" : "outline"} size="sm" disabled={isBusy(`op:${playerId}`)} onClick={() => void run(`op:${playerId}`, `/admin/players/${playerId}/operator`, "PUT", { operator: !player?.operator }, player?.operator ? "OP를 회수했어요." : "OP를 부여했어요.")}>{isBusy(`op:${playerId}`) ? <Spinner /> : <Shield />}{player?.operator ? "OP 회수" : "OP 부여"}</Button>
-        <Button type="button" variant="outline" size="sm" disabled={!player?.online || isBusy(`kick:${playerId}`)} onClick={() => void run(`kick:${playerId}`, `/admin/players/${playerId}/kick`, "POST", { reason }, "플레이어를 내보냈어요.")}><DoorOpen />킥</Button>
-        <Button type="button" variant={player?.banned ? "outline" : "destructive"} size="sm" disabled={isBusy(`ban:${playerId}`)} onClick={() => void run(`ban:${playerId}`, `/admin/players/${playerId}/ban`, "PUT", { banned: !player?.banned, reason }, player?.banned ? "차단을 풀었어요." : "플레이어를 차단했어요.")}><Ban />{player?.banned ? "밴 해제" : "밴"}</Button>
+      <div className="grid w-full grid-cols-3 gap-1.5 sm:flex sm:w-auto sm:flex-wrap">
+        <Button type="button" className="min-w-0 px-2 sm:px-3" variant={player?.operator ? "destructive" : "outline"} size="sm" disabled={isBusy(`op:${playerId}`)} onClick={() => void run(`op:${playerId}`, `/admin/players/${playerId}/operator`, "PUT", { operator: !player?.operator }, player?.operator ? "OP를 회수했어요." : "OP를 부여했어요.")}>{isBusy(`op:${playerId}`) ? <Spinner /> : <Shield />}{player?.operator ? "OP 회수" : "OP 부여"}</Button>
+        <Button type="button" className="min-w-0 px-2 sm:px-3" variant="outline" size="sm" disabled={!player?.online || isBusy(`kick:${playerId}`)} onClick={() => void run(`kick:${playerId}`, `/admin/players/${playerId}/kick`, "POST", { reason }, "플레이어를 내보냈어요.")}><DoorOpen />킥</Button>
+        <Button type="button" className="min-w-0 px-2 sm:px-3" variant={player?.banned ? "outline" : "destructive"} size="sm" disabled={isBusy(`ban:${playerId}`)} onClick={() => void run(`ban:${playerId}`, `/admin/players/${playerId}/ban`, "PUT", { banned: !player?.banned, reason }, player?.banned ? "차단을 풀었어요." : "플레이어를 차단했어요.")}><Ban />{player?.banned ? "밴 해제" : "밴"}</Button>
       </div>
       <Input className="basis-full" value={reason} maxLength={160} onChange={(event) => setReason(event.target.value)} placeholder="킥 또는 밴 사유, 비워 두면 기본 문구 사용" aria-label="킥 또는 밴 사유" />
     </div>

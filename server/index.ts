@@ -12,11 +12,13 @@ import {
 import { MinecraftServerManager } from "./server-manager.js";
 import { presetSkinFile, SkinService, skinPathForUser } from "./skins.js";
 import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
+import { HistoryStore, type LegacyServerLogEntry } from "./history-store.js";
 import { siteIndexForHostname } from "./site-index.js";
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 const sessionSecret = loadOrCreateSecret(config.dataDir, config.sessionSecret);
 const database = new AppDatabase(config.dataDir);
+const history = new HistoryStore(config.dataDir);
 const skins = new SkinService(database, config.dataDir, config.assetRootDir);
 const gameConnections = new GameConnectionTracker();
 const serverManager = new MinecraftServerManager({
@@ -31,6 +33,7 @@ const serverManager = new MinecraftServerManager({
   maxPlayers: config.maxPlayers,
   eulaAccepted: config.eulaAccepted,
   mockServer: config.mockServer,
+  onLog: (line, occurredAt) => history.recordServerLog(line, occurredAt),
 });
 
 const app = express();
@@ -89,6 +92,7 @@ app.use("/api", createApiRouter({
   sessionDays: config.sessionDays,
   eulaAccepted: config.eulaAccepted || config.mockServer,
   gameConnections,
+  history,
   adminUsernames: config.adminUsernames,
   adminUserIds: config.adminUserIds,
   adminPassword: config.adminPassword,
@@ -264,23 +268,56 @@ server.on("upgrade", (request, socket, head) => {
       return;
     }
     const launchId = parsed.searchParams.get("launch");
-    const closeTrackedConnection = isLaunchId(launchId)
-      ? gameConnections.begin(launchId, user.id, () => socket.destroy())
+    const validLaunchId = isLaunchId(launchId) ? launchId : null;
+    const closeTrackedConnection = validLaunchId
+      ? gameConnections.begin(validLaunchId, user.id, () => socket.destroy())
       : null;
     if (!closeTrackedConnection) {
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
     }
-    socket.once("close", closeTrackedConnection);
+    const clientIp = gameProxyClientIp(
+      request.headers["x-real-ip"],
+      request.socket.remoteAddress,
+    );
+    let historySessionId: number | null = null;
+    try {
+      historySessionId = history.startGameConnection({
+        launchId: validLaunchId!,
+        accountId: user.id,
+        accountUsername: user.username,
+        gameUsername: user.gameUsername,
+        displayName: user.displayName,
+        ipAddress: clientIp,
+      });
+    } catch (error) {
+      console.error("Could not record the game connection:", error);
+    }
+    let lastHistoryTouchAt = Date.now();
+    socket.on("data", () => {
+      if (historySessionId === null || Date.now() - lastHistoryTouchAt < 60_000) return;
+      lastHistoryTouchAt = Date.now();
+      try {
+        history.touchGameConnection(historySessionId, lastHistoryTouchAt);
+      } catch (error) {
+        console.error("Could not update the game connection history:", error);
+      }
+    });
+    socket.once("close", () => {
+      closeTrackedConnection();
+      if (historySessionId === null) return;
+      try {
+        history.endGameConnection(historySessionId);
+      } catch (error) {
+        console.error("Could not close the game connection history:", error);
+      }
+    });
     const ticket = createGameTicket(user, skinPathForUser(user), sessionSecret, config.gameTicketMinutes);
     parsed.searchParams.set("ticket", ticket);
     request.url = `${parsed.pathname}${parsed.search}`;
     delete request.headers.cookie;
-    request.headers["x-real-ip"] = gameProxyClientIp(
-      request.headers["x-real-ip"],
-      request.socket.remoteAddress,
-    );
+    request.headers["x-real-ip"] = clientIp;
     proxy.ws(request, socket, head);
   } catch {
     socket.destroy();
@@ -289,16 +326,56 @@ server.on("upgrade", (request, socket, head) => {
 
 server.listen(config.port, "0.0.0.0", () => {
   console.log(`spawnpoint is listening on port ${config.port}`);
+  void importLegacyServerLogs();
 });
+
+function legacyLogTimestamp(source: string, line: string, fallback: number): number {
+  const sourceDate = source.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const time = line.match(/^\[(\d{2}):(\d{2}):(\d{2})\]/);
+  if (!time) return fallback;
+  const fallbackDate = new Date(fallback);
+  const date = sourceDate
+    ? sourceDate.slice(1).map(Number)
+    : [fallbackDate.getFullYear(), fallbackDate.getMonth() + 1, fallbackDate.getDate()];
+  const parsed = new Date(date[0], date[1] - 1, date[2], Number(time[1]), Number(time[2]), Number(time[3])).getTime();
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function importLegacyServerLogs(): Promise<void> {
+  if (!history.needsLegacyServerLogImport()) return;
+  try {
+    const imported: LegacyServerLogEntry[] = [];
+    let offset = 0;
+    while (true) {
+      const page = await serverManager.getLogHistory({ offset, limit: 500 });
+      const fallback = Date.now();
+      imported.push(...page.entries.map((entry) => ({
+        occurredAt: legacyLogTimestamp(entry.source, entry.line, fallback),
+        source: entry.source,
+        line: entry.line,
+      })));
+      if (page.nextOffset === null || page.nextOffset <= offset) break;
+      offset = page.nextOffset;
+    }
+    imported.sort((left, right) => left.occurredAt - right.occurredAt);
+    history.importLegacyServerLogs(imported);
+    if (imported.length > 0) console.log(`Imported ${imported.length} existing Minecraft log lines into permanent history.`);
+  } catch (error) {
+    console.error("Could not import existing Minecraft logs:", error);
+  }
+}
 
 let closing = false;
 async function shutdown(): Promise<void> {
   if (closing) return;
   closing = true;
   await serverManager.shutdown();
-  database.close();
   proxy.close();
-  server.close(() => process.exit(0));
+  server.close(() => {
+    history.close();
+    database.close();
+    process.exit(0);
+  });
   server.closeAllConnections();
   setTimeout(() => process.exit(1), 25_000).unref();
 }

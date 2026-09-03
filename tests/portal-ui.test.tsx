@@ -1219,6 +1219,115 @@ describe("administrator console and account actions", () => {
     await act(async () => root.unmount());
   });
 
+  it("shows permanent chat, access, and server logs with player heads and explicit IP reveal", async () => {
+    const occurredAt = Date.now() - 5_000;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/admin/overview") return Promise.resolve(jsonResponse(adminOverview(true)));
+      if (path === "/api/admin/history/chats") {
+        return Promise.resolve(jsonResponse({
+          entries: [{
+            id: 3,
+            occurredAt,
+            accountId: "00000000-0000-4000-8000-000000000001",
+            uuid: "00000000-0000-4000-8000-000000000002",
+            gameUsername: "friend",
+            displayName: "친구",
+            skinUrl: "/assets/skins/spawnpoint.png",
+            message: "영구 채팅입니다",
+          }],
+          nextCursor: null,
+        }));
+      }
+      if (path === "/api/admin/history/access") {
+        return Promise.resolve(jsonResponse({
+          entries: [{
+            id: 2,
+            accountId: "00000000-0000-4000-8000-000000000001",
+            accountUsername: "friend",
+            gameUsername: "friend",
+            displayName: "친구",
+            skinUrl: "/assets/skins/spawnpoint.png",
+            ipAddress: "198.51.100.•••",
+            connectedAt: occurredAt - 10_000,
+            lastSeenAt: occurredAt,
+            joinedAt: occurredAt - 9_000,
+            leftAt: occurredAt,
+            disconnectedAt: occurredAt,
+            disconnectReason: "closed",
+          }],
+          nextCursor: null,
+        }));
+      }
+      if (path === "/api/admin/history/access?revealIp=1") {
+        return Promise.resolve(jsonResponse({
+          entries: [{
+            id: 2,
+            accountId: "00000000-0000-4000-8000-000000000001",
+            accountUsername: "friend",
+            gameUsername: "friend",
+            displayName: "친구",
+            skinUrl: "/assets/skins/spawnpoint.png",
+            ipAddress: "198.51.100.77",
+            connectedAt: occurredAt - 10_000,
+            lastSeenAt: occurredAt,
+            joinedAt: occurredAt - 9_000,
+            leftAt: occurredAt,
+            disconnectedAt: occurredAt,
+            disconnectReason: "closed",
+          }],
+          nextCursor: null,
+        }));
+      }
+      if (path === "/api/admin/history/logs") {
+        return Promise.resolve(jsonResponse({
+          entries: [{ id: 1, occurredAt, source: "실시간", line: "Done (1.234s)!" }],
+          nextCursor: null,
+        }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AdminPanel data={adminData} onSession={vi.fn()} notice={vi.fn()} />));
+    await act(async () => {
+      (container.querySelector('[aria-label="관리자 패널"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const historyTab = [...document.body.querySelectorAll("button")].find((button) => button.textContent === "기록") as HTMLButtonElement;
+    await act(async () => {
+      historyTab.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("영구 채팅입니다");
+    expect(document.body.querySelector('[aria-label="친구 머리"]')?.querySelectorAll("img")).toHaveLength(2);
+    const historyNav = document.body.querySelector('[aria-label="기록 분류"]')!;
+    await act(async () => {
+      ([...historyNav.querySelectorAll("button")].find((button) => button.textContent === "접속") as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("198.51.100.•••");
+    await act(async () => {
+      ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "IP 원문 보기") as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("198.51.100.77");
+    await act(async () => {
+      ([...historyNav.querySelectorAll("button")].find((button) => button.textContent === "서버 로그") as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(document.body.querySelector('[aria-label="영구 서버 로그"]')?.textContent).toContain("Done (1.234s)!");
+    await act(async () => root.unmount());
+  });
+
   it("sends a colored title to one or more selected online players", async () => {
     const overview = adminOverview(true, [
       { ...testPlayer, accountId: "00000000-0000-4000-8000-000000000101", displayName: "관리자", username: "qaadmin" },

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiRouter } from "../server/api.js";
 import { AppDatabase } from "../server/db.js";
 import { GameConnectionTracker } from "../server/game-connections.js";
+import { HistoryStore } from "../server/history-store.js";
 import type { PlayerAccountReference, PlayerInventoryPatch, PlayerStatePatch } from "../server/player-data.js";
 import { createSessionToken, hashPassword, verifyPassword } from "../server/security.js";
 import type { ConsoleLogPage, MinecraftServerManager } from "../server/server-manager.js";
@@ -159,7 +160,9 @@ async function createHarness(options: {
 } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "spawnpoint-api-"));
   const database = new AppDatabase(dataDir);
+  const history = new HistoryStore(dataDir);
   cleanups.push(() => {
+    history.close();
     database.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
@@ -180,6 +183,7 @@ async function createHarness(options: {
     sessionDays: 1,
     eulaAccepted: true,
     gameConnections,
+    history,
     adminUserIds: options.adminUserIds ?? [admin.id],
     adminUsernames: options.adminUsernames,
     adminPassword: "G4ndan",
@@ -191,7 +195,7 @@ async function createHarness(options: {
     Cookie: `spawnpoint_session=${session.token}`,
     "x-spawnpoint-csrf": session.csrf,
   };
-  return { admin, adminHeaders, database, gameConnections, origin, user };
+  return { admin, adminHeaders, database, gameConnections, history, origin, user };
 }
 
 describe("unified player names", () => {
@@ -1162,5 +1166,87 @@ describe("administrator titles", () => {
     });
 
     expect(response.status).toBe(400);
+  });
+});
+
+describe("permanent player and server history", () => {
+  it("accepts authenticated plugin chat events and returns them with player skin metadata", async () => {
+    const harness = await createHarness();
+    const eventId = crypto.randomUUID();
+    const response = await fetch(`${harness.origin}/api/internal/player-history`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventId,
+        type: "chat",
+        occurredAt: Date.now(),
+        accountId: harness.user.id,
+        uuid: crypto.randomUUID(),
+        gameUsername: harness.user.gameUsername,
+        displayName: "위조된 이름",
+        message: "기록할 공개 채팅",
+      }),
+    });
+
+    expect(response.status).toBe(204);
+    const historyResponse = await fetch(`${harness.origin}/api/admin/history/chats?q=${encodeURIComponent("공개 채팅")}`, {
+      headers: harness.adminHeaders,
+    });
+    expect(historyResponse.status).toBe(200);
+    expect(historyResponse.headers.get("cache-control")).toBe("no-store");
+    const history = await historyResponse.json() as { entries: Array<Record<string, unknown>> };
+    expect(history.entries).toEqual([
+      expect.objectContaining({
+        accountId: harness.user.id,
+        displayName: harness.user.displayName,
+        gameUsername: harness.user.gameUsername,
+        message: "기록할 공개 채팅",
+        skinUrl: "/assets/skins/spawnpoint.png",
+      }),
+    ]);
+  });
+
+  it("returns masked access history until the administrator explicitly reveals IP addresses", async () => {
+    const harness = await createHarness();
+    const connectedAt = Date.now() - 10_000;
+    const sessionId = harness.history.startGameConnection({
+      launchId: crypto.randomUUID(),
+      accountId: harness.user.id,
+      accountUsername: harness.user.username,
+      gameUsername: harness.user.gameUsername,
+      displayName: harness.user.displayName,
+      ipAddress: "198.51.100.77",
+      connectedAt,
+    });
+    harness.history.markPlayerJoined(harness.user.id, connectedAt + 1_000);
+    harness.history.endGameConnection(sessionId, "closed", connectedAt + 9_000);
+
+    const maskedResponse = await fetch(`${harness.origin}/api/admin/history/access?from=${connectedAt}&to=${connectedAt + 20_000}`, {
+      headers: harness.adminHeaders,
+    });
+    expect(maskedResponse.headers.get("cache-control")).toBe("no-store");
+    const masked = await maskedResponse.json() as { entries: Array<Record<string, unknown>> };
+    expect(masked.entries[0]).toMatchObject({ ipAddress: "198.51.100.•••", joinedAt: connectedAt + 1_000 });
+
+    const revealedResponse = await fetch(`${harness.origin}/api/admin/history/access?revealIp=1`, {
+      headers: harness.adminHeaders,
+    });
+    const revealed = await revealedResponse.json() as { entries: Array<Record<string, unknown>> };
+    expect(revealed.entries[0].ipAddress).toBe("198.51.100.77");
+  });
+
+  it("rejects unauthenticated event writes and backwards time ranges", async () => {
+    const harness = await createHarness();
+    const eventResponse = await fetch(`${harness.origin}/api/internal/player-history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(eventResponse.status).toBe(401);
+
+    const historyResponse = await fetch(`${harness.origin}/api/admin/history/logs?from=200&to=100`, {
+      headers: harness.adminHeaders,
+    });
+    expect(historyResponse.status).toBe(400);
   });
 });

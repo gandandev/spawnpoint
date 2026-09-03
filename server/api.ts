@@ -4,6 +4,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import multer from "multer";
 import type { AppDatabase } from "./db.js";
 import type { MinecraftServerManager } from "./server-manager.js";
+import type { HistoryQuery, HistoryStore } from "./history-store.js";
 import { GameConnectionTracker, isLaunchId } from "./game-connections.js";
 import { ServerStartError } from "./server-manager.js";
 import {
@@ -55,6 +56,7 @@ export interface ApiContext {
   sessionDays: number;
   eulaAccepted: boolean;
   gameConnections: GameConnectionTracker;
+  history: HistoryStore;
   adminUsernames?: readonly string[];
   adminUserIds?: readonly string[];
   adminPassword?: string;
@@ -209,7 +211,7 @@ function standaloneAdminPublicUser() {
       type: "preset" as const,
       model: "steve" as const,
       label: "spawnpoint",
-      previewUrl: "/api/skins/preset/spawnpoint",
+      previewUrl: "/assets/skins/spawnpoint.png",
     },
   };
 }
@@ -309,6 +311,73 @@ function validateLogOffset(input: unknown): number {
   if (input === undefined) return 0;
   if (typeof input !== "string" || !/^\d{1,7}$/.test(input)) throw new Error("로그 위치가 올바르지 않아요.");
   return Number(input);
+}
+
+function validateHistoryNumber(input: unknown, label: string): number | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input !== "string" || !/^\d{1,16}$/.test(input)) throw new Error(`${label} 값이 올바르지 않아요.`);
+  const value = Number(input);
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} 값이 올바르지 않아요.`);
+  return value;
+}
+
+function validateHistoryQuery(query: Request["query"]): HistoryQuery {
+  const from = validateHistoryNumber(query.from, "시작 시간");
+  const to = validateHistoryNumber(query.to, "끝 시간");
+  if (from !== undefined && to !== undefined && from > to) throw new Error("시작 시간은 끝 시간보다 빨라야 해요.");
+  return {
+    query: validateLogSearch(query.q),
+    from,
+    to,
+    before: validateHistoryNumber(query.before, "기록 위치"),
+    limit: 100,
+  };
+}
+
+interface BridgeHistoryEvent {
+  eventId: string;
+  type: "join" | "quit" | "chat";
+  occurredAt: number;
+  accountId: string | null;
+  uuid: string;
+  gameUsername: string;
+  displayName: string;
+  message: string | null;
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function validateBridgeHistoryEvent(input: unknown): BridgeHistoryEvent {
+  const value = objectInput(input, "기록 이벤트가 올바르지 않아요.");
+  if (!isUuid(value.eventId)) {
+    throw new Error("기록 ID가 올바르지 않아요.");
+  }
+  if (value.type !== "join" && value.type !== "quit" && value.type !== "chat") throw new Error("기록 종류가 올바르지 않아요.");
+  const occurredAt = numberInput(value.occurredAt, "기록 시간", 0, Date.now() + 5 * 60_000, true);
+  if (value.accountId !== null && !isUuid(value.accountId)) throw new Error("계정 ID가 올바르지 않아요.");
+  const accountId = value.accountId;
+  if (!isUuid(value.uuid)) throw new Error("플레이어 UUID가 올바르지 않아요.");
+  if (typeof value.gameUsername !== "string" || !/^[A-Za-z0-9_]{3,16}$/.test(value.gameUsername)) {
+    throw new Error("게임 이름이 올바르지 않아요.");
+  }
+  if (typeof value.displayName !== "string" || !value.displayName.trim() || value.displayName.length > 64 || /[\r\n\0]/.test(value.displayName)) {
+    throw new Error("표시 이름이 올바르지 않아요.");
+  }
+  let message: string | null = null;
+  if (value.type === "chat") message = validateGameChatMessage(value.message);
+  return {
+    eventId: value.eventId,
+    type: value.type,
+    occurredAt,
+    accountId,
+    uuid: value.uuid,
+    gameUsername: value.gameUsername,
+    displayName: value.displayName.trim(),
+    message,
+  };
 }
 
 function objectInput(input: unknown, message: string): Record<string, unknown> {
@@ -686,6 +755,45 @@ export function createApiRouter(context: ApiContext): express.Router {
         gameUsername: user.gameUsername,
       })),
     });
+  });
+
+  router.post("/internal/player-history", (request, response) => {
+    if (!safeSecretEqual(request.get("authorization"), `Bearer ${context.sessionSecret}`)) {
+      fail(response, 401, "브리지 인증이 올바르지 않아요.", "BRIDGE_AUTH_REQUIRED");
+      return;
+    }
+    let event: BridgeHistoryEvent;
+    try {
+      event = validateBridgeHistoryEvent(request.body);
+    } catch (error) {
+      failFromError(response, 400, error, "기록 이벤트가 올바르지 않아요.", "INVALID_HISTORY_EVENT");
+      return;
+    }
+    try {
+      const user = event.accountId
+        ? context.database.getUserById(event.accountId)
+        : context.database.getUserByGameUsername(event.gameUsername);
+      const accountId = user?.id ?? event.accountId;
+      if (event.type === "join") {
+        if (accountId) context.history.markPlayerJoined(accountId, event.occurredAt);
+      } else if (event.type === "quit") {
+        if (accountId) context.history.markPlayerLeft(accountId, event.occurredAt);
+      } else {
+        context.history.recordChat({
+          eventId: event.eventId,
+          occurredAt: event.occurredAt,
+          accountId,
+          uuid: event.uuid,
+          gameUsername: user?.gameUsername ?? event.gameUsername,
+          displayName: user?.displayName ?? event.displayName,
+          message: event.message!,
+        });
+      }
+    } catch (error) {
+      failFromError(response, 500, error, "기록 이벤트를 저장하지 못했어요.", "HISTORY_WRITE_FAILED");
+      return;
+    }
+    response.status(204).end();
   });
 
   router.get("/server/players", (request, response) => {
@@ -1192,6 +1300,92 @@ export function createApiRouter(context: ApiContext): express.Router {
       response.json(await context.serverManager.getLogHistory({ query, offset, limit: 500 }));
     } catch (error) {
       failFromError(response, 500, error, "저장된 로그를 읽지 못했어요.", "LOG_READ_FAILED");
+    }
+  });
+
+  router.get("/admin/history/access", (request, response) => {
+    const admin = requireAdmin(request, response, context);
+    if (!admin) return;
+    if (!adminReadLimiter.take(`${admin.id}:history-access`)) {
+      fail(response, 429, "접속 기록 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
+      return;
+    }
+    let query: HistoryQuery;
+    try {
+      query = validateHistoryQuery(request.query);
+    } catch (error) {
+      failFromError(response, 400, error, "접속 기록 조건을 확인하세요.", "INVALID_HISTORY_QUERY");
+      return;
+    }
+    try {
+      const page = context.history.listAccessHistory(query, request.query.revealIp === "1");
+      response.setHeader("Cache-Control", "no-store");
+      response.json({
+        ...page,
+        entries: page.entries.map((entry) => {
+          const user = context.database.getUserById(entry.accountId);
+          return {
+            ...entry,
+            skinUrl: user ? publicUser(user, context).skin.previewUrl : "/assets/skins/spawnpoint.png",
+          };
+        }),
+      });
+    } catch (error) {
+      failFromError(response, 500, error, "접속 기록을 불러오지 못했어요.", "HISTORY_READ_FAILED");
+    }
+  });
+
+  router.get("/admin/history/chats", (request, response) => {
+    const admin = requireAdmin(request, response, context);
+    if (!admin) return;
+    if (!adminReadLimiter.take(`${admin.id}:history-chats`)) {
+      fail(response, 429, "채팅 기록 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
+      return;
+    }
+    let query: HistoryQuery;
+    try {
+      query = validateHistoryQuery(request.query);
+    } catch (error) {
+      failFromError(response, 400, error, "채팅 기록 조건을 확인하세요.", "INVALID_HISTORY_QUERY");
+      return;
+    }
+    try {
+      const page = context.history.listChatHistory(query);
+      response.setHeader("Cache-Control", "no-store");
+      response.json({
+        ...page,
+        entries: page.entries.map((entry) => {
+          const user = entry.accountId ? context.database.getUserById(entry.accountId) : null;
+          return {
+            ...entry,
+            skinUrl: user ? publicUser(user, context).skin.previewUrl : "/assets/skins/spawnpoint.png",
+          };
+        }),
+      });
+    } catch (error) {
+      failFromError(response, 500, error, "채팅 기록을 불러오지 못했어요.", "HISTORY_READ_FAILED");
+    }
+  });
+
+  router.get("/admin/history/logs", (request, response) => {
+    const admin = requireAdmin(request, response, context);
+    if (!admin) return;
+    if (!adminReadLimiter.take(`${admin.id}:history-logs`)) {
+      fail(response, 429, "서버 로그 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
+      return;
+    }
+    let query: HistoryQuery;
+    try {
+      query = validateHistoryQuery(request.query);
+    } catch (error) {
+      failFromError(response, 400, error, "서버 로그 조건을 확인하세요.", "INVALID_HISTORY_QUERY");
+      return;
+    }
+    try {
+      response.setHeader("Cache-Control", "no-store");
+      response.json(context.history.listServerLogs(query));
+    } catch (error) {
+      failFromError(response, 500, error, "서버 로그를 불러오지 못했어요.", "HISTORY_READ_FAILED");
     }
   });
 

@@ -136,6 +136,47 @@ export interface AdminLogPage {
   nextOffset: number | null;
 }
 
+export type AdminHistorySection = "chats" | "access" | "logs";
+
+export interface AdminAccessHistoryEntry {
+  id: number;
+  accountId: string;
+  accountUsername: string;
+  gameUsername: string;
+  displayName: string;
+  skinUrl: string;
+  ipAddress: string;
+  connectedAt: number;
+  lastSeenAt: number;
+  joinedAt: number | null;
+  leftAt: number | null;
+  disconnectedAt: number | null;
+  disconnectReason: string | null;
+}
+
+export interface AdminChatHistoryEntry {
+  id: number;
+  occurredAt: number;
+  accountId: string | null;
+  uuid: string;
+  gameUsername: string;
+  displayName: string;
+  skinUrl: string;
+  message: string;
+}
+
+export interface AdminServerLogHistoryEntry {
+  id: number;
+  occurredAt: number;
+  source: string;
+  line: string;
+}
+
+export interface AdminHistoryPage<T> {
+  entries: T[];
+  nextCursor: number | null;
+}
+
 export interface ClientChoice {
   id: "stable";
   version: string;

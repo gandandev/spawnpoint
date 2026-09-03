@@ -37,13 +37,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
@@ -120,6 +123,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private String portalOrigin;
     private HttpServer bridgeServer;
     private ExecutorService bridgeExecutor;
+    private ExecutorService historyExecutor;
     private BukkitTask locatorSnapshotTask;
     private BukkitTask commandIdentityRefreshTask;
     private boolean tpaEnabled;
@@ -136,6 +140,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private boolean deathTranslationWarningLogged;
     private boolean packetReflectionWarningLogged;
     private boolean commandIdentityWarningLogged;
+    private volatile boolean historyEventWarningLogged;
 
     @Override
     public void onEnable() {
@@ -161,6 +166,15 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         registerCommand("tpdeny");
         registerCommand("spawnpointtell");
         this.portalOrigin = env("PORTAL_INTERNAL_ORIGIN", "http://127.0.0.1:3000").replaceAll("/+$", "");
+        this.historyExecutor = new ThreadPoolExecutor(
+            1,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(2048),
+            new HistoryThreadFactory(),
+            new ThreadPoolExecutor.AbortPolicy()
+        );
         getServer().getPluginManager().registerEvents(this, this);
         applyKeepInventory(keepInventory);
         startBridgeServer();
@@ -201,6 +215,15 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         teleportExpiryTasks.values().forEach(BukkitTask::cancel);
         teleportExpiryTasks.clear();
         teleportRequestCooldowns.clear();
+        if (historyExecutor != null) {
+            historyExecutor.shutdown();
+            try {
+                if (!historyExecutor.awaitTermination(3, TimeUnit.SECONDS)) historyExecutor.shutdownNow();
+            } catch (InterruptedException exception) {
+                historyExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
         if (bridgeServer != null) bridgeServer.stop(0);
         if (bridgeExecutor != null) {
             bridgeExecutor.shutdownNow();
@@ -543,6 +566,76 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    private void recordPlayerHistory(String type, Player player, String message) {
+        PlayerIdentity identity = activeIdentities.get(player.getUniqueId());
+        JsonObject event = new JsonObject();
+        event.addProperty("eventId", UUID.randomUUID().toString());
+        event.addProperty("type", type);
+        event.addProperty("occurredAt", System.currentTimeMillis());
+        event.addProperty("accountId", identity == null ? null : identity.accountId);
+        event.addProperty("uuid", player.getUniqueId().toString());
+        event.addProperty("gameUsername", player.getName());
+        event.addProperty("displayName", identity == null ? player.getName() : identity.displayName);
+        if (message != null) event.addProperty("message", message);
+        byte[] body = event.toString().getBytes(StandardCharsets.UTF_8);
+        if (body.length > MAX_REQUEST_BYTES) return;
+        ExecutorService executor = historyExecutor;
+        if (executor == null || executor.isShutdown()) return;
+        try {
+            executor.execute(() -> postPlayerHistory(body));
+        } catch (RejectedExecutionException exception) {
+            warnHistoryFailure("history queue is full; one event was skipped");
+        }
+    }
+
+    private void postPlayerHistory(byte[] body) {
+        IOException lastFailure = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) URI.create(portalOrigin + "/api/internal/player-history").toURL().openConnection();
+                connection.setRequestMethod("POST");
+                connection.setConnectTimeout(2_000);
+                connection.setReadTimeout(2_000);
+                connection.setUseCaches(false);
+                connection.setDoOutput(true);
+                connection.setFixedLengthStreamingMode(body.length);
+                connection.setRequestProperty("Authorization", "Bearer " + new String(secret, StandardCharsets.UTF_8));
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                try (var output = connection.getOutputStream()) {
+                    output.write(body);
+                }
+                int status = connection.getResponseCode();
+                if (status == HttpURLConnection.HTTP_NO_CONTENT) {
+                    historyEventWarningLogged = false;
+                    return;
+                }
+                lastFailure = new IOException("portal returned " + status);
+            } catch (IOException | IllegalArgumentException exception) {
+                lastFailure = exception instanceof IOException
+                    ? (IOException) exception
+                    : new IOException(exception.getMessage(), exception);
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+            if (attempt < 2) {
+                try {
+                    Thread.sleep(100L * (attempt + 1));
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+        warnHistoryFailure(lastFailure == null ? "unknown error" : lastFailure.getMessage());
+    }
+
+    private void warnHistoryFailure(String reason) {
+        if (historyEventWarningLogged) return;
+        historyEventWarningLogged = true;
+        getLogger().warning("Could not persist a player history event: " + reason);
     }
 
     static CommandRewrite rewriteDisplayNameCommand(String message, List<CommandTargetName> targets) {
@@ -1552,6 +1645,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         event.setFormat("<" + playerLabel(event.getPlayer()) + "> %2$s");
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerChatHistory(AsyncPlayerChatEvent event) {
+        recordPlayerHistory("chat", event.getPlayer(), event.getMessage());
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Location location = event.getEntity().getLocation();
@@ -1633,6 +1731,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             ? null
             : ChatColor.YELLOW + displayName + "님이 게임에서 나갔습니다.");
         removeTeleportRequestsFor(event.getPlayer());
+        recordPlayerHistory("quit", event.getPlayer(), null);
         activeIdentities.remove(event.getPlayer().getUniqueId());
     }
 
@@ -1652,6 +1751,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             }
             return;
         }
+        recordPlayerHistory("join", player, null);
         getServer().broadcastMessage(ChatColor.YELLOW + displayName + "님이 게임에 참여했습니다.");
     }
 
@@ -2064,6 +2164,15 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         @Override
         public synchronized Thread newThread(Runnable runnable) {
             Thread thread = new Thread(runnable, "spawnpoint-admin-bridge-" + (++number));
+            thread.setDaemon(true);
+            return thread;
+        }
+    }
+
+    private static final class HistoryThreadFactory implements ThreadFactory {
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "spawnpoint-history-writer");
             thread.setDaemon(true);
             return thread;
         }

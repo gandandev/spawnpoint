@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, CornerDownLeft, Megaphone, RefreshCw, Search, Settings2, Shield, Terminal, Users } from "lucide-react";
+import { Check, CornerDownLeft, History, Megaphone, RefreshCw, Search, Settings2, Shield, Terminal, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -11,11 +11,12 @@ import { cn } from "@/lib/utils";
 import { useAdminLogs, useAdminMutation, useAdminOverview } from "@/features/admin-hooks";
 import { AdminPlayersPanel } from "@/features/AdminPlayersPanel";
 import { AdminServerSettings } from "@/features/AdminServerSettings";
+import { AdminHistoryPanel } from "@/features/AdminHistoryPanel";
 import type { AdminLogEntry, BootstrapData, SessionUpdate } from "@/types";
 
 export { TpaSettingRow } from "@/features/AdminServerSettings";
 
-type AdminTab = "players" | "settings" | "title" | "console";
+type AdminTab = "players" | "settings" | "history" | "title" | "console";
 type TitleAudience = "all" | "selected";
 type TitleColor = "white" | "gray" | "red" | "gold" | "yellow" | "green" | "aqua" | "blue" | "light_purple";
 
@@ -175,13 +176,14 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
     <DialogContent className="max-h-[calc(100dvh-1rem)] min-h-[min(44rem,calc(100dvh-1rem))] w-[calc(100%-1rem)] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden p-4 ring-0 sm:max-w-6xl">
       <DialogHeader>
         <div className="flex items-center gap-2"><DialogTitle>관리자 패널</DialogTitle>{overview && <Badge variant="secondary" className={cn("ml-1", overview.server.phase === "online" && "bg-[#96ce4d]/15 text-[#65952c]")}>{overview.server.phase === "online" ? "서버 온라인" : "서버 오프라인"}</Badge>}</div>
-        <DialogDescription>온라인과 오프라인 플레이어, 서버 설정, 공지와 콘솔을 한곳에서 관리하세요.</DialogDescription>
+        <DialogDescription>플레이어, 서버 설정, 영구 기록, 공지와 콘솔을 한곳에서 관리하세요.</DialogDescription>
       </DialogHeader>
-      <ToggleGroup type="single" value={tab} onValueChange={(value) => { if (value === "players" || value === "settings" || value === "title" || value === "console") setTab(value); }} variant="outline" spacing={0} className="grid w-full grid-cols-4 p-1">
-        <ToggleGroupItem value="players" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><Users />플레이어 {overview?.users.length ?? 0}</ToggleGroupItem>
-        <ToggleGroupItem value="settings" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><Settings2 />설정</ToggleGroupItem>
-        <ToggleGroupItem value="title" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><Megaphone />타이틀</ToggleGroupItem>
-        <ToggleGroupItem value="console" className="h-9 min-w-0 w-full cursor-pointer gap-0.5 px-1 text-xs sm:gap-1 sm:px-2 sm:text-sm"><Terminal />콘솔</ToggleGroupItem>
+      <ToggleGroup type="single" value={tab} onValueChange={(value) => { if (value === "players" || value === "settings" || value === "history" || value === "title" || value === "console") setTab(value); }} variant="outline" spacing={0} className="admin-primary-tabs grid w-full grid-cols-5 p-1">
+        <ToggleGroupItem value="players" className="admin-primary-tab"><Users /><span>플레이어 {overview?.users.length ?? 0}</span></ToggleGroupItem>
+        <ToggleGroupItem value="settings" className="admin-primary-tab"><Settings2 /><span>설정</span></ToggleGroupItem>
+        <ToggleGroupItem value="history" className="admin-primary-tab"><History /><span>기록</span></ToggleGroupItem>
+        <ToggleGroupItem value="title" className="admin-primary-tab"><Megaphone /><span>타이틀</span></ToggleGroupItem>
+        <ToggleGroupItem value="console" className="admin-primary-tab"><Terminal /><span>콘솔</span></ToggleGroupItem>
       </ToggleGroup>
       <div className="min-h-0 overflow-y-auto overscroll-contain pr-1">
         {!overview && !loadError && <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />관리자 정보 불러오는 중</div>}
@@ -206,6 +208,7 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
             return result.settings;
           }}
         />}
+        {overview && tab === "history" && <AdminHistoryPanel active={open && tab === "history"} csrf={data.csrf} />}
         {overview && tab === "title" && <form className="mx-auto flex w-full max-w-2xl flex-col gap-5 py-1" onSubmit={async (event) => {
           event.preventDefault();
           if (!canSendTitle) return;

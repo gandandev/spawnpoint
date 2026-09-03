@@ -22,6 +22,7 @@ interface ServerManagerOptions {
   maxPlayers: number;
   eulaAccepted: boolean;
   mockServer: boolean;
+  onLog?: (line: string, occurredAt: number) => void;
 }
 
 const MANAGED_FILES = [
@@ -229,6 +230,11 @@ export class MinecraftServerManager extends EventEmitter {
   private appendLog(line: string): void {
     this.recentOutput.push(line);
     if (this.recentOutput.length > MAX_LOG_LINES) this.recentOutput.shift();
+    try {
+      this.options.onLog?.(line, Date.now());
+    } catch (error) {
+      console.error("Could not persist Minecraft console output:", error);
+    }
   }
 
   private setOffline(): void {
