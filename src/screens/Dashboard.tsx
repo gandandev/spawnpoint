@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { LogOut, Play, Shield, ShieldCheck } from "lucide-react";
 import { AccountDialog } from "@/features/AccountDialog";
+import { ChangelogDialog } from "@/features/ChangelogDialog";
 import { Logo, ServerCard } from "@/components/portal";
 import { SkinPreview } from "@/SkinPreview";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -50,6 +51,7 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
     <header className="dashboard-header">
       <Logo />
       <div className="dashboard-actions">
+        <ChangelogDialog />
         <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={onOpenAdmin} aria-label="관리자 패널" title="관리자 패널"><Shield /></Button>
         <AccountDialog data={data} onSession={onSession} notice={notice} />
         <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={() => void onLogout()} aria-label="로그아웃" title="로그아웃"><LogOut /></Button>

@@ -794,6 +794,37 @@ describe("skin change flow", () => {
     await act(async () => root.unmount());
   });
 
+  it("shows the latest user-facing changes from the dashboard header", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<Dashboard
+        data={adminData}
+        onData={vi.fn()}
+        onSession={vi.fn()}
+        onStart={vi.fn()}
+        onLogout={vi.fn()}
+        notice={vi.fn()}
+        onPlay={vi.fn()}
+        onOpenAdmin={vi.fn()}
+        initialSkinDialogOpen={false}
+        onInitialSkinDialogHandled={vi.fn()}
+      />);
+    });
+
+    const changelogButton = container.querySelector<HTMLButtonElement>('[aria-label="변경 내역"]')!;
+    await act(async () => changelogButton.click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("2026. 9. 3.");
+    expect(dialog.textContent).toContain("위치 표시기에 플레이어 머리와 직선 거리를 추가했어요.");
+    expect(dialog.textContent).toContain("채팅 메시지에 플레이어 머리를 추가했어요.");
+    expect(dialog.textContent).toContain("서버 업데이트 전에는 카운트다운을 보여줘요.");
+    expect(dialog.textContent).toContain("대시보드의 중복 서버 시작 버튼을 없앴어요.");
+
+    await act(async () => root.unmount());
+  });
+
 });
 
 describe("account settings copy and spacing", () => {
