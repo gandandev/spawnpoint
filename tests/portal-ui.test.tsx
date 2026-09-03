@@ -821,6 +821,10 @@ describe("skin change flow", () => {
     expect(dialog.textContent).toContain("채팅 메시지에 플레이어 머리를 추가했어요.");
     expect(dialog.textContent).toContain("서버 업데이트 전에는 카운트다운을 보여줘요.");
     expect(dialog.textContent).toContain("대시보드의 중복 서버 시작 버튼을 없앴어요.");
+    expect(dialog.textContent).toContain("2026. 9. 1.");
+    expect(dialog.textContent).toContain("포탈 전체 글꼴을 갈무리로 통일했어요.");
+    expect(dialog.textContent).toContain("2026. 8. 29.");
+    expect(dialog.textContent).toContain("회원가입 흐름과 모바일 게임 조작을 정식으로 추가했어요.");
 
     await act(async () => root.unmount());
   });
