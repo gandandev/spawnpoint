@@ -85,7 +85,9 @@ export function SkinStudio({ data, onUser, onChanged, notice }: SkinStudioProps)
   return <form className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain pr-1" onSubmit={submit}>
     <ToggleGroup type="single" value={mode} onValueChange={(value) => { if (value === "catalog" || value === "lookup" || value === "upload") setMode(value); }} variant="outline" spacing={0} className="grid w-full grid-cols-3 p-1">
       <ToggleGroupItem value="catalog" className="h-auto min-h-10 min-w-0 w-full cursor-pointer whitespace-normal px-1 text-xs leading-tight sm:h-10 sm:px-2 sm:text-sm">고르기</ToggleGroupItem>
-      <ToggleGroupItem value="lookup" className="h-auto min-h-10 min-w-0 w-full cursor-pointer whitespace-normal px-1 text-xs leading-tight sm:h-10 sm:px-2 sm:text-sm">이름으로 가져오기</ToggleGroupItem>
+      <ToggleGroupItem value="lookup" aria-label="이름으로 가져오기" className="h-auto min-h-10 min-w-0 w-full cursor-pointer whitespace-normal px-1 text-xs leading-tight sm:h-10 sm:px-2 sm:text-sm">
+        <span aria-hidden="true" className="flex flex-col items-center"><span className="whitespace-nowrap">이름으로</span><span className="whitespace-nowrap">가져오기</span></span>
+      </ToggleGroupItem>
       <ToggleGroupItem value="upload" className="h-auto min-h-10 min-w-0 w-full cursor-pointer whitespace-normal px-1 text-xs leading-tight sm:h-10 sm:px-2 sm:text-sm">업로드</ToggleGroupItem>
     </ToggleGroup>
     <AnimatedHeight>

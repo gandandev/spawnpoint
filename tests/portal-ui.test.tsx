@@ -737,7 +737,9 @@ describe("skin change flow", () => {
     });
 
     expect(container.textContent).toContain("고르기");
-    expect(container.textContent).toContain("이름으로 가져오기");
+    const lookupModeButton = container.querySelector('[data-slot="toggle-group-item"][aria-label="이름으로 가져오기"]');
+    expect(lookupModeButton?.textContent).toBe("이름으로가져오기");
+    expect([...lookupModeButton!.querySelectorAll("span.whitespace-nowrap")].map((line) => line.textContent)).toEqual(["이름으로", "가져오기"]);
     expect(container.textContent).toContain("업로드");
     expect(container.textContent).not.toContain("spawnpoint");
     expect(container.querySelector("form")?.className).toContain("overflow-y-auto");
