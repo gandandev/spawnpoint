@@ -162,6 +162,34 @@ describe("Minecraft inventory editor", () => {
     await act(async () => root.unmount());
   });
 
+  it("renders the reported 1.12 item IDs without text fallbacks", async () => {
+    const registryTypes = ["piston", "redstone", "furnace", "rail", "ender_chest", "dye", "crafting_table", "lava_bucket", "bed"];
+    const bukkitTypes = ["piston_base", "redstone_wire", "burning_furnace", "rails", "enchantment_table", "ink_sack", "workbench", "stationary_lava", "bed_block"];
+    const inventory = [...registryTypes, ...bukkitTypes].map((type, index) => ({
+      section: "storage" as const,
+      slot: index + 9,
+      type,
+      amount: index + 1,
+      durability: type.includes("bed") ? 14 : type === "dye" || type === "ink_sack" ? 4 : 0,
+      displayName: type,
+    }));
+    const textureOverview = { ...overview, players: [{ ...player, inventory, enderChest: [] }] };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<AdminPlayersPanel overview={textureOverview} currentUserId="account-1" isBusy={() => false} mutate={vi.fn()} notice={vi.fn()} />);
+    });
+
+    expect(container.querySelectorAll(".minecraft-slot-fallback")).toHaveLength(0);
+    expect(container.querySelectorAll(".minecraft-item-icon")).toHaveLength(inventory.length * 2);
+    expect(container.querySelector('button[aria-label="인벤토리 13번 칸, ender_chest 5개"] .minecraft-item-icon')).toBeTruthy();
+    expect(container.querySelector('button[aria-label="인벤토리 17번 칸, bed 9개"] .minecraft-item-icon')).toBeTruthy();
+
+    await act(async () => root.unmount());
+  });
+
   it("keeps archived users in a collapsed list and restores them", async () => {
     const activeUser = { ...overview.users[0], id: "active-2", username: "active", gameUsername: "active", displayName: "활성 사용자", isAdmin: false };
     const archivedUser = { ...overview.users[0], id: "archived-3", username: "dormant", gameUsername: "dormant", displayName: "보관 사용자", archivedAt: Date.now() - 86_400_000, isAdmin: false };

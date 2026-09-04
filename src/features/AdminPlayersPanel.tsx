@@ -138,8 +138,23 @@ const ENDER_SLOT_POSITIONS: InventorySlotPosition[] = [
 ];
 
 const ITEM_TEXTURE_ALIASES: Readonly<Record<string, string[]>> = {
+  bed: ["item:bed_red"],
+  bed_block: ["item:bed_red"],
+  burning_furnace: ["item:furnace"],
+  crops: ["item:wheat"],
+  enchantment_table: ["item:enchanting_table"],
+  ink_sack: ["item:dye_powder_black"],
+  lava: ["item:lava_bucket"],
+  piston_base: ["item:piston"],
+  piston_sticky_base: ["item:sticky_piston"],
+  rails: ["item:rail"],
+  redstone_wire: ["item:redstone"],
+  stationary_lava: ["item:lava_bucket"],
   torch: ["block:torch_on"],
   redstone_torch: ["block:redstone_torch_on"],
+  redstone_torch_off: ["block:redstone_torch_off"],
+  redstone_torch_on: ["block:redstone_torch_on"],
+  workbench: ["item:crafting_table"],
   golden_apple: ["item:apple_golden"],
   enchanted_golden_apple: ["item:apple_golden"],
   cooked_beef: ["item:beef_cooked"],
@@ -147,6 +162,9 @@ const ITEM_TEXTURE_ALIASES: Readonly<Record<string, string[]>> = {
   cooked_chicken: ["item:chicken_cooked"],
   chicken: ["item:chicken_raw"],
 };
+
+const BLOCK_COLOR_TEXTURES = ["white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "silver", "cyan", "purple", "blue", "brown", "green", "red", "black"] as const;
+const DYE_TEXTURES = ["black", "red", "green", "brown", "blue", "purple", "cyan", "silver", "gray", "pink", "lime", "yellow", "light_blue", "magenta", "orange", "white"] as const;
 
 function inventorySlotKey(section: InventorySectionId, slot: number) {
   return `${section}:${slot}`;
@@ -159,15 +177,21 @@ function inventorySectionName(section: InventorySectionId, slot: number) {
   return slot < 9 ? "단축바" : "인벤토리";
 }
 
-function itemTextureIndex(type: string) {
-  const id = type.toLowerCase().replace(/^minecraft:/, "");
+function itemTextureIndex(item: InventoryItem) {
+  const id = item.type.toLowerCase().replace(/^minecraft:/, "");
   const shortenedMaterial = id.replace(/^golden_/, "gold_").replace(/^wooden_/, "wood_");
-  const candidates = [`item:${id}`, `item:${shortenedMaterial}`, ...(ITEM_TEXTURE_ALIASES[id] ?? []), `block:${id}`];
+  const dataValue = Math.max(0, Math.min(15, Math.trunc(item.durability)));
+  const variantCandidates = id === "dye" || id === "ink_sack"
+    ? [`item:dye_powder_${DYE_TEXTURES[dataValue]}`]
+    : id === "bed" || id === "bed_block"
+      ? [`item:bed_${BLOCK_COLOR_TEXTURES[dataValue]}`]
+      : [];
+  const candidates = [...variantCandidates, `item:${id}`, `item:${shortenedMaterial}`, ...(ITEM_TEXTURE_ALIASES[id] ?? []), `block:${id}`];
   return candidates.map((candidate) => MINECRAFT_ITEM_TEXTURES[candidate]).find((index) => index !== undefined);
 }
 
 function MinecraftItemIcon({ item }: { item: InventoryItem }) {
-  const textureIndex = itemTextureIndex(item.type);
+  const textureIndex = itemTextureIndex(item);
   if (textureIndex === undefined) return <span className="minecraft-slot-fallback" aria-hidden="true">{item.type.slice(0, 2).toUpperCase()}</span>;
   const x = textureIndex % MINECRAFT_ITEM_ATLAS_COLUMNS;
   const y = Math.floor(textureIndex / MINECRAFT_ITEM_ATLAS_COLUMNS);
