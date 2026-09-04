@@ -22,8 +22,10 @@ ratelimit:
     limit: 60
     limit_lockout: 80
     lockout_duration: 300
+  # Every WebSocket has already passed the portal session, launch ID, and signed
+  # ticket checks. A per-IP login cap groups a whole school or home NAT together.
   login:
-    enable: true
+    enable: false
     period: 50
     limit: 5
     limit_lockout: 10

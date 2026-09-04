@@ -1,0 +1,9 @@
+tpa-enabled: true
+keep-inventory: true
+
+# Add one small, fully enclosed diamond vein to a deterministic quarter of
+# normal-world chunks. Five extra blocks in 25% of chunks is about 50% more
+# diamond ore on this 1.12 world. The marker prevents repeat generation.
+diamond-bonus:
+  enabled: true
+  rate: 0.25

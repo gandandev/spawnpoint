@@ -1,5 +1,8 @@
 settings:
   allow-end: true
+  # The loopback Eagler listener only receives authenticated gateway traffic.
+  # Per-IP throttling here groups a whole school or home NAT together.
+  connection-throttle: -1
   warn-on-overload: true
 spawn-limits:
   monsters: 45

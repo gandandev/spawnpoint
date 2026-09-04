@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const clients = path.join(process.cwd(), "vendor/clients");
+const clients = process.env.SPAWNPOINT_CLIENTS_DIR ?? path.join(process.cwd(), "vendor/clients");
 
 function crc32(buffer: Buffer): number {
   let crc = 0xffffffff;
@@ -72,7 +72,7 @@ describe("in-game bitmap font client", () => {
         + "ib||navigator.userActivation&&navigator.userActivation.hasBeenActive".length,
     );
     expect(patchedRuntime.compressedLength).not.toBe(baseRuntime.compressedLength);
-    expect(patchedMainProgram.rawLength).toBe(baseMainProgram.rawLength + 431);
+    expect(patchedMainProgram.rawLength).toBe(baseMainProgram.rawLength + 441);
     expect(patchedMainProgram.compressedLength).not.toBe(baseMainProgram.compressedLength);
     expect(patchedAssets.dataOffset).toBe(
       baseAssets.dataOffset
@@ -104,6 +104,8 @@ describe("in-game bitmap font client", () => {
 import hashlib, io, json, lzma, struct, sys
 from PIL import Image
 b = open(sys.argv[1], "rb").read()
+runtime_offset, runtime_compressed, _, _ = struct.unpack_from("<IIII", b, 212)
+runtime = lzma.decompress(b[runtime_offset:runtime_offset + runtime_compressed])
 main_offset, main_compressed, _, _ = struct.unpack_from("<IIII", b, 228)
 wasm = lzma.decompress(b[main_offset:main_offset + main_compressed])
 chat_delta = 431
@@ -159,11 +161,19 @@ expected_load_screen.paste(
   ((256 - bacon.width) // 2, (256 - bacon.height) // 2),
 )
 ranges = [(shifted(0x38895C), shifted(0x388A03)), (shifted(0x388A2D), shifted(0x388A86)), (shifted(0x388AE1), shifted(0x388B3D)), (shifted(0x389058), shifted(0x389076)), (shifted(0x389076), shifted(0x389098))]
-disabled_control_ranges = [(0x2D0929, 0x2D0937), (0x2D0937, 0x2D0945), (0x2D0953, 0x2D0961), (0x2D0961, 0x2D096F), (0x2D098B, 0x2D0999)]
+disabled_control_ranges = [(0x2D0929, 0x2D0937), (0x2D0937, 0x2D0945), (0x2D0961, 0x2D096F)]
 fnaw_skin_option_ranges = [(shifted(0x5BFEC3), shifted(0x5BFEFE)), (shifted(0x5BFF08), shifted(0x5BFFC2))]
 chat_draw_body = code_body(11585)
 chat_hit_test_body = code_body(9006)
 print(json.dumps({
+  "webgl_desynchronized_true_count": runtime.count(b"desynchronized:!0"),
+  "webgl_desynchronized_false_count": runtime.count(b"desynchronized:!1"),
+  "main_old_edit_profile_count": wasm.count(b"\x0cEdit Profile"),
+  "main_portal_return_label_count": wasm.count("포탈로 돌아가기".encode()),
+  "main_portal_return_record_count": wasm.count(b"\x08" + "포탈로 돌아가기".encode() + b"\x28Negative index"),
+  "startup_profile_bypass_prefix": wasm[0x2C9C21:0x2C9C52].hex(),
+  "startup_profile_bypass_padding_is_nops": set(wasm[0x2C9C52:0x2C9C69]) == {1},
+  "startup_screen_local_indexes": [wasm[0x2C9CE4], wasm[0x2C9CF9]],
   "menu_ranges_are_nops": all(set(wasm[start:end]) == {1} for start, end in ranges),
   "panorama_blur_chain_is_nops": set(wasm[shifted(0x4DF28A):shifted(0x4DF43A)]) == {1},
   "panorama_framebuffer_is_1024": all(wasm[shifted(offset):shifted(offset) + 3] == b"\\x41\\x80\\x08" for offset in (0x388851, 0x388854, 0x4DF257, 0x4DF25A)),
@@ -173,8 +183,11 @@ print(json.dumps({
   "fullbright_toggle": hashlib.sha256(wasm[0x31F766:0x31F7C3]).hexdigest(),
   "bridge_close_keycode": wasm[0x2D05A8],
   "controls_array_length": wasm[0x2D082D],
-  "remaining_control_indexes": [wasm[0x2D0948], wasm[0x2D0972], wasm[0x2D0980]],
+  "remaining_control_indexes": [wasm[0x2D0948], wasm[0x2D0956], wasm[0x2D0972], wasm[0x2D0980], wasm[0x2D098E]],
   "notification_button_range_is_nops": set(wasm[shifted(0x45A91F):shifted(0x45A9D8)]) == {1},
+  "pause_menu_portal_action_prefix": wasm[shifted(0x45A0C3):shifted(0x45A102)].hex(),
+  "pause_menu_portal_action_padding_is_nops": set(wasm[shifted(0x45A102):shifted(0x45A1E2)]) == {1},
+  "pause_menu_portal_button_enabled": wasm[shifted(0x45AC63):shifted(0x45AC66)].hex(),
   "fnaw_skin_option_ranges_are_nops": all(set(wasm[start:end]) == {1} for start, end in fnaw_skin_option_ranges),
   "skin_menu_done_button_y": wasm[shifted(0x5BFFF8)],
   "voice_warnings_disabled": wasm[shifted(0x45B032)] == 0 and wasm[shifted(0x45B03C)] == 0,
@@ -189,6 +202,7 @@ print(json.dumps({
   "malformed_compact_fps_count": wasm.count(b"\\x09fps | \\xc2\\xa7r"),
   "old_edit_profile_count": assets.count(b"eaglercraft.menu.editProfile=Edit Profile"),
   "portal_return_label_count": assets.count("eaglercraft.menu.editProfile=포탈로 돌아가기".encode()),
+  "pause_menu_portal_label_count": assets.count("menu.shareToLan=포탈로 돌아가기".encode()) + assets.count("eaglercraft.menu.openToLan=포탈로 돌아가기".encode()),
   "splash_count": assets.count("대미덕에디션\\n".encode()),
   "underwater_alpha_extrema": underwater_alpha.getextrema(),
   "ascii_texture_sha256": hashlib.sha256(ascii_texture).hexdigest(),
@@ -198,6 +212,14 @@ print(json.dumps({
 }))
 `, path.join(clients, "stable-galmuri.epw"), path.join(process.cwd(), "vendor/clients/loading-screen-bacon.jpg")], { encoding: "utf8" }));
     expect(inspection).toEqual({
+      webgl_desynchronized_true_count: 0,
+      webgl_desynchronized_false_count: 1,
+      main_old_edit_profile_count: 0,
+      main_portal_return_label_count: 1,
+      main_portal_return_record_count: 1,
+      startup_profile_bypass_prefix: "2007d10463b30f201a05fb018d19213c203c23dc05fb058d1900203c201a200020072000fb02ce0f2e10f054203c0b211c",
+      startup_profile_bypass_padding_is_nops: true,
+      startup_screen_local_indexes: [28, 28],
       menu_ranges_are_nops: true,
       panorama_blur_chain_is_nops: true,
       panorama_framebuffer_is_1024: true,
@@ -206,9 +228,12 @@ print(json.dumps({
       disabled_control_rows_are_nops: true,
       fullbright_toggle: "3a3d7e2c9d91f57cacfd278df1e3b8260a5c912e17a370763d126c9986ee6e64",
       bridge_close_keycode: 41,
-      controls_array_length: 20,
-      remaining_control_indexes: [17, 18, 19],
+      controls_array_length: 22,
+      remaining_control_indexes: [17, 18, 19, 20, 21],
       notification_button_range_is_nops: true,
+      pause_menu_portal_action_prefix: "0263ce0f2000fb02b61903d600108d0208000bfb01ec162113201323dc03fb05ec1600201310ac0d201310cd0220014104fb05fe0e082013200110f76c0c07",
+      pause_menu_portal_action_padding_is_nops: true,
+      pause_menu_portal_button_enabled: "410101",
       fnaw_skin_option_ranges_are_nops: true,
       skin_menu_done_button_y: 10,
       voice_warnings_disabled: true,
@@ -223,6 +248,7 @@ print(json.dumps({
       malformed_compact_fps_count: 0,
       old_edit_profile_count: 0,
       portal_return_label_count: 1,
+      pause_menu_portal_label_count: 2,
       splash_count: 1,
       underwater_alpha_extrema: [0, 0],
       ascii_texture_sha256: "8d3320e77d2449bc2311390fd452736c046298854377addc940e56ce4e7dda2b",

@@ -3,6 +3,7 @@ export type GameConnectionState = "waiting" | "connecting" | "connected" | "fail
 interface GameConnection {
   userId: string;
   state: GameConnectionState;
+  attemptTimestamps: number[];
   expiresAt: number;
   readyTimer: NodeJS.Timeout | null;
   disconnect: (() => void) | null;
@@ -21,24 +22,47 @@ export class GameConnectionTracker {
   constructor(
     private readonly loginGraceMs = 20_000,
     private readonly lifetimeMs = 10 * 60_000,
+    private readonly maxAttempts = 8,
+    private readonly attemptWindowMs = 60_000,
   ) {}
 
   create(launchId: string, userId: string): void {
-    this.remove(launchId)?.();
-    this.connections.set(launchId, {
+    this.cleanup();
+    const key = launchId.toLowerCase();
+    const existing = this.connections.get(key);
+    const attemptTimestamps = existing?.userId === userId
+      ? this.recentAttempts(existing)
+      : [];
+    this.remove(key)?.();
+    this.connections.set(key, {
       userId,
-      state: "waiting",
+      state: attemptTimestamps.length >= this.maxAttempts ? "failed" : "waiting",
+      attemptTimestamps,
       expiresAt: Date.now() + this.lifetimeMs,
       readyTimer: null,
       disconnect: null,
     });
-    this.cleanup();
   }
 
   begin(launchId: string, userId: string, disconnect: () => void = () => {}): (() => void) | null {
     this.cleanup();
-    const connection = this.connections.get(launchId);
-    if (!connection || connection.userId !== userId || connection.state !== "waiting" || connection.expiresAt <= Date.now()) return null;
+    const key = launchId.toLowerCase();
+    const connection = this.connections.get(key);
+    if (connection?.state === "failed" && this.recentAttempts(connection).length < this.maxAttempts) {
+      connection.state = "waiting";
+    }
+    if (
+      !connection
+      || connection.userId !== userId
+      || connection.state !== "waiting"
+      || connection.expiresAt <= Date.now()
+    ) return null;
+    const attemptTimestamps = this.recentAttempts(connection);
+    if (attemptTimestamps.length >= this.maxAttempts) {
+      connection.state = "failed";
+      return null;
+    }
+    attemptTimestamps.push(Date.now());
     connection.state = "connecting";
     connection.expiresAt = Date.now() + this.lifetimeMs;
     connection.disconnect = disconnect;
@@ -48,13 +72,13 @@ export class GameConnectionTracker {
     }, this.loginGraceMs);
     connection.readyTimer.unref();
     return () => {
-      if (this.connections.get(launchId) !== connection) return;
+      if (this.connections.get(key) !== connection) return;
       this.markClosed(connection);
     };
   }
 
   closed(launchId: string, userId: string): void {
-    const connection = this.connections.get(launchId);
+    const connection = this.connections.get(launchId.toLowerCase());
     if (!connection || connection.userId !== userId || (connection.state !== "connecting" && connection.state !== "connected")) return;
     this.markClosed(connection);
   }
@@ -62,15 +86,24 @@ export class GameConnectionTracker {
   private markClosed(connection: GameConnection): void {
     this.clearReadyTimer(connection);
     connection.disconnect = null;
-    connection.state = "waiting";
+    connection.state = this.recentAttempts(connection).length >= this.maxAttempts ? "failed" : "waiting";
     connection.expiresAt = Date.now() + this.lifetimeMs;
   }
 
   status(launchId: string, userId: string): GameConnectionState | null {
     this.cleanup();
-    const connection = this.connections.get(launchId);
+    const connection = this.connections.get(launchId.toLowerCase());
     if (!connection || connection.userId !== userId) return null;
+    if (connection.state === "failed" && this.recentAttempts(connection).length < this.maxAttempts) {
+      connection.state = "waiting";
+    }
     return connection.state;
+  }
+
+  private recentAttempts(connection: GameConnection): number[] {
+    const cutoff = Date.now() - this.attemptWindowMs;
+    connection.attemptTimestamps = connection.attemptTimestamps.filter((attemptedAt) => attemptedAt > cutoff);
+    return connection.attemptTimestamps;
   }
 
   disconnectUser(userId: string): number {
@@ -97,10 +130,11 @@ export class GameConnectionTracker {
   }
 
   private remove(launchId: string): (() => void) | null {
-    const connection = this.connections.get(launchId);
+    const key = launchId.toLowerCase();
+    const connection = this.connections.get(key);
     if (!connection) return null;
     this.clearReadyTimer(connection);
-    this.connections.delete(launchId);
+    this.connections.delete(key);
     const disconnect = connection.disconnect;
     connection.disconnect = null;
     return disconnect;

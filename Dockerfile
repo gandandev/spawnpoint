@@ -12,7 +12,8 @@ RUN apt-get update \
 WORKDIR /app
 ENV NODE_ENV=production \
     DATA_DIR=/data \
-    MC_MEMORY_MB=768 \
+    MC_MEMORY_MB=512 \
+    MC_MAX_PLAYERS=16 \
     MC_IDLE_MINUTES=15
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules

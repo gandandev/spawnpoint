@@ -3,6 +3,10 @@ debug_log_client_brands: false
 debug_log_new_channels: false
 debug_log_origin_headers: false
 debug_log_real_ip_headers: false
+# Slow mobile CPUs can take longer than the upstream 10-second default while
+# several clients are joining. Gateway tickets and rate limits still protect
+# every half-open connection before it reaches this listener.
+eagler_login_timeout: 30000
 eagler_players_view_distance: 4
 http_websocket_compression_level: 6
 http_websocket_max_frame_length: 131071

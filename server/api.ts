@@ -68,6 +68,7 @@ const PASSWORD_RESET_WINDOW_MS = 15 * 60_000;
 const ADMIN_UNLOCK_MINUTES = 10;
 const ADMIN_OVERVIEW_RATE_LIMIT = 1_200;
 const ADMIN_OVERVIEW_RATE_WINDOW_MS = 10 * 60_000;
+const LOCATOR_BRIDGE_CACHE_MS = 200;
 const TITLE_COLORS = new Set<TitleColor>(["white", "gray", "red", "gold", "yellow", "green", "aqua", "blue", "light_purple"]);
 const SERVER_DIFFICULTIES = new Set(["peaceful", "easy", "normal", "hard"]);
 const SERVER_GAME_MODES = new Set<ServerGameMode>(["survival", "creative", "adventure", "spectator"]);
@@ -618,13 +619,30 @@ function isLocatorTarget(value: unknown): value is LocatorTargetDetails {
     && target.distance >= 0;
 }
 
-async function bridgeLocator(context: ApiContext, accountId: string): Promise<LocatorSnapshot> {
-  const response = await bridgeRequest(context, `/v1/locator/${encodeURIComponent(accountId)}`, undefined, 1_000);
-  const body = await response.json() as Partial<LocatorSnapshot>;
-  if (typeof body.active !== "boolean" || !Array.isArray(body.targets) || !body.targets.every(isLocatorTarget)) {
+function parseLocatorSnapshot(value: unknown): LocatorSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const snapshot = value as Partial<LocatorSnapshot>;
+  if (typeof snapshot.active !== "boolean" || !Array.isArray(snapshot.targets) || !snapshot.targets.every(isLocatorTarget)) {
+    return null;
+  }
+  return { active: snapshot.active, targets: snapshot.targets };
+}
+
+async function bridgeLocators(context: ApiContext): Promise<Map<string, LocatorSnapshot>> {
+  const response = await bridgeRequest(context, "/v1/locators", undefined, 1_000);
+  const body = await response.json() as { snapshots?: unknown };
+  if (!body.snapshots || typeof body.snapshots !== "object" || Array.isArray(body.snapshots)) {
     throw new Error("브리지의 위치 표시 응답이 올바르지 않아요.");
   }
-  return { active: body.active, targets: body.targets };
+  const entries = Object.entries(body.snapshots);
+  if (entries.length > 100) throw new Error("브리지의 위치 표시 응답이 너무 커요.");
+  const snapshots = new Map<string, LocatorSnapshot>();
+  for (const [accountId, value] of entries) {
+    const snapshot = parseLocatorSnapshot(value);
+    if (!accountId || !snapshot) throw new Error("브리지의 위치 표시 응답이 올바르지 않아요.");
+    snapshots.set(accountId, snapshot);
+  }
+  return snapshots;
 }
 
 async function bridgeSettings(context: ApiContext): Promise<BridgeSettings> {
@@ -674,10 +692,26 @@ export function createApiRouter(context: ApiContext): express.Router {
   const startLimiter = new MemoryRateLimiter(5, 10 * 60_000);
   const skinLimiter = new MemoryRateLimiter(20, 10 * 60_000);
   const accountLimiter = new MemoryRateLimiter(20, 10 * 60_000);
+  const gameTicketLimiter = new MemoryRateLimiter(12, 60_000);
   const gameChatLimiter = new MemoryRateLimiter(8, 5_000);
   // Three tabs polling every two seconds use 900 requests per ten-minute window.
   const adminReadLimiter = new MemoryRateLimiter(ADMIN_OVERVIEW_RATE_LIMIT, ADMIN_OVERVIEW_RATE_WINDOW_MS);
   const adminLimiter = new MemoryRateLimiter(60, 10 * 60_000);
+  let locatorCache: { expiresAt: number; snapshots: Map<string, LocatorSnapshot> } | null = null;
+  let locatorRequest: Promise<Map<string, LocatorSnapshot>> | null = null;
+  const loadLocatorSnapshots = async (): Promise<Map<string, LocatorSnapshot>> => {
+    const now = Date.now();
+    if (locatorCache && locatorCache.expiresAt > now) return locatorCache.snapshots;
+    if (!locatorRequest) {
+      locatorRequest = bridgeLocators(context)
+        .then((snapshots) => {
+          locatorCache = { expiresAt: Date.now() + LOCATOR_BRIDGE_CACHE_MS, snapshots };
+          return snapshots;
+        })
+        .finally(() => { locatorRequest = null; });
+    }
+    return locatorRequest;
+  };
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
@@ -1256,7 +1290,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      const locator = await bridgeLocator(context, user.id);
+      const locator = (await loadLocatorSnapshots()).get(user.id) ?? { active: false, targets: [] };
       const targets = locator.targets.flatMap((target) => {
         if (!target.accountId || !target.skinUrl) return [];
         return [{
@@ -1852,6 +1886,13 @@ export function createApiRouter(context: ApiContext): express.Router {
     const launchId = request.body?.launchId;
     if (!isLaunchId(launchId)) {
       fail(response, 400, "클라이언트 실행 ID가 올바르지 않아요.", "BAD_LAUNCH_ID");
+      return;
+    }
+    // Eagler's shared-IP login cap is disabled because a whole school can use
+    // one NAT address. Limit authenticated launch creation per account instead;
+    // each launch ID also has a bounded number of gateway retries.
+    if (!gameTicketLimiter.take(user.id)) {
+      fail(response, 429, "게임 실행 요청이 너무 많아요. 잠시 후 다시 시도하세요.", "RATE_LIMITED");
       return;
     }
     try {

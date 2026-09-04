@@ -9,6 +9,10 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.awt.image.BufferedImage;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,14 +25,18 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.text.Normalizer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -53,6 +61,8 @@ import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.imageio.ImageIO;
+import net.lax1dude.eaglercraft.backend.server.api.IEaglerPlayer;
+import net.lax1dude.eaglercraft.backend.server.api.IEaglerXServerAPI;
 import net.lax1dude.eaglercraft.backend.server.api.event.IEaglercraftAuthCheckRequiredEvent.EnumAuthResponse;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftAuthCheckRequiredEvent;
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftLoginEvent;
@@ -60,6 +70,8 @@ import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftRegis
 import net.lax1dude.eaglercraft.backend.server.api.bukkit.event.PlayerLoginPostEvent;
 import net.lax1dude.eaglercraft.backend.server.api.skins.EnumSkinModel;
 import net.lax1dude.eaglercraft.backend.server.api.skins.IEaglerPlayerSkin;
+import net.lax1dude.eaglercraft.v1_8.socket.protocol.GamePluginMessageProtocol;
+import net.lax1dude.eaglercraft.v1_8.socket.protocol.pkt.server.SPacketInvalidatePlayerCacheV4EAG;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.HoverEvent;
@@ -68,6 +80,7 @@ import net.md_5.bungee.api.chat.TranslatableComponent;
 import net.md_5.bungee.chat.ComponentSerializer;
 import org.bukkit.ChatColor;
 import org.bukkit.BanList;
+import org.bukkit.Chunk;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -85,6 +98,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
@@ -113,6 +127,16 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private static final long TPA_COOLDOWN_MILLIS = 3_000L;
     private static final long COMMAND_IDENTITY_REFRESH_TICKS = 10L * 20L;
     private static final int IDENTITY_RESOLVE_ATTEMPTS = 40;
+    private static final int DIAMOND_BONUS_Y_MIN = 5;
+    private static final int DIAMOND_BONUS_Y_MAX = 12;
+    private static final int DIAMOND_BONUS_VEIN_SIZE = 5;
+    private static final int DIAMOND_BONUS_CANDIDATES = 6;
+    private static final double DEFAULT_DIAMOND_BONUS_RATE = 0.25D;
+    private static final int DIAMOND_BONUS_CHUNKS_PER_TICK = 1;
+    private static final long DIAMOND_MARKER_FLUSH_TICKS = 20L * 60L;
+    private static final int DIAMOND_MARKER_MAGIC = 0x5350444D;
+    private static final int DIAMOND_MARKER_VERSION = 1;
+    private static final int MAX_DIAMOND_MARKERS = 5_000_000;
     private static final Pattern TECHNICAL_GAME_USERNAME = Pattern.compile("(?i)sp_[a-f0-9]{13}");
     private static final Pattern PLAYER_KEY = Pattern.compile("(?i)(?:[a-z0-9_]{3,16}|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})");
     private static final Set<String> TITLE_COLORS = Set.of(
@@ -129,8 +153,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private ExecutorService historyExecutor;
     private BukkitTask locatorSnapshotTask;
     private BukkitTask commandIdentityRefreshTask;
+    private BukkitTask diamondBonusTask;
+    private BukkitTask diamondMarkerFlushTask;
     private boolean tpaEnabled;
     private boolean keepInventory;
+    private boolean diamondBonusEnabled;
+    private double diamondBonusRate;
     private final Map<String, PlayerIdentity> pendingIdentities = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerIdentity> activeIdentities = new ConcurrentHashMap<>();
     private volatile Map<String, JsonObject> locatorSnapshots = Map.of();
@@ -139,6 +167,14 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private final Map<UUID, BukkitTask> teleportExpiryTasks = new HashMap<>();
     private final Map<UUID, Long> teleportRequestCooldowns = new HashMap<>();
     private final Map<UUID, String> advancementRuleRestores = new HashMap<>();
+    private final Object diamondMarkerLock = new Object();
+    private final Object diamondMarkerWriteLock = new Object();
+    private final Set<ProcessedChunk> processedDiamondChunks = new HashSet<>();
+    private final Set<ProcessedChunk> queuedDiamondChunks = new HashSet<>();
+    private final Deque<Chunk> diamondChunkQueue = new ArrayDeque<>();
+    private long diamondMarkerGeneration;
+    private long flushedDiamondMarkerGeneration = -1L;
+    private boolean diamondMarkersLoaded;
     private boolean advancementReflectionWarningLogged;
     private boolean deathTranslationWarningLogged;
     private boolean packetReflectionWarningLogged;
@@ -156,6 +192,8 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
         getConfig().addDefault("tpa-enabled", true);
         getConfig().addDefault("keep-inventory", true);
+        getConfig().addDefault("diamond-bonus.enabled", true);
+        getConfig().addDefault("diamond-bonus.rate", DEFAULT_DIAMOND_BONUS_RATE);
         getConfig().options().copyDefaults(true);
         try {
             savePluginConfig();
@@ -164,6 +202,8 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
         this.tpaEnabled = getConfig().getBoolean("tpa-enabled", true);
         this.keepInventory = getConfig().getBoolean("keep-inventory", true);
+        this.diamondBonusEnabled = getConfig().getBoolean("diamond-bonus.enabled", true);
+        this.diamondBonusRate = boundedDiamondBonusRate(getConfig().getDouble("diamond-bonus.rate", DEFAULT_DIAMOND_BONUS_RATE));
         registerCommand("tpa");
         registerCommand("tpaccept");
         registerCommand("tpdeny");
@@ -180,6 +220,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         );
         getServer().getPluginManager().registerEvents(this, this);
         applyKeepInventory(keepInventory);
+        initializeDiamondBonus();
         startBridgeServer();
         if (!isEnabled()) return;
         this.locatorSnapshotTask = getServer().getScheduler().runTaskTimer(this, this::refreshLocatorSnapshots, 1L, 1L);
@@ -208,6 +249,9 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     public void onDisable() {
         if (locatorSnapshotTask != null) locatorSnapshotTask.cancel();
         if (commandIdentityRefreshTask != null) commandIdentityRefreshTask.cancel();
+        if (diamondBonusTask != null) diamondBonusTask.cancel();
+        if (diamondMarkerFlushTask != null) diamondMarkerFlushTask.cancel();
+        flushDiamondMarkers();
         restoreAdvancementAnnouncementRules();
         getServer().getOnlinePlayers().forEach(this::removeDisplayNamePacketHandler);
         locatorSnapshots = Map.of();
@@ -237,6 +281,243 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
+        }
+    }
+
+    private void initializeDiamondBonus() {
+        if (!diamondBonusEnabled || diamondBonusRate <= 0.0D) return;
+        try {
+            synchronized (diamondMarkerLock) {
+                processedDiamondChunks.addAll(readDiamondMarkers(diamondMarkerPath()));
+                diamondMarkerGeneration = processedDiamondChunks.size();
+                flushedDiamondMarkerGeneration = diamondMarkerGeneration;
+                diamondMarkersLoaded = true;
+            }
+        } catch (IOException exception) {
+            // Reprocessing a damaged marker file would duplicate ore. Leave the
+            // feature off until an operator explicitly repairs or removes it.
+            diamondBonusEnabled = false;
+            getLogger().severe("Diamond bonus is disabled because its processed-chunk marker could not be read: " + exception.getMessage());
+            return;
+        }
+        diamondBonusTask = getServer().getScheduler().runTaskTimer(this, this::processDiamondBonusQueue, 1L, 1L);
+        diamondMarkerFlushTask = getServer().getScheduler().runTaskTimerAsynchronously(
+            this,
+            this::flushDiamondMarkers,
+            DIAMOND_MARKER_FLUSH_TICKS,
+            DIAMOND_MARKER_FLUSH_TICKS
+        );
+        for (World world : getServer().getWorlds()) {
+            for (Chunk chunk : world.getLoadedChunks()) queueDiamondBonusChunk(chunk);
+        }
+        getLogger().info("Diamond bonus is enabled for a deterministic "
+            + Math.round(diamondBonusRate * 100.0D) + "% of normal-world chunks.");
+    }
+
+    @EventHandler(priority = EventPriority.NORMAL)
+    public void onDiamondBonusChunkLoad(ChunkLoadEvent event) {
+        queueDiamondBonusChunk(event.getChunk());
+    }
+
+    private void queueDiamondBonusChunk(Chunk chunk) {
+        if (!diamondBonusEnabled || diamondBonusRate <= 0.0D) return;
+        World world = chunk.getWorld();
+        if (world.getEnvironment() != World.Environment.NORMAL) return;
+        ProcessedChunk marker = new ProcessedChunk(world.getUID(), chunk.getX(), chunk.getZ());
+        synchronized (diamondMarkerLock) {
+            if (processedDiamondChunks.contains(marker) || !queuedDiamondChunks.add(marker)) return;
+            diamondChunkQueue.addLast(chunk);
+        }
+    }
+
+    private void processDiamondBonusQueue() {
+        for (int index = 0; index < DIAMOND_BONUS_CHUNKS_PER_TICK; index++) {
+            Chunk chunk;
+            ProcessedChunk marker;
+            synchronized (diamondMarkerLock) {
+                chunk = diamondChunkQueue.pollFirst();
+                if (chunk == null) return;
+                marker = new ProcessedChunk(chunk.getWorld().getUID(), chunk.getX(), chunk.getZ());
+                queuedDiamondChunks.remove(marker);
+                if (processedDiamondChunks.contains(marker)) continue;
+            }
+            if (!chunk.isLoaded()) continue;
+            applyDiamondBonus(chunk);
+            synchronized (diamondMarkerLock) {
+                if (processedDiamondChunks.add(marker)) diamondMarkerGeneration++;
+            }
+        }
+    }
+
+    private void applyDiamondBonus(Chunk chunk) {
+        World world = chunk.getWorld();
+        if (!shouldAddDiamondBonus(world.getSeed(), chunk.getX(), chunk.getZ(), diamondBonusRate)) return;
+        for (int candidate = 0; candidate < DIAMOND_BONUS_CANDIDATES; candidate++) {
+            List<DiamondBonusBlock> vein = diamondBonusVein(world.getSeed(), chunk.getX(), chunk.getZ(), candidate);
+            if (vein.size() != DIAMOND_BONUS_VEIN_SIZE || !vein.stream().allMatch(position -> isFullyEnclosedStone(world, position))) {
+                continue;
+            }
+            // Validate the whole vein before changing any block. Every source
+            // was enclosed by stone in the generated terrain, even though vein
+            // members become adjacent diamonds after this loop.
+            for (DiamondBonusBlock position : vein) {
+                world.getBlockAt(position.x, position.y, position.z).setType(Material.DIAMOND_ORE);
+            }
+            return;
+        }
+    }
+
+    private static boolean isFullyEnclosedStone(World world, DiamondBonusBlock position) {
+        Block block = world.getBlockAt(position.x, position.y, position.z);
+        if (block.getType() != Material.STONE) return false;
+        return block.getRelative(1, 0, 0).getType() == Material.STONE
+            && block.getRelative(-1, 0, 0).getType() == Material.STONE
+            && block.getRelative(0, 1, 0).getType() == Material.STONE
+            && block.getRelative(0, -1, 0).getType() == Material.STONE
+            && block.getRelative(0, 0, 1).getType() == Material.STONE
+            && block.getRelative(0, 0, -1).getType() == Material.STONE;
+    }
+
+    static boolean shouldAddDiamondBonus(long worldSeed, int chunkX, int chunkZ, double rate) {
+        rate = boundedDiamondBonusRate(rate);
+        if (rate <= 0.0D) return false;
+        if (rate >= 1.0D) return true;
+        long sample = mixDiamondSeed(worldSeed, chunkX, chunkZ, 0);
+        double fraction = (double) (sample >>> 11) * 0x1.0p-53;
+        return fraction < rate;
+    }
+
+    static List<DiamondBonusBlock> diamondBonusVein(long worldSeed, int chunkX, int chunkZ, int candidate) {
+        long state = mixDiamondSeed(worldSeed, chunkX, chunkZ, candidate + 1);
+        int localX = 2 + deterministicDiamondBound(state, 12);
+        state = mix64(state);
+        int localY = DIAMOND_BONUS_Y_MIN + deterministicDiamondBound(state, DIAMOND_BONUS_Y_MAX - DIAMOND_BONUS_Y_MIN + 1);
+        state = mix64(state);
+        int localZ = 2 + deterministicDiamondBound(state, 12);
+        List<DiamondBonusBlock> result = new ArrayList<>();
+        result.add(new DiamondBonusBlock(chunkX * 16 + localX, localY, chunkZ * 16 + localZ));
+        int[][] directions = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        while (result.size() < DIAMOND_BONUS_VEIN_SIZE) {
+            DiamondBonusBlock previous = result.get(result.size() - 1);
+            DiamondBonusBlock next = null;
+            for (int attempt = 0; attempt < directions.length; attempt++) {
+                state = mix64(state);
+                int[] direction = directions[deterministicDiamondBound(state, directions.length)];
+                int x = previous.x + direction[0];
+                int y = previous.y + direction[1];
+                int z = previous.z + direction[2];
+                int localCandidateX = Math.floorMod(x, 16);
+                int localCandidateZ = Math.floorMod(z, 16);
+                DiamondBonusBlock possible = new DiamondBonusBlock(x, y, z);
+                if (localCandidateX >= 1 && localCandidateX <= 14
+                    && localCandidateZ >= 1 && localCandidateZ <= 14
+                    && y >= DIAMOND_BONUS_Y_MIN && y <= DIAMOND_BONUS_Y_MAX
+                    && !result.contains(possible)) {
+                    next = possible;
+                    break;
+                }
+            }
+            if (next == null) return List.of();
+            result.add(next);
+        }
+        return result;
+    }
+
+    private static double boundedDiamondBonusRate(double value) {
+        if (!Double.isFinite(value)) return DEFAULT_DIAMOND_BONUS_RATE;
+        return Math.max(0.0D, Math.min(1.0D, value));
+    }
+
+    private static long mixDiamondSeed(long worldSeed, int chunkX, int chunkZ, int salt) {
+        long value = worldSeed;
+        value ^= ((long) chunkX) * 0x9E3779B97F4A7C15L;
+        value ^= ((long) chunkZ) * 0xC2B2AE3D27D4EB4FL;
+        value ^= ((long) salt) * 0x165667B19E3779F9L;
+        return mix64(value);
+    }
+
+    private static long mix64(long value) {
+        value ^= value >>> 33;
+        value *= 0xff51afd7ed558ccdL;
+        value ^= value >>> 33;
+        value *= 0xc4ceb9fe1a85ec53L;
+        return value ^ value >>> 33;
+    }
+
+    private static int deterministicDiamondBound(long value, int bound) {
+        return (int) Long.remainderUnsigned(value, bound);
+    }
+
+    private Path diamondMarkerPath() {
+        return getDataFolder().toPath().resolve("diamond-bonus-processed.bin");
+    }
+
+    private void flushDiamondMarkers() {
+        if (!diamondMarkersLoaded) return;
+        List<ProcessedChunk> snapshot;
+        long generation;
+        synchronized (diamondMarkerLock) {
+            if (flushedDiamondMarkerGeneration >= diamondMarkerGeneration) return;
+            snapshot = new ArrayList<>(processedDiamondChunks);
+            generation = diamondMarkerGeneration;
+        }
+        try {
+            synchronized (diamondMarkerWriteLock) {
+                synchronized (diamondMarkerLock) {
+                    // onDisable can flush a newer snapshot while the async
+                    // task is waiting here. Never let that older snapshot
+                    // overwrite the newer marker file afterward.
+                    if (flushedDiamondMarkerGeneration >= generation) return;
+                }
+                writeDiamondMarkers(diamondMarkerPath(), snapshot);
+                synchronized (diamondMarkerLock) {
+                    flushedDiamondMarkerGeneration = Math.max(flushedDiamondMarkerGeneration, generation);
+                }
+            }
+        } catch (IOException exception) {
+            getLogger().warning("Could not persist diamond bonus markers: " + exception.getMessage());
+        }
+    }
+
+    static Set<ProcessedChunk> readDiamondMarkers(Path path) throws IOException {
+        if (!Files.exists(path)) return new HashSet<>();
+        try (DataInputStream input = new DataInputStream(new BufferedInputStream(Files.newInputStream(path)))) {
+            if (input.readInt() != DIAMOND_MARKER_MAGIC || input.readInt() != DIAMOND_MARKER_VERSION) {
+                throw new IOException("unknown marker format");
+            }
+            int count = input.readInt();
+            if (count < 0 || count > MAX_DIAMOND_MARKERS) throw new IOException("invalid marker count");
+            Set<ProcessedChunk> markers = new HashSet<>();
+            for (int index = 0; index < count; index++) {
+                UUID worldId = new UUID(input.readLong(), input.readLong());
+                markers.add(new ProcessedChunk(worldId, input.readInt(), input.readInt()));
+            }
+            if (input.read() != -1) throw new IOException("unexpected marker data");
+            return markers;
+        }
+    }
+
+    static void writeDiamondMarkers(Path path, Iterable<ProcessedChunk> markers) throws IOException {
+        List<ProcessedChunk> snapshot = new ArrayList<>();
+        markers.forEach(snapshot::add);
+        if (snapshot.size() > MAX_DIAMOND_MARKERS) throw new IOException("too many diamond markers");
+        Files.createDirectories(path.getParent());
+        Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
+        try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(temporary)))) {
+            output.writeInt(DIAMOND_MARKER_MAGIC);
+            output.writeInt(DIAMOND_MARKER_VERSION);
+            output.writeInt(snapshot.size());
+            for (ProcessedChunk marker : snapshot) {
+                output.writeLong(marker.worldId.getMostSignificantBits());
+                output.writeLong(marker.worldId.getLeastSignificantBits());
+                output.writeInt(marker.chunkX);
+                output.writeInt(marker.chunkZ);
+            }
+        }
+        try {
+            Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException exception) {
+            Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -976,6 +1257,14 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 sendJson(exchange, 200, onMainThread(this::snapshotPlayers));
                 return;
             }
+            if ("GET".equals(method) && "/v1/locators".equals(path)) {
+                JsonObject root = new JsonObject();
+                JsonObject snapshots = new JsonObject();
+                locatorSnapshots.forEach(snapshots::add);
+                root.add("snapshots", snapshots);
+                sendJson(exchange, 200, root);
+                return;
+            }
             String locatorPrefix = "/v1/locator/";
             if ("GET".equals(method) && path.startsWith(locatorPrefix)) {
                 String encodedAccountId = path.substring(locatorPrefix.length());
@@ -1688,8 +1977,57 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         Player player = event.getPlayer();
         installDisplayNamePacketHandler(player);
         applyPendingIdentity(player);
+        scheduleObserverSkinCacheInvalidation(player);
         event.setJoinMessage(null);
         announcePlayerJoin(player, IDENTITY_RESOLVE_ATTEMPTS);
+    }
+
+    private void scheduleObserverSkinCacheInvalidation(Player joiningPlayer) {
+        UUID joiningUuid = joiningPlayer.getUniqueId();
+        getServer().getScheduler().runTaskLater(this, () -> {
+            if (!joiningPlayer.isOnline() || !joiningUuid.equals(joiningPlayer.getUniqueId())) return;
+            try {
+                IEaglerXServerAPI<Player> api = IEaglerXServerAPI.instance(Player.class);
+                IEaglerPlayer<Player> joinedEaglerPlayer = api.getEaglerPlayer(joiningPlayer);
+                if (joinedEaglerPlayer == null || !joiningUuid.equals(joinedEaglerPlayer.getUniqueId())) return;
+                invalidateObserverSkinCaches(joiningUuid, new ArrayList<>(api.getAllEaglerPlayers()));
+            } catch (RuntimeException | LinkageError exception) {
+                getLogger().warning(
+                    "Could not invalidate observer skin caches for " + joiningPlayer.getName() + ": "
+                        + exception.getMessage()
+                );
+            }
+        }, 1L);
+    }
+
+    static <PlayerObject> int invalidateObserverSkinCaches(
+        UUID joiningUuid,
+        Iterable<? extends IEaglerPlayer<PlayerObject>> observers
+    ) {
+        SPacketInvalidatePlayerCacheV4EAG packet = new SPacketInvalidatePlayerCacheV4EAG(
+            true,
+            false,
+            joiningUuid.getMostSignificantBits(),
+            joiningUuid.getLeastSignificantBits()
+        );
+        int invalidated = 0;
+        for (IEaglerPlayer<PlayerObject> observer : observers) {
+            try {
+                if (!shouldInvalidateObserverSkin(joiningUuid, observer)) continue;
+                observer.sendEaglerMessage(packet);
+                invalidated++;
+            } catch (RuntimeException ignored) {
+                // A player can disconnect after the API snapshot is created.
+                // Keep invalidating the remaining live observers.
+            }
+        }
+        return invalidated;
+    }
+
+    static boolean shouldInvalidateObserverSkin(UUID joiningUuid, IEaglerPlayer<?> observer) {
+        if (observer == null || joiningUuid.equals(observer.getUniqueId())) return false;
+        GamePluginMessageProtocol protocol = observer.getEaglerProtocol();
+        return protocol != null && protocol.ver >= 4;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -2209,6 +2547,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private record CommandSpan(int start, int end) {}
 
     private record TeleportRequest(UUID requesterId, UUID targetId, long expiresAt) {}
+
+    record ProcessedChunk(UUID worldId, int chunkX, int chunkZ) {}
+
+    record DiamondBonusBlock(int x, int y, int z) {}
 
     private record AdvancementAnnouncement(String frame, BaseComponent title) {}
 

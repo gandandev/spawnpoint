@@ -274,6 +274,12 @@ export class MinecraftServerManager extends EventEmitter {
       );
     }
     const settings = await this.settingsStore.read();
+    if (!firstBoot && settings.maxPlayers !== this.options.maxPlayers) {
+      console.log(
+        `[minecraft] Using persistent max-players=${settings.maxPlayers}; `
+        + `MC_MAX_PLAYERS=${this.options.maxPlayers} only initializes a new server.`,
+      );
+    }
     this.state.maxPlayers = settings.maxPlayers;
     this.setMaxListeners(Math.max(32, settings.maxPlayers * 4));
     await fs.writeFile(path.join(this.minecraftDir, "eula.txt"), "eula=true\n", "utf8");

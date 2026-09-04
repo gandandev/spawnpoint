@@ -817,7 +817,8 @@ describe("skin change flow", () => {
     await act(async () => changelogButton.click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain("2026. 9. 3.");
-    expect(dialog.textContent).toContain("위치 표시기에 플레이어 머리와 직선 거리를 추가했어요.");
+    expect(dialog.textContent).toContain("위치 표시기에 플레이어 이름, 머리와 직선 거리를 추가했어요.");
+    expect(dialog.textContent).toContain("위치 표시기의 거리는 정수 m로 표시해요.");
     expect(dialog.textContent).toContain("채팅 메시지에 플레이어 머리를 추가했어요.");
     expect(dialog.textContent).toContain("서버 업데이트 전에는 카운트다운을 보여줘요.");
     expect(dialog.textContent).toContain("대시보드의 중복 서버 시작 버튼을 없앴어요.");

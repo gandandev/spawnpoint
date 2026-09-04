@@ -33,6 +33,61 @@ describe("game connection tracker", () => {
     }
   });
 
+  it("limits one launch id within a sliding window without reset by ticket replay", () => {
+    vi.useFakeTimers();
+    const tracker = new GameConnectionTracker(20_000, 10 * 60_000, 3, 60_000);
+    tracker.create(launchId, "user-1");
+
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const close = tracker.begin(launchId, "user-1");
+        expect(close).not.toBeNull();
+        tracker.create(launchId, "user-1");
+        close?.();
+      }
+
+      expect(tracker.status(launchId, "user-1")).toBe("failed");
+      tracker.create(launchId, "user-1");
+      expect(tracker.begin(launchId, "user-1")).toBeNull();
+
+      vi.advanceTimersByTime(60_001);
+      expect(tracker.status(launchId, "user-1")).toBe("waiting");
+      expect(tracker.begin(launchId, "user-1")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts UUID case variants as the same bounded launch", () => {
+    const tracker = new GameConnectionTracker(20_000, 10 * 60_000, 3, 60_000);
+    const variants = [launchId, launchId.toUpperCase(), launchId.replace("f", "F")];
+    tracker.create(variants[0], "user-1");
+
+    for (const variant of variants) {
+      const close = tracker.begin(variant, "user-1");
+      expect(close).not.toBeNull();
+      tracker.create(variant, "user-1");
+      close?.();
+    }
+
+    expect(tracker.status(launchId, "user-1")).toBe("failed");
+    expect(tracker.begin(launchId.toUpperCase(), "user-1")).toBeNull();
+  });
+
+  it("allows a status ping, a join, and several retries before the default limit", () => {
+    const tracker = new GameConnectionTracker();
+    tracker.create(launchId, "user-1");
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const close = tracker.begin(launchId, "user-1");
+      expect(close).not.toBeNull();
+      close?.();
+    }
+
+    expect(tracker.status(launchId, "user-1")).toBe("failed");
+    expect(tracker.begin(launchId, "user-1")).toBeNull();
+  });
+
   it("rejects unknown users and malformed launch ids", () => {
     const tracker = new GameConnectionTracker();
     tracker.create(launchId, "user-1");

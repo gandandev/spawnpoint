@@ -18,6 +18,15 @@ function record(bundle: Buffer, offset: number) {
 }
 
 describe("streaming game client bundle", () => {
+  it("waits for Spawnpoint preparation before starting the generated client", () => {
+    const html = fs.readFileSync(path.join(process.cwd(), "public/game/stable.html"), "utf8");
+    const preparation = html.indexOf("Promise.resolve(window.__spawnpointPrepareClient)");
+    const clientStart = html.indexOf("main();", preparation);
+
+    expect(preparation).toBeGreaterThan(-1);
+    expect(clientStart).toBeGreaterThan(preparation);
+  });
+
   it("externalizes the exact main module without invalidating TeaVM debug data", async () => {
     const source = fs.readFileSync(path.join(process.cwd(), "vendor/clients/stable-galmuri.epw"));
     const sourceHash = crypto.createHash("sha256").update(source).digest("hex");
@@ -30,12 +39,12 @@ describe("streaming game client bundle", () => {
 
     expect(crypto.createHash("sha256").update(source).digest("hex")).toBe(sourceHash);
     expect(crypto.createHash("sha256").update(mainWasm).digest("hex")).toBe(
-      "48050d741653dbc0f013b20e51c1d6df84faec2f6768fbd3b575b09d2197ef9f",
+      "f82132af1b3e338ca6c5047e37df1dda83fd1c571ce7afcf12999cd93303291f",
     );
     expect(mainWasm.length).toBe(sourceMain.rawLength);
-    expect(epw.length).toBe(17_588_054);
+    expect(epw.length).toBe(17_587_882);
     expect(crypto.createHash("sha256").update(epw).digest("hex")).toBe(
-      "edaadb639d6ae70bb1ba3e5428d63b765a6b7b99e873bbcae0c44ed82249c7ab",
+      "f626eb2a784e670445292fe1ef7024f0ef8340fcd14295cd0f29aa55416ccd28",
     );
     expect(epw.readUInt32LE(8)).toBe(epw.length);
     expect(epw.readUInt32LE(12)).toBe(crc32(epw.subarray(16)));

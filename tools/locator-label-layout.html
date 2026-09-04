@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <link rel="icon" href="data:,">
+  <title>Spawnpoint 위치 표시 이름 테스트</title>
+  <style>
+    html,body{width:100%;height:100%;margin:0;background:#111;color:#eef7e9;font:14px/1.4 system-ui,sans-serif;overflow:hidden}
+    #game_frame{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(#72a7d8 0 55%,#5f7d46 55%)}
+    #game_frame canvas{width:min(100vw,960px);height:min(62.5vw,600px);max-height:100vh;background:rgba(0,0,0,.08)}
+    .panel{position:fixed;right:10px;bottom:10px;z-index:2147483600;display:grid;width:min(320px,calc(100vw - 20px));gap:7px;padding:10px;background:rgba(3,6,4,.9);border:1px solid rgba(255,255,255,.35);box-sizing:border-box}
+    .panel label{display:grid;gap:4px;font-weight:700}
+    .panel select,.panel button{min-height:40px;padding:7px 9px;color:#fff;background:#294b31;border:1px solid #79a86f;font:inherit}
+    #status[data-pass=true]{color:#a8ef9d}#status[data-pass=false]{color:#ffaaa2}
+  </style>
+</head>
+<body>
+  <div id="game_frame"><canvas width="960" height="600" aria-label="위치 표시 테스트 게임 화면"></canvas></div>
+  <section class="panel">
+    <label>테스트 상황
+      <select id="scenario"></select>
+    </label>
+    <button id="run" type="button">다시 검사</button>
+    <output id="status" aria-live="polite">검사 준비 중</output>
+  </section>
+  <script>
+    const harnessUrl = new URL(window.location.href);
+    if (!harnessUrl.searchParams.get("launch")) {
+      harnessUrl.searchParams.set("account", "locator-layout-test");
+      harnessUrl.searchParams.set("launch", "harness");
+      window.history.replaceState(null, "", harnessUrl);
+    }
+    const skin = "/api/skins/locator-layout-test.png";
+    const target = (id, displayName, angle, distance = 12) => ({ id, displayName, angle, distance, skinUrl: skin });
+    const scenarios = {
+      "single-short": [target("single", "민수", 0, 12.6)],
+      "long-korean-english": [
+        target("ko", "가나다라마바사아자차카타파하", -38),
+        target("en", "PlayerWithAnExtremelyLongName", 38),
+      ],
+      "screen-edges": [target("left", "왼쪽끝플레이어", -90), target("right", "RightEdgePlayer", 90)],
+      "crowded-left-edge": [
+        target("left-1", "왼쪽끝긴이름1", -90), target("left-2", "왼쪽끝긴이름2", -82),
+        target("left-3", "LeftEdgeLongName3", -74), target("left-4", "LeftEdgeLongName4", -66),
+      ],
+      "crowded-right-edge": [
+        target("right-1", "오른쪽끝긴이름1", 66), target("right-2", "오른쪽끝긴이름2", 74),
+        target("right-3", "RightEdgeLongName3", 82), target("right-4", "RightEdgeLongName4", 90),
+      ],
+      "crowded-four": [
+        target("a", "가까운친구A", -5), target("b", "가까운친구B", -2),
+        target("c", "가까운친구C", 1), target("d", "가까운친구D", 4),
+      ],
+      "same-angle-ten": Array.from({ length: 10 }, (_, index) => target(
+        `stack-${index}`,
+        index % 2 ? `PlayerWithLongName${index}` : `완전히겹친플레이어${index}`,
+        0,
+        10 + index,
+      )),
+      "mixed-spread": [
+        target("m1", "A", -82), target("m2", "두글자", -55), target("m3", "MediumName", -20),
+        target("m4", "이름이아주긴플레이어", -16), target("m5", "중앙", 0),
+        target("m6", "CloseNeighbor", 3), target("m7", "오른쪽", 47), target("m8", "Z", 86),
+      ],
+    };
+    let activeScenario = "single-short";
+    window.eaglercraftXOpts = {};
+    window.fetch = async (input) => {
+      if (String(input) === "/api/game/locator") {
+        return { ok: true, json: async () => ({ active: true, targets: scenarios[activeScenario] }) };
+      }
+      return { ok: false, json: async () => ({}) };
+    };
+    window.Image = class {
+      set src(_value) { queueMicrotask(() => this.onerror && this.onerror()); }
+    };
+
+    const select = document.querySelector("#scenario");
+    Object.keys(scenarios).forEach((name) => select.add(new Option(name, name)));
+    const status = document.querySelector("#status");
+
+    function labelRectsOverlap(left, right) {
+      return left.left < right.right - 0.5 && left.right > right.left + 0.5
+        && left.top < right.bottom - 0.5 && left.bottom > right.top + 0.5;
+    }
+
+    function inspectScenario() {
+      const markers = [...document.querySelectorAll(".sp-locator-marker")];
+      const labels = markers.map((marker) => marker.querySelector(".sp-locator-label"));
+      const names = markers.map((marker) => marker.querySelector(".sp-locator-name"));
+      const distances = markers.map((marker) => marker.querySelector(".sp-locator-distance"));
+      const canvasRect = document.querySelector("#game_frame canvas").getBoundingClientRect();
+      const failures = [];
+      if (markers.length !== scenarios[activeScenario].length) failures.push(`표시 수 ${markers.length}/${scenarios[activeScenario].length}`);
+      if (names.some((name) => !name || !name.textContent.trim())) failures.push("빈 이름");
+      if (labels.some((label, index) => !label || label.children[0] !== names[index] || label.children[1] !== distances[index])) {
+        failures.push("이름/거리 순서");
+      }
+      if (distances.some((distance, index) => !distance || distance.textContent !== `${Math.round(scenarios[activeScenario][index].distance)}m`)) {
+        failures.push("거리 단위/반올림");
+      }
+      for (let left = 0; left < labels.length; left++) {
+        if (labels[left]) {
+          const rect = labels[left].getBoundingClientRect();
+          if (rect.left < canvasRect.left - 0.5 || rect.right > canvasRect.right + 0.5
+            || rect.top < canvasRect.top - 0.5 || rect.bottom > canvasRect.bottom + 0.5) {
+            failures.push(`화면 경계 ${left + 1}`);
+          }
+        }
+        for (let right = left + 1; right < labels.length; right++) {
+          if (labels[left] && labels[right] && labelRectsOverlap(labels[left].getBoundingClientRect(), labels[right].getBoundingClientRect())) {
+            failures.push(`이름 겹침 ${left + 1}-${right + 1}`);
+          }
+        }
+      }
+      if (activeScenario.includes("long") || activeScenario === "same-angle-ten") {
+        if (!names.some((name) => name.textContent.includes(".."))) failures.push("긴 이름 가운데 축약 없음");
+      }
+      if (activeScenario === "same-angle-ten") {
+        const above = markers.filter((marker) => marker.classList.contains("is-label-above")).length;
+        const below = markers.filter((marker) => marker.classList.contains("is-label-below")).length;
+        if (above !== 5 || below !== 5) failures.push(`위아래 분리 ${above}/${below}`);
+      }
+      status.dataset.pass = failures.length ? "false" : "true";
+      status.textContent = failures.length ? `실패: ${failures.join(", ")}` : `통과: ${markers.length}명, 이름 겹침 없음`;
+    }
+
+    function runScenario() {
+      activeScenario = select.value;
+      setTimeout(inspectScenario, 180);
+    }
+    select.addEventListener("change", runScenario);
+    document.querySelector("#run").addEventListener("click", runScenario);
+  </script>
+  <script src="/game/portal-bridge.js"></script>
+  <script>
+    const testCanvas = document.querySelector("#game_frame canvas");
+    const testCanvasRect = testCanvas.getBoundingClientRect();
+    testCanvas.width = Math.round(testCanvasRect.width);
+    testCanvas.height = Math.round(testCanvasRect.height);
+    window.eaglercraftXOpts.hooks.screenChanged(
+      "",
+      Math.round(testCanvasRect.width / 2),
+      Math.round(testCanvasRect.height / 2),
+      testCanvas.width,
+      testCanvas.height,
+      2,
+    );
+    const mobileControls = document.querySelector("#spawnpoint-mobile-controls");
+    if (mobileControls) testCanvas.requestPointerLock();
+    runScenario();
+  </script>
+</body>
+</html>

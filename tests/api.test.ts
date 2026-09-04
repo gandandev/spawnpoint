@@ -392,35 +392,45 @@ describe("player locator API", () => {
 
   it("returns only the signed-in player's relative targets with current skin URLs", async () => {
     let bridgeRequest: { path?: string; authorization?: string } = {};
+    let bridgeRequestCount = 0;
     let targetAccountId = "";
     let targetUsername = "";
     let targetDisplayName = "";
     let targetSkinUrl = "";
+    let harnessAdminId = "";
     const targetUuid = "c7aa85c9-1a36-4fb2-a38d-62c0aa26bceb";
     const bridgeOrigin = await listen(http.createServer((request, response) => {
+      bridgeRequestCount += 1;
       bridgeRequest = {
         path: request.url,
         authorization: request.headers.authorization,
       };
-      response.setHeader("Content-Type", "application/json");
-      response.end(JSON.stringify({
-        active: true,
-        targets: [{
-          accountId: targetAccountId,
-          skinUrl: targetSkinUrl,
-          uuid: targetUuid,
-          username: targetUsername,
-          displayName: targetDisplayName,
-          angle: -37.5,
-          distance: 18.25,
-        }],
-      }));
+      setTimeout(() => {
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({
+          snapshots: {
+            [harnessAdminId]: {
+              active: true,
+              targets: [{
+                accountId: targetAccountId,
+                skinUrl: targetSkinUrl,
+                uuid: targetUuid,
+                username: targetUsername,
+                displayName: targetDisplayName,
+                angle: -37.5,
+                distance: 18.25,
+              }],
+            },
+          },
+        }));
+      }, 25);
     }));
     const harness = await createHarness({
       bridgeOrigin,
       serverStatus: { ...serverStatus, phase: "online" },
     });
     targetAccountId = harness.user.id;
+    harnessAdminId = harness.admin.id;
     targetUsername = harness.user.gameUsername;
     targetDisplayName = harness.user.displayName;
     targetSkinUrl = skinPathForUser(harness.user);
@@ -428,16 +438,23 @@ describe("player locator API", () => {
     const unauthenticated = await fetch(`${harness.origin}/api/game/locator`);
     expect(unauthenticated.status).toBe(401);
 
-    const response = await fetch(`${harness.origin}/api/game/locator`, {
-      headers: { Cookie: harness.adminHeaders.Cookie },
-    });
-    expect(response.status).toBe(200);
+    const [response, concurrentResponse] = await Promise.all([
+      fetch(`${harness.origin}/api/game/locator`, {
+        headers: { Cookie: harness.adminHeaders.Cookie },
+      }),
+      fetch(`${harness.origin}/api/game/locator`, {
+        headers: { Cookie: harness.adminHeaders.Cookie },
+      }),
+    ]);
+    expect([response.status, concurrentResponse.status]).toEqual([200, 200]);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(bridgeRequest).toEqual({
-      path: `/v1/locator/${harness.admin.id}`,
+      path: "/v1/locators",
       authorization: `Bearer ${secret}`,
     });
-    expect(await response.json()).toEqual({
+    const firstBody = await response.json();
+    expect(await concurrentResponse.json()).toEqual(firstBody);
+    expect(firstBody).toEqual({
       active: true,
       targets: [{
         id: targetUuid,
@@ -447,6 +464,43 @@ describe("player locator API", () => {
         skinUrl: skinPathForUser(harness.user),
       }],
     });
+
+    const cachedResponse = await fetch(`${harness.origin}/api/game/locator`, {
+      headers: { Cookie: harness.adminHeaders.Cookie },
+    });
+    expect(cachedResponse.status).toBe(200);
+    expect(await cachedResponse.json()).toEqual(firstBody);
+    expect(bridgeRequestCount).toBe(1);
+  });
+
+  it("rejects an invalid locator batch and retries the bridge on the next request", async () => {
+    let bridgeRequestCount = 0;
+    let accountId = "";
+    const bridgeOrigin = await listen(http.createServer((_request, response) => {
+      bridgeRequestCount += 1;
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify(bridgeRequestCount === 1
+        ? { snapshots: { broken: { active: true, targets: [{ angle: "wrong" }] } } }
+        : { snapshots: { [accountId]: { active: true, targets: [] } } }));
+    }));
+    const harness = await createHarness({
+      bridgeOrigin,
+      serverStatus: { ...serverStatus, phase: "online" },
+    });
+    accountId = harness.admin.id;
+
+    const invalid = await fetch(`${harness.origin}/api/game/locator`, {
+      headers: { Cookie: harness.adminHeaders.Cookie },
+    });
+    expect(invalid.status).toBe(503);
+    expect(await invalid.json()).toMatchObject({ error: { code: "BRIDGE_UNAVAILABLE" } });
+
+    const recovered = await fetch(`${harness.origin}/api/game/locator`, {
+      headers: { Cookie: harness.adminHeaders.Cookie },
+    });
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toEqual({ active: true, targets: [] });
+    expect(bridgeRequestCount).toBe(2);
   });
 });
 
@@ -614,6 +668,22 @@ describe("game launch", () => {
     expect(body.profile).toEqual(expect.any(String));
     expect(body.resourcePackPreference).toBe("new-default");
     expect(body).not.toHaveProperty("ticket");
+  });
+
+  it("limits repeated game launches per account", async () => {
+    const harness = await createHarness({ serverStatus: { ...serverStatus, phase: "online" } });
+    const launch = () => fetch(`${harness.origin}/api/game-ticket`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ launchId: crypto.randomUUID() }),
+    });
+
+    for (let index = 0; index < 12; index++) {
+      expect((await launch()).status).toBe(200);
+    }
+    const limited = await launch();
+    expect(limited.status).toBe(429);
+    await expect(limited.json()).resolves.toMatchObject({ error: { code: "RATE_LIMITED" } });
   });
 
   it("returns the account resource-pack choice on a later game launch", async () => {

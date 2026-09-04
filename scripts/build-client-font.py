@@ -45,6 +45,11 @@ RUNTIME_MOBILE_GATE = (
 RUNTIME_SKIP_MOBILE_GATE = (
     b"ib||navigator.userActivation&&navigator.userActivation.hasBeenActive"
 )
+RUNTIME_DESYNCHRONIZED_WEBGL = b"desynchronized:!0"
+RUNTIME_SYNCHRONIZED_WEBGL = b"desynchronized:!1"
+MAIN_MENU_EDIT_PROFILE_RECORD = b"\x0cEdit Profile"
+MAIN_MENU_PORTAL_RETURN_TEXT = "포탈로 돌아가기"
+MAIN_MENU_PORTAL_RETURN_LABEL = MAIN_MENU_PORTAL_RETURN_TEXT.encode("utf-8")
 
 ASCII_TEXTURE = "assets/minecraft/textures/font/ascii.png"
 GLYPH_SIZES = "assets/minecraft/font/glyph_sizes.bin"
@@ -85,6 +90,26 @@ PANORAMA_RENDER_PATCHES = (
     ("title viewport height", 0x4DF25A, b"\x41\x80\x02", b"\x41\x80\x08"),
     ("title panorama sample count", 0x5080B9, b"\x41\x10", b"\x41\x01"),
 )
+# The stock startup screen wraps either GuiMainMenu or GuiConnecting in
+# GuiScreenEditProfile. Store the intended screen directly in the existing
+# generic GuiScreen local so the profile editor cannot render on startup or
+# become the disconnect target after an automatic server connection.
+STARTUP_PROFILE_WRAPPER_RANGE = (
+    0x2C9C21,
+    0x2C9C69,
+    "ed615d104708f491927599aacafb37696ed0d30263591db9f008037e27fcc006",
+)
+STARTUP_PROFILE_BYPASS_WASM = bytes.fromhex(
+    """
+    20 07 d1 04 63 b3 0f 20 1a 05 fb 01 8d 19 21 3c 20 3c 23 dc 05
+    fb 05 8d 19 00 20 3c 20 1a 20 00 20 07 20 00 fb 02 ce 0f 2e 10
+    f0 54 20 3c 0b 21 1c
+    """
+)
+STARTUP_SCREEN_LOCAL_PATCHES = (
+    (0x2C9CE3, b"\x20\x1B", b"\x20\x1C"),
+    (0x2C9CF8, b"\x20\x1B", b"\x20\x1C"),
+)
 # ChunkUpdateManager.updateChunks runs inside RenderGlobal.updateChunks. The u2
 # source allocates an empty LinkedList on every rendered frame, even when every
 # queued chunk is ready. Keep the same ordering and timeout behavior, but create
@@ -98,9 +123,11 @@ CHUNK_UPDATE_LAZY_LIST_WASM = bytes.fromhex(
     "20 08 d1 04 40 fb 01 a6 15 22 11 23 f0 02 fb 05 a6 15 00 20 11 21 08 0b 20 08"
 )
 CHUNK_UPDATE_SKIP_EMPTY_LIST_WASM = bytes.fromhex("02 40 20 08 d1 0d 00")
-# Close Screen stays available only to the bridge's marked synthetic Backquote
-# event, which preserves Escape and mobile menu behavior. Real Backquote input
-# is blocked before it reaches the runtime. The hidden cinematic-camera slot is
+# Close Screen stays available to the bridge's marked synthetic Backquote event,
+# which preserves Escape and mobile menu behavior. Real Backquote input is
+# blocked before it reaches the runtime. Keep its row, plus the disabled Save
+# Toolbar row, so the UI and creative categories are represented when the
+# controls list allocates its category rows. The hidden cinematic-camera slot is
 # reused for Fullbright on B, which is otherwise unbound in this client.
 CONTROL_KEYCODE_PATCHES = (
     ("fullbright", 0x2D050B, 50, 48),
@@ -121,29 +148,19 @@ HIDDEN_CONTROL_ROW_PATCH_RANGES = (
         "6c3043d984df02d7596a3027e25a8702209654a163607b26ba44146218858a7b",
     ),
     (
-        "save toolbar control",
-        0x2D0953,
-        0x2D0961,
-        "1b740471142024287beda12c6f68085be9d7a8f3c847de81522cade162174b36",
-    ),
-    (
         "load toolbar control",
         0x2D0961,
         0x2D096F,
         "c002ffb48b4a37890fd870ddedade3b780457857e6fff48df951465c0c49c286",
     ),
-    (
-        "close screen control",
-        0x2D098B,
-        0x2D0999,
-        "020da62eb5f33ee58d55b851f1c6b3a65b65d15d649c4c24aa8ce3a5dab5275b",
-    ),
 )
-CONTROL_ARRAY_LENGTH_PATCH = (0x2D082C, 25, 20)
+CONTROL_ARRAY_LENGTH_PATCH = (0x2D082C, 25, 22)
 CONTROL_ARRAY_INDEX_PATCHES = (
     ("swap hands", 0x2D0947, 19, 17),
-    ("advancements", 0x2D0971, 22, 18),
-    ("zoom", 0x2D097F, 23, 19),
+    ("save toolbar", 0x2D0955, 20, 18),
+    ("advancements", 0x2D0971, 22, 19),
+    ("zoom", 0x2D097F, 23, 20),
+    ("close screen", 0x2D098D, 24, 21),
 )
 FULLBRIGHT_TOGGLE_RANGE = (
     0x31F766,
@@ -173,6 +190,23 @@ NOTIFICATION_BUTTON_PATCH_RANGE = (
     0x45A9D8,
     "ac3c44883a63d88d7abe728a27479475367cc75214a920aa51e0a4af350fd53a",
 )
+# Keep the stock pause-menu button and native GuiButton dispatch, but replace
+# its LAN action with GuiMainMenu's portal-return action. The bridge intercepts
+# the profile screen change synchronously, before the editor can render.
+PAUSE_MENU_PORTAL_ACTION_RANGE = (
+    0x45A0C3,
+    0x45A1E2,
+    "c0cd2319200ee38d943473d1304295f38aadd9181c795b4edafce430074a8fb1",
+)
+PAUSE_MENU_PORTAL_ACTION_WASM = bytes.fromhex(
+    """
+    02 63 ce 0f 20 00 fb 02 b6 19 03 d6 00 10 8d 02 08 00 0b
+    fb 01 ec 16 21 13 20 13 23 dc 03 fb 05 ec 16 00 20 13 10 ac 0d
+    20 13 10 cd 02 20 01 41 04 fb 05 fe 0e 08 20 13 20 01 10 f7 6c
+    0c 07
+    """
+)
+PAUSE_MENU_PORTAL_ENABLED_PATCH = (0x45AC63, b"\x10\xC0\x0C", b"\x41\x01\x01")
 FNAW_SKIN_OPTION_PATCH_RANGES = (
     (
         "FNAW skin option setup",
@@ -411,9 +445,23 @@ def apply_font(
     edit_profile = "eaglercraft.menu.editProfile=Edit Profile"
     if language.count(edit_profile) != 1:
         raise ValueError("Base client does not contain exactly one Edit Profile label")
-    entries[by_name[EN_US_LANG]].data = language.replace(
+    pause_menu_labels = (
+        "menu.shareToLan=Open to LAN",
+        "eaglercraft.menu.openToLan=Invite",
+    )
+    for pause_menu_label in pause_menu_labels:
+        if language.count(pause_menu_label) != 1:
+            raise ValueError("Base client does not contain an expected Invite label")
+    language = language.replace(
         edit_profile, "eaglercraft.menu.editProfile=포탈로 돌아가기"
-    ).encode("utf-8")
+    )
+    language = language.replace(
+        pause_menu_labels[0], "menu.shareToLan=포탈로 돌아가기"
+    )
+    language = language.replace(
+        pause_menu_labels[1], "eaglercraft.menu.openToLan=포탈로 돌아가기"
+    )
+    entries[by_name[EN_US_LANG]].data = language.encode("utf-8")
     entries[by_name[SPLASHES]].data = "대미덕에디션\n".encode("utf-8")
 
     underwater_index = by_name[UNDERWATER_TEXTURE]
@@ -588,9 +636,14 @@ def patch_runtime(epw: bytes) -> bytes:
         raise ValueError("EPW runtime does not contain exactly one password input")
     if runtime.count(RUNTIME_MOBILE_GATE) != 1:
         raise ValueError("EPW runtime does not contain exactly one mobile launch gate")
+    if runtime.count(RUNTIME_DESYNCHRONIZED_WEBGL) != 1:
+        raise ValueError("EPW runtime does not contain exactly one WebGL desync option")
 
     runtime = runtime.replace(RUNTIME_PASSWORD_INPUT, RUNTIME_TEXT_INPUT)
     runtime = runtime.replace(RUNTIME_MOBILE_GATE, RUNTIME_SKIP_MOBILE_GATE)
+    runtime = runtime.replace(
+        RUNTIME_DESYNCHRONIZED_WEBGL, RUNTIME_SYNCHRONIZED_WEBGL
+    )
     compressed = lzma.compress(
         runtime,
         format=lzma.FORMAT_XZ,
@@ -979,7 +1032,19 @@ def patch_wasm_data_string(wasm: bytes) -> bytes:
                 raise ValueError("Replacement version string must preserve the WASM data layout")
             if segment_data.count(OLD_VERSION_STRING) != 1:
                 raise ValueError("WASM data segment does not contain the expected version string")
+            if segment_data.count(MAIN_MENU_EDIT_PROFILE_RECORD) != 1:
+                raise ValueError("WASM data segment does not contain exactly one main-menu Edit Profile label")
             segment_data = segment_data.replace(OLD_VERSION_STRING, SPAWNPOINT_VERSION_STRING)
+            portal_return_utf16_length = len(
+                MAIN_MENU_PORTAL_RETURN_TEXT.encode("utf-16-le")
+            ) // 2
+            portal_return_record = (
+                encode_uleb(portal_return_utf16_length)
+                + MAIN_MENU_PORTAL_RETURN_LABEL
+            )
+            segment_data = segment_data.replace(
+                MAIN_MENU_EDIT_PROFILE_RECORD, portal_return_record
+            )
             payload = payload[:length_offset] + encode_uleb(len(segment_data)) + segment_data
             patched = True
 
@@ -1011,6 +1076,20 @@ def patch_main_menu(epw: bytes) -> bytes:
         if hashlib.sha256(current).hexdigest() != expected_hash:
             raise ValueError(f"EPW main program has an unexpected {name} implementation")
         wasm[start:end] = b"\x01" * (end - start)
+    startup_start, startup_end, expected_startup_hash = STARTUP_PROFILE_WRAPPER_RANGE
+    if hashlib.sha256(wasm[startup_start:startup_end]).hexdigest() != expected_startup_hash:
+        raise ValueError("EPW main program has an unexpected startup profile wrapper")
+    if len(STARTUP_PROFILE_BYPASS_WASM) > startup_end - startup_start:
+        raise ValueError("Startup profile bypass does not fit its guarded WASM range")
+    wasm[startup_start:startup_end] = STARTUP_PROFILE_BYPASS_WASM + b"\x01" * (
+        startup_end - startup_start - len(STARTUP_PROFILE_BYPASS_WASM)
+    )
+    for offset, expected, replacement in STARTUP_SCREEN_LOCAL_PATCHES:
+        if wasm[offset : offset + len(expected)] != expected:
+            raise ValueError("EPW main program has an unexpected startup screen local")
+        if len(replacement) != len(expected):
+            raise ValueError("Startup screen local patch must preserve the WASM byte layout")
+        wasm[offset : offset + len(expected)] = replacement
     blur_start, blur_end, expected_blur_hash = PANORAMA_BLUR_PASS_RANGE
     if hashlib.sha256(wasm[blur_start:blur_end]).hexdigest() != expected_blur_hash:
         raise ValueError("EPW main program has an unexpected title panorama blur chain")
@@ -1083,6 +1162,22 @@ def patch_main_menu(epw: bytes) -> bytes:
     wasm[notification_start:notification_end] = b"\x01" * (
         notification_end - notification_start
     )
+    portal_start, portal_end, expected_portal_hash = PAUSE_MENU_PORTAL_ACTION_RANGE
+    if hashlib.sha256(wasm[portal_start:portal_end]).hexdigest() != expected_portal_hash:
+        raise ValueError("EPW main program has an unexpected pause-menu Invite action")
+    if len(PAUSE_MENU_PORTAL_ACTION_WASM) > portal_end - portal_start:
+        raise ValueError("Pause-menu portal action does not fit its guarded WASM range")
+    wasm[portal_start:portal_end] = PAUSE_MENU_PORTAL_ACTION_WASM + b"\x01" * (
+        portal_end - portal_start - len(PAUSE_MENU_PORTAL_ACTION_WASM)
+    )
+    enabled_offset, expected_enabled, replacement_enabled = (
+        PAUSE_MENU_PORTAL_ENABLED_PATCH
+    )
+    if wasm[enabled_offset : enabled_offset + len(expected_enabled)] != expected_enabled:
+        raise ValueError("EPW main program has an unexpected pause-menu Invite state")
+    if len(replacement_enabled) != len(expected_enabled):
+        raise ValueError("Pause-menu enabled patch must preserve the WASM byte layout")
+    wasm[enabled_offset : enabled_offset + len(expected_enabled)] = replacement_enabled
     for name, start, end, expected_hash in FNAW_SKIN_OPTION_PATCH_RANGES:
         current = bytes(wasm[start:end])
         if hashlib.sha256(current).hexdigest() != expected_hash:

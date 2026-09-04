@@ -13,7 +13,6 @@
   var storageNamespace = "_spawnpoint_" + account.toLowerCase();
   var resourcePackPreference = "new-default";
   var resourcePackSyncCsrf = "";
-  var profileDismissTimer = null;
 
   function isTouchRenderDevice() {
     var navigatorObject = window.navigator || {};
@@ -28,17 +27,37 @@
   }
 
   var touchRenderDevice = isTouchRenderDevice();
+  function detectTouchPerformanceProfile() {
+    var navigatorObject = window.navigator || {};
+    var memory = Number(navigatorObject.deviceMemory || 0);
+    var cores = Number(navigatorObject.hardwareConcurrency || 0);
+    var cssPixels = Math.max(1, Number(window.innerWidth || 1) * Number(window.innerHeight || 1));
+    var tier = "balanced";
+    if ((memory > 0 && memory <= 3) || (cores > 0 && cores <= 4)) tier = "low";
+    else if (memory >= 8 && cores >= 8 && cssPixels <= 1400000) tier = "high";
+    return {
+      tier: tier,
+      memory: memory,
+      cores: cores,
+      pixelBudget: tier === "low" ? 800000 : tier === "high" ? 1500000 : 1000000,
+      renderDistance: tier === "low" ? 5 : tier === "high" ? 9 : 7,
+    };
+  }
+
+  var touchPerformanceProfile = detectTouchPerformanceProfile();
   var nativeDevicePixelRatio = Number(window.devicePixelRatio || 1);
   if (!isFinite(nativeDevicePixelRatio) || nativeDevicePixelRatio < 1) nativeDevicePixelRatio = 1;
   var gameDevicePixelRatio = nativeDevicePixelRatio;
 
   // The Eaglercraft runtime sizes its WebGL canvas from devicePixelRatio on
   // every frame. Large Android tablets can otherwise shade more than four
-  // million pixels per frame. Keep touch clients near one megapixel while the
-  // CSS-sized canvas and desktop rendering stay unchanged.
+  // million pixels per frame. Keep touch clients within their hardware tier's
+  // fixed pixel budget while the CSS-sized canvas and desktop rendering stay
+  // unchanged. Do not vary DPR at runtime because resizing the WebGL
+  // backbuffer during gameplay can expose an unpainted frame.
   if (touchRenderDevice) {
     var cssPixelCount = Math.max(1, Number(window.innerWidth || 1) * Number(window.innerHeight || 1));
-    var pixelBudgetScale = Math.sqrt(1000000 / cssPixelCount);
+    var pixelBudgetScale = Math.sqrt(touchPerformanceProfile.pixelBudget / cssPixelCount);
     gameDevicePixelRatio = Math.min(nativeDevicePixelRatio, Math.max(1, pixelBudgetScale));
     gameDevicePixelRatio = Math.floor(gameDevicePixelRatio * 20) / 20;
     if (gameDevicePixelRatio < nativeDevicePixelRatio) {
@@ -57,6 +76,10 @@
     mobile: touchRenderDevice,
     nativeDevicePixelRatio: nativeDevicePixelRatio,
     gameDevicePixelRatio: gameDevicePixelRatio,
+    performanceTier: touchRenderDevice ? touchPerformanceProfile.tier : "desktop",
+    adaptationMode: touchRenderDevice ? "fixed-hardware-tier" : "native",
+    pixelBudget: touchRenderDevice ? touchPerformanceProfile.pixelBudget : null,
+    renderDistanceCap: touchRenderDevice ? touchPerformanceProfile.renderDistance : null,
   };
 
   if (!options || !launchId) {
@@ -123,15 +146,20 @@
   }
 
   function applyMobilePerformanceSettings(gameSettings) {
-    gameSettings = setGameSetting(gameSettings, "enableDynamicLights", "false", true);
-    gameSettings = setGameSetting(gameSettings, "ao", "0", true);
-    gameSettings = setGameSetting(gameSettings, "fancyGraphics", "false", true);
-    gameSettings = setGameSetting(gameSettings, "renderClouds", "false", true);
-    gameSettings = setGameSetting(gameSettings, "particles", "1", true);
-    gameSettings = setGameSetting(gameSettings, "entityShadows", "false", true);
-    var renderDistance = Number(gameSettingValue(gameSettings, "renderDistance"));
-    if (isFinite(renderDistance) && renderDistance > 6) {
-      gameSettings = setGameSetting(gameSettings, "renderDistance", "6", true);
+    var tier = touchPerformanceProfile.tier;
+    // Dynamic Lights and smooth lighting are visual requirements. Save GPU and
+    // CPU time through resolution, view distance, particles, and secondary
+    // effects before reducing either of them.
+    gameSettings = setGameSetting(gameSettings, "enableDynamicLights", "true", true);
+    gameSettings = setGameSetting(gameSettings, "ao", "2", true);
+    gameSettings = setGameSetting(gameSettings, "fancyGraphics", "true", true);
+    gameSettings = setGameSetting(gameSettings, "renderClouds", tier === "high" ? "true" : "false", true);
+    gameSettings = setGameSetting(gameSettings, "particles", tier === "low" ? "2" : tier === "high" ? "0" : "1", true);
+    gameSettings = setGameSetting(gameSettings, "entityShadows", tier === "low" ? "false" : "true", true);
+    var renderDistanceValue = gameSettingValue(gameSettings, "renderDistance");
+    var renderDistance = renderDistanceValue === null ? NaN : Number(renderDistanceValue);
+    if (!isFinite(renderDistance) || renderDistance > touchPerformanceProfile.renderDistance) {
+      gameSettings = setGameSetting(gameSettings, "renderDistance", String(touchPerformanceProfile.renderDistance), true);
     }
     return gameSettings;
   }
@@ -140,7 +168,22 @@
     return binary.length >= 2 && binary.charCodeAt(0) === 31 && binary.charCodeAt(1) === 139;
   }
 
-  var mobilePerformanceStorageKey = storageNamespace + ".mobile-performance-v1";
+  function binaryStringToBytes(binary) {
+    var bytes = new Uint8Array(binary.length);
+    for (var index = 0; index < binary.length; ++index) bytes[index] = binary.charCodeAt(index) & 255;
+    return bytes;
+  }
+
+  function bytesToBinaryString(bytes) {
+    var binary = "";
+    var chunkSize = 32_768;
+    for (var index = 0; index < bytes.length; index += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, Math.min(index + chunkSize, bytes.length)));
+    }
+    return binary;
+  }
+
+  var mobilePerformanceStorageKey = storageNamespace + ".mobile-performance-v2";
   var shouldSeedMobilePerformance = false;
   if (touchRenderDevice) {
     try {
@@ -150,11 +193,7 @@
     }
   }
 
-  function applySpawnpointGameSettings(encodedGameSettings) {
-    var gameSettings = encodedGameSettings
-      ? (typeof window.atob === "function" ? window.atob(encodedGameSettings) : decodeBase64(encodedGameSettings))
-      : "";
-    if (isGzipGameSettings(gameSettings)) return encodedGameSettings;
+  function applySpawnpointGameSettingsText(gameSettings, seedMobilePerformance) {
     gameSettings = setGameSetting(gameSettings, "lang", "ko_kr", true);
     gameSettings = setGameSetting(gameSettings, "autoJump", "false", false);
     gameSettings = setGameSetting(gameSettings, "fov", "0.5", false);
@@ -164,22 +203,73 @@
     gameSettings = setGameSetting(gameSettings, "showSubtitles", "true", false);
     gameSettings = setGameSetting(gameSettings, "tutorialStep", "none", true);
     gameSettings = setGameSetting(gameSettings, "acknowledgeDisclaimer", "true", true);
-    if (shouldSeedMobilePerformance) {
+    if (seedMobilePerformance) {
       gameSettings = applyMobilePerformanceSettings(gameSettings);
-      shouldSeedMobilePerformance = false;
     }
+    return gameSettings;
+  }
+
+  function applySpawnpointGameSettings(encodedGameSettings) {
+    var gameSettings = encodedGameSettings
+      ? (typeof window.atob === "function" ? window.atob(encodedGameSettings) : decodeBase64(encodedGameSettings))
+      : "";
+    if (isGzipGameSettings(gameSettings)) return encodedGameSettings;
+    var seedMobilePerformance = shouldSeedMobilePerformance;
+    gameSettings = applySpawnpointGameSettingsText(gameSettings, seedMobilePerformance);
+    if (seedMobilePerformance) shouldSeedMobilePerformance = false;
     return typeof window.btoa === "function" ? window.btoa(gameSettings) : encodeBase64(gameSettings);
   }
 
+  async function prepareCompressedGameSettings(encodedGameSettings, gameSettingsKey) {
+    if (!encodedGameSettings) return false;
+    var binary = typeof window.atob === "function" ? window.atob(encodedGameSettings) : decodeBase64(encodedGameSettings);
+    if (!isGzipGameSettings(binary)) return false;
+    if (typeof window.Blob !== "function"
+        || typeof window.Response !== "function"
+        || typeof window.TextEncoder !== "function"
+        || typeof window.DecompressionStream !== "function"
+        || typeof window.CompressionStream !== "function") {
+      return false;
+    }
+    var decompressedStream = new window.Blob([binaryStringToBytes(binary)]).stream()
+      .pipeThrough(new window.DecompressionStream("gzip"));
+    var gameSettings = await new window.Response(decompressedStream).text();
+    var seedMobilePerformance = shouldSeedMobilePerformance;
+    gameSettings = applySpawnpointGameSettingsText(gameSettings, seedMobilePerformance);
+    var compressedStream = new window.Blob([new window.TextEncoder().encode(gameSettings)]).stream()
+      .pipeThrough(new window.CompressionStream("gzip"));
+    var compressed = new Uint8Array(await new window.Response(compressedStream).arrayBuffer());
+    var encoded = typeof window.btoa === "function"
+      ? window.btoa(bytesToBinaryString(compressed))
+      : encodeBase64(bytesToBinaryString(compressed));
+    window.localStorage.setItem(gameSettingsKey, encoded);
+    if (seedMobilePerformance) {
+      window.localStorage.setItem(mobilePerformanceStorageKey, "1");
+      shouldSeedMobilePerformance = false;
+    }
+    return true;
+  }
+
   // Seed Spawnpoint's per-account defaults in the same GameSettings blob the
-  // client writes. Existing user choices stay intact, except for the portal's
-  // Korean-language contract, disabled vanilla tutorial, and acknowledged
-  // first-run disclaimer.
+  // client writes. Desktop choices stay intact except for portal requirements.
+  // A new mobile profile marker deliberately applies the current hardware tier
+  // once, then later client saves preserve the user's choices.
+  var gameSettingsPreparation = Promise.resolve();
   try {
     var gameSettingsKey = storageNamespace + ".g";
     var encodedGameSettings = window.localStorage.getItem(gameSettingsKey);
-    window.localStorage.setItem(gameSettingsKey, applySpawnpointGameSettings(encodedGameSettings));
-    if (touchRenderDevice) window.localStorage.setItem(mobilePerformanceStorageKey, "1");
+    var binaryGameSettings = encodedGameSettings
+      ? (typeof window.atob === "function" ? window.atob(encodedGameSettings) : decodeBase64(encodedGameSettings))
+      : "";
+    if (isGzipGameSettings(binaryGameSettings)) {
+      gameSettingsPreparation = prepareCompressedGameSettings(encodedGameSettings, gameSettingsKey).catch(function (error) {
+        console.warn("Could not prepare compressed game settings", error);
+      });
+    } else {
+      var seedMobilePerformance = shouldSeedMobilePerformance;
+      window.localStorage.setItem(gameSettingsKey, applySpawnpointGameSettings(encodedGameSettings));
+      if (seedMobilePerformance) window.localStorage.setItem(mobilePerformanceStorageKey, "1");
+    }
   } catch (_error) {
     // Storage can be unavailable in private browsing. Keep the launch hint as
     // a best-effort fallback instead of preventing the client from starting.
@@ -196,7 +286,9 @@
       defaultGameSettings: function () { return applySpawnpointGameSettings(null); },
     })
     : null;
-  window.__spawnpointPrepareClient = resourcePackManager ? resourcePackManager.prepare() : Promise.resolve();
+  window.__spawnpointPrepareClient = gameSettingsPreparation.then(function () {
+    return resourcePackManager ? resourcePackManager.prepare() : undefined;
+  });
 
   // WASM-GC uses these hooks as its authoritative local-storage adapter when
   // they are present. Supplying them makes the Korean setting reliable in both
@@ -248,36 +340,6 @@
     ? existingHooks.screenChanged
     : null;
 
-  function dismissProfileEditor(scaledHeight) {
-    if (profileDismissTimer !== null || typeof scaledHeight !== "number" || scaledHeight <= 0) return;
-    profileDismissTimer = setTimeout(function () {
-      profileDismissTimer = null;
-      var canvas = document.querySelector && document.querySelector("#game_frame canvas, canvas");
-      if (!canvas || typeof canvas.dispatchEvent !== "function") return;
-      var bounds = canvas.getBoundingClientRect();
-      var eventInit = {
-        bubbles: true,
-        cancelable: true,
-        clientX: bounds.left + bounds.width / 2,
-        clientY: bounds.top + ((scaledHeight / 6 + 178) / scaledHeight) * bounds.height,
-        button: 0,
-        buttons: 1,
-        pointerId: 1,
-        pointerType: "mouse",
-      };
-      if (typeof window.PointerEvent === "function") {
-        canvas.dispatchEvent(new window.PointerEvent("pointerdown", eventInit));
-      }
-      canvas.dispatchEvent(new window.MouseEvent("mousedown", eventInit));
-      eventInit.buttons = 0;
-      if (typeof window.PointerEvent === "function") {
-        canvas.dispatchEvent(new window.PointerEvent("pointerup", eventInit));
-      }
-      canvas.dispatchEvent(new window.MouseEvent("mouseup", eventInit));
-      canvas.dispatchEvent(new window.MouseEvent("click", eventInit));
-    }, 50);
-  }
-
   function requestPortalMenu() {
     if (window.parent && window.parent !== window && typeof window.parent.postMessage === "function") {
       window.parent.postMessage({ type: "spawnpoint:return-to-menu", launchId: launchId }, window.location.origin);
@@ -323,11 +385,10 @@
     updateTPAPickerLayout();
     updateMobileControlsVisibility();
     if (typeof screenName === "string" && /GuiScreenEditProfile$/.test(screenName)) {
-      // The stock GuiMainMenu button remains the real canvas control. Its
-      // native action opens GuiScreenEditProfile, which is the signal to leave
-      // the embedded client. Other profile-editor paths still close normally.
-      if (/GuiMainMenu$/.test(previousScreenName)) requestPortalMenu();
-      else dismissProfileEditor(scaledHeight);
+      // Both stock portal buttons use the native GuiScreenEditProfile action
+      // as their return signal. Never render or synthesize clicks inside that
+      // screen, regardless of which menu opened it.
+      requestPortalMenu();
     }
     if (typeof screenName === "string" && /GuiGameOver$/.test(screenName)) {
       releasePointerLockForDeathScreen();
@@ -379,6 +440,12 @@
   var locatorMarkerLayer = null;
   var locatorMarkers = Object.create(null);
   var locatorHasTargets = false;
+  var locatorLastTargets = [];
+  var locatorPixelSize = 1;
+  var locatorTrackLogicalWidth = 182;
+  var locatorViewportWidth = 0;
+  var locatorViewportHeight = 0;
+  var locatorTrackWidth = 182;
   var locatorScreenObserved = false;
   var locatorRequestPending = false;
   var locatorFailureCount = 0;
@@ -428,48 +495,72 @@
   var mobileScreenScaleFactor = 0;
   var mobileSprintEnabled = false;
   var mobileControlLayoutStorageKey = "spawnpoint_mobile_control_layout_v1";
-  var mobileExtraKeyChoices = [
-    { id: "f1", label: "F1", key: "F1", code: "F1", keyCode: 112 },
-    { id: "f2", label: "F2", key: "F2", code: "F2", keyCode: 113 },
-    { id: "f3", label: "F3", key: "F3", code: "F3", keyCode: 114 },
-    { id: "f4", label: "F4", key: "F4", code: "F4", keyCode: 115 },
-    { id: "f5", label: "F5", key: "F5", code: "F5", keyCode: 116 },
-    { id: "f6", label: "F6", key: "F6", code: "F6", keyCode: 117 },
-    { id: "f7", label: "F7", key: "F7", code: "F7", keyCode: 118 },
-    { id: "f8", label: "F8", key: "F8", code: "F8", keyCode: 119 },
-    { id: "f9", label: "F9", key: "F9", code: "F9", keyCode: 120 },
-    { id: "f10", label: "F10", key: "F10", code: "F10", keyCode: 121 },
-    { id: "f11", label: "F11", key: "F11", code: "F11", keyCode: 122 },
-    { id: "f12", label: "F12", key: "F12", code: "F12", keyCode: 123 },
-    { id: "tab", label: "TAB", key: "Tab", code: "Tab", keyCode: 9 },
-    { id: "ctrl", label: "CTRL", key: "Control", code: "ControlLeft", keyCode: 17 },
-    { id: "alt", label: "ALT", key: "Alt", code: "AltLeft", keyCode: 18 },
-    { id: "b", label: "B", key: "b", code: "KeyB", keyCode: 66 },
-    { id: "c", label: "C", key: "c", code: "KeyC", keyCode: 67 },
-    { id: "f", label: "F", key: "f", code: "KeyF", keyCode: 70 },
-    { id: "g", label: "G", key: "g", code: "KeyG", keyCode: 71 },
-    { id: "h", label: "H", key: "h", code: "KeyH", keyCode: 72 },
-    { id: "m", label: "M", key: "m", code: "KeyM", keyCode: 77 },
-    { id: "n", label: "N", key: "n", code: "KeyN", keyCode: 78 },
-    { id: "r", label: "R", key: "r", code: "KeyR", keyCode: 82 },
-    { id: "v", label: "V", key: "v", code: "KeyV", keyCode: 86 },
-    { id: "x", label: "X", key: "x", code: "KeyX", keyCode: 88 },
-    { id: "z", label: "Z", key: "z", code: "KeyZ", keyCode: 90 },
-    { id: "1", label: "1", key: "1", code: "Digit1", keyCode: 49 },
-    { id: "2", label: "2", key: "2", code: "Digit2", keyCode: 50 },
-    { id: "3", label: "3", key: "3", code: "Digit3", keyCode: 51 },
-    { id: "4", label: "4", key: "4", code: "Digit4", keyCode: 52 },
-    { id: "5", label: "5", key: "5", code: "Digit5", keyCode: 53 },
-    { id: "6", label: "6", key: "6", code: "Digit6", keyCode: 54 },
-    { id: "7", label: "7", key: "7", code: "Digit7", keyCode: 55 },
-    { id: "8", label: "8", key: "8", code: "Digit8", keyCode: 56 },
-    { id: "9", label: "9", key: "9", code: "Digit9", keyCode: 57 },
-  ];
+  function createMobileExtraControlChoices() {
+    var choices = [];
+    for (var functionNumber = 1; functionNumber <= 12; ++functionNumber) {
+      choices.push({
+        id: "f" + functionNumber,
+        label: "F" + functionNumber,
+        key: "F" + functionNumber,
+        code: "F" + functionNumber,
+        keyCode: 111 + functionNumber,
+      });
+    }
+    [
+      { id: "mouse-left", label: "공격", mouseButton: 0 },
+      { id: "mouse-right", label: "사용", mouseButton: 2 },
+      { id: "mouse-middle", label: "가운데 클릭", mouseButton: 1 },
+      { id: "wheel-up", label: "휠 위", wheelDelta: -100 },
+      { id: "wheel-down", label: "휠 아래", wheelDelta: 100 },
+      { id: "escape", label: "ESC", key: "Escape", code: "Escape", keyCode: 27 },
+      { id: "tab", label: "TAB", key: "Tab", code: "Tab", keyCode: 9 },
+      { id: "enter", label: "ENTER", key: "Enter", code: "Enter", keyCode: 13 },
+      { id: "space", label: "SPACE", key: " ", code: "Space", keyCode: 32 },
+      { id: "shift", label: "SHIFT", key: "Shift", code: "ShiftLeft", keyCode: 16 },
+      { id: "ctrl", label: "CTRL", key: "Control", code: "ControlLeft", keyCode: 17 },
+      { id: "alt", label: "ALT", key: "Alt", code: "AltLeft", keyCode: 18 },
+      { id: "caps-lock", label: "CAPS", key: "CapsLock", code: "CapsLock", keyCode: 20 },
+      { id: "backspace", label: "BACK", key: "Backspace", code: "Backspace", keyCode: 8 },
+      { id: "arrow-up", label: "↑", key: "ArrowUp", code: "ArrowUp", keyCode: 38 },
+      { id: "arrow-down", label: "↓", key: "ArrowDown", code: "ArrowDown", keyCode: 40 },
+      { id: "arrow-left", label: "←", key: "ArrowLeft", code: "ArrowLeft", keyCode: 37 },
+      { id: "arrow-right", label: "→", key: "ArrowRight", code: "ArrowRight", keyCode: 39 },
+    ].forEach(function (choice) { choices.push(choice); });
+    for (var letterCode = 65; letterCode <= 90; ++letterCode) {
+      var letter = String.fromCharCode(letterCode);
+      choices.push({ id: letter.toLowerCase(), label: letter, key: letter.toLowerCase(), code: "Key" + letter, keyCode: letterCode });
+    }
+    for (var digit = 0; digit <= 9; ++digit) {
+      choices.push({ id: String(digit), label: String(digit), key: String(digit), code: "Digit" + digit, keyCode: 48 + digit });
+    }
+    [
+      ["minus", "-", "-", "Minus", 189], ["equal", "=", "=", "Equal", 187],
+      ["bracket-left", "[", "[", "BracketLeft", 219], ["bracket-right", "]", "]", "BracketRight", 221],
+      ["semicolon", ";", ";", "Semicolon", 186], ["quote", "'", "'", "Quote", 222],
+      ["comma", ",", ",", "Comma", 188], ["period", ".", ".", "Period", 190],
+      ["slash", "/", "/", "Slash", 191], ["backslash", "\\", "\\", "Backslash", 220],
+      ["backquote", "`", "`", "Backquote", 192],
+    ].forEach(function (parts) {
+      choices.push({ id: parts[0], label: parts[1], key: parts[2], code: parts[3], keyCode: parts[4] });
+    });
+    return choices;
+  }
+
+  var mobileExtraKeyChoices = createMobileExtraControlChoices();
   var mobileLookSensitivityStorageKey = "spawnpoint_mobile_look_sensitivity";
+  var mobileLookSensitivityAt100Percent = 3.375;
+  var mobileLookSensitivityMaximum = mobileLookSensitivityAt100Percent * 3;
+  var mobileControlScaleMinimum = 0.5;
+  var mobileDefaultControlScaleMaximum = 3;
+  var mobileCustomControlScaleMaximum = 8;
   var mobileControlLayoutStore = readMobileControlLayoutStore();
   var mobileControlLayout = findMobileControlLayoutForViewport(mobileControlLayoutStore, mobileViewportDimensions());
   var mobileControlScale = mobileControlLayout && isFinite(Number(mobileControlLayout.scale))
-    ? clampMobileValue(Number(mobileControlLayout.scale), 0.8, 1.5)
+    ? clampMobileValue(
+      Number(mobileControlLayout.scale),
+      mobileControlScaleMinimum,
+      mobileControlLayout && mobileControlLayout.controls ? mobileCustomControlScaleMaximum : mobileDefaultControlScaleMaximum
+    )
     : 1;
   var mobileLookSensitivity = readMobileLookSensitivity();
   var mobileEditableControls = [];
@@ -488,11 +579,12 @@
   var mobileSprintButton = null;
   var mobileSensitivityInput = null;
   var mobileSensitivityValue = null;
-  var mobileForwardSequence = 0;
   var mobileForwardPressed = false;
-  var mobileForwardPrimingDown = false;
   var mobileHeldKeys = Object.create(null);
+  var mobileHeldKeyGeneration = 0;
   var mobileHeldMouseButtons = Object.create(null);
+  var mobileControlScaleBasis = null;
+  var mobileSafeAreaCache = null;
 
   function injectLocatorHudStyles() {
     if (!document.createElement || !document.head || document.getElementById("spawnpoint-locator-style")) return;
@@ -500,15 +592,18 @@
     style.id = "spawnpoint-locator-style";
     style.textContent = [
       "@font-face{font-family:'Spawnpoint Mark';src:url('/game/fonts/Galmuri11.woff2') format('woff2');font-display:swap}",
-      "#spawnpoint-player-locator{position:fixed;display:none;pointer-events:none;z-index:2147483000;background:none!important;image-rendering:auto!important;--sp-locator-pixel:2px;--sp-locator-width:364px}",
-      "#spawnpoint-player-locator .sp-locator-track{position:absolute;left:50%;top:calc(var(--sp-locator-pixel)*8);width:var(--sp-locator-width);height:calc(var(--sp-locator-pixel)*5);transform:translateX(-50%);background:#050505;box-shadow:0 var(--sp-locator-pixel) 0 rgba(0,0,0,.35);image-rendering:pixelated}",
+      "#spawnpoint-player-locator{position:fixed;display:none;pointer-events:none;z-index:2147483000;background:none!important;image-rendering:auto!important;--sp-locator-pixel:2px;--sp-locator-width:364px;--sp-locator-track-top:16px}",
+      "#spawnpoint-player-locator .sp-locator-track{position:absolute;left:50%;top:var(--sp-locator-track-top);width:var(--sp-locator-width);height:calc(var(--sp-locator-pixel)*5);transform:translateX(-50%);background:#050505;box-shadow:0 var(--sp-locator-pixel) 0 rgba(0,0,0,.35);image-rendering:pixelated}",
       "#spawnpoint-player-locator .sp-locator-track:before{content:'';position:absolute;inset:var(--sp-locator-pixel);background:#294b31;border-top:var(--sp-locator-pixel) solid #426f48;box-sizing:border-box}",
       "#spawnpoint-player-locator .sp-locator-track:after{content:'';position:absolute;left:50%;top:var(--sp-locator-pixel);width:var(--sp-locator-pixel);height:calc(var(--sp-locator-pixel)*3);transform:translateX(-50%);background:#8eaa7c}",
       "#spawnpoint-player-locator .sp-locator-markers{position:absolute;inset:0;overflow:visible;z-index:1}",
       "#spawnpoint-player-locator .sp-locator-marker{position:absolute;top:50%;width:calc(var(--sp-locator-pixel)*10);height:calc(var(--sp-locator-pixel)*10);transform:translate(-50%,-50%)}",
       "#spawnpoint-player-locator .sp-locator-marker.is-behind{opacity:.72}",
       "#spawnpoint-player-locator .sp-locator-marker canvas{display:block;width:100%;height:100%;image-rendering:pixelated}",
-      "#spawnpoint-player-locator .sp-locator-distance{position:absolute;left:50%;top:calc(100% + var(--sp-locator-pixel));transform:translateX(-50%);color:#fff;font-family:'Spawnpoint Mark',sans-serif;font-size:calc(var(--sp-locator-pixel)*5);font-weight:400;line-height:1;white-space:nowrap;text-align:center;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,-1px 0 0 #000,1px 0 0 #000,0 -1px 0 #000,0 1px 0 #000}",
+      "#spawnpoint-player-locator .sp-locator-label{position:absolute;left:50%;bottom:calc(100% + 4px);display:grid;width:max-content;max-width:144px;gap:var(--sp-locator-pixel);transform:translateX(-50%);color:#fff;font-family:'Spawnpoint Mark',sans-serif;font-weight:400;line-height:1;white-space:nowrap;text-align:center;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,-1px 0 0 #000,1px 0 0 #000,0 -1px 0 #000,0 1px 0 #000}",
+      "#spawnpoint-player-locator .sp-locator-marker.is-label-below .sp-locator-label{bottom:auto}",
+      "#spawnpoint-player-locator .sp-locator-name{display:block;max-width:100%;overflow:hidden;font-size:10px;text-overflow:clip}",
+      "#spawnpoint-player-locator .sp-locator-distance{display:block;font-size:8px}",
     ].join("");
     document.head.appendChild(style);
   }
@@ -523,6 +618,7 @@
     Object.keys(locatorMarkers).forEach(function (id) { removeLocatorMarker(locatorMarkers[id]); });
     locatorMarkers = Object.create(null);
     locatorHasTargets = false;
+    locatorLastTargets = [];
     updateLocatorHudVisibility();
   }
 
@@ -558,14 +654,22 @@
     canvas.width = 10;
     canvas.height = 10;
     element.appendChild(canvas);
+    var label = document.createElement("span");
+    label.className = "sp-locator-label";
+    var nameLabel = document.createElement("span");
+    nameLabel.className = "sp-locator-name";
+    label.appendChild(nameLabel);
     var distanceLabel = document.createElement("span");
     distanceLabel.className = "sp-locator-distance";
-    element.appendChild(distanceLabel);
+    label.appendChild(distanceLabel);
+    element.appendChild(label);
     locatorMarkerLayer.appendChild(element);
     drawLocatorHead(canvas, target.skinUrl);
     return {
       element: element,
       canvas: canvas,
+      label: label,
+      nameLabel: nameLabel,
       distanceLabel: distanceLabel,
       skinUrl: target.skinUrl,
       rawAngle: null,
@@ -586,6 +690,25 @@
   function setLocatorMarkerAngle(marker, angle) {
     marker.displayAngle = angle;
     marker.element.style.left = (50 + angle / 1.8) + "%";
+    constrainLocatorLabelToViewport(marker, angle);
+  }
+
+  function constrainLocatorLabelToViewport(marker, angle) {
+    if (!marker || !marker.label || !(locatorViewportWidth > 0) || !(locatorTrackWidth > 0)) return;
+    var labelWidth = Number.parseFloat(marker.label.style.maxWidth);
+    if (!(labelWidth > 0)) labelWidth = 72 * locatorPixelSize;
+    var trackLeft = (locatorViewportWidth - locatorTrackWidth) / 2;
+    var markerLeft = trackLeft + (Math.max(-90, Math.min(90, angle)) + 90) / 180 * locatorTrackWidth;
+    var margin = 2 * locatorPixelSize;
+    var labelCenter = clampMobileValue(
+      markerLeft,
+      margin + labelWidth / 2,
+      locatorViewportWidth - margin - labelWidth / 2
+    );
+    var shift = Math.round((labelCenter - markerLeft) * 10) / 10;
+    marker.label.style.left = shift > 0
+      ? "calc(50% + " + shift + "px)"
+      : shift < 0 ? "calc(50% - " + Math.abs(shift) + "px)" : "50%";
   }
 
   function advanceLocatorMarker(marker, timestamp) {
@@ -603,9 +726,9 @@
   function animateLocatorMarkers(timestamp) {
     locatorAnimationFrame = null;
     var stillAnimating = false;
-    Object.keys(locatorMarkers).forEach(function (id) {
+    for (var id in locatorMarkers) {
       if (advanceLocatorMarker(locatorMarkers[id], timestamp)) stillAnimating = true;
-    });
+    }
     if (stillAnimating) scheduleLocatorAnimation();
   }
 
@@ -641,9 +764,125 @@
     marker.rawAngle = target.angle;
     marker.element.style.zIndex = String(count - index);
     marker.element.className = "sp-locator-marker" + (Math.abs(target.angle) > 90 ? " is-behind" : "");
-    var distanceText = String(Math.round(target.distance)) + "블록";
+    var distanceText = String(Math.round(target.distance)) + "m";
     marker.distanceLabel.textContent = distanceText;
     marker.element.title = target.displayName + " " + distanceText;
+  }
+
+  function locatorNameCharacters(value) {
+    return Array.from(String(value || "").trim());
+  }
+
+  function shortenLocatorName(value, maximumCharacters) {
+    var characters = locatorNameCharacters(value);
+    if (characters.length <= maximumCharacters) return characters.join("");
+    maximumCharacters = Math.max(4, maximumCharacters);
+    var visibleCharacters = maximumCharacters - 2;
+    var leftCount = Math.ceil(visibleCharacters / 2);
+    var rightCount = Math.floor(visibleCharacters / 2);
+    return characters.slice(0, leftCount).join("") + ".." + characters.slice(characters.length - rightCount).join("");
+  }
+
+  function locatorNameWidthUnits(value) {
+    return locatorNameCharacters(value).reduce(function (width, character) {
+      if (/\s/.test(character)) return width + 0.4;
+      return width + (/^[\x00-\x7f]$/.test(character) ? 0.62 : 1);
+    }, 0);
+  }
+
+  function layoutLocatorLabels(targets) {
+    if (!locatorRoot || !targets.length) return;
+    var entries = targets.map(function (target) {
+      return {
+        target: target,
+        marker: locatorMarkers[target.id],
+        position: (Math.max(-90, Math.min(90, target.angle)) + 90) / 180 * locatorTrackLogicalWidth,
+        layoutPosition: 0,
+        clusterIndex: 0,
+        clusterSize: 1,
+        below: false,
+        depth: 0,
+        nameWidthUnits: locatorNameWidthUnits(target.displayName),
+      };
+    }).filter(function (entry) { return !!entry.marker; }).sort(function (left, right) {
+      return left.position - right.position || left.target.id.localeCompare(right.target.id);
+    });
+    var viewportLogicalWidth = locatorViewportWidth > 0 ? locatorViewportWidth / locatorPixelSize : locatorTrackLogicalWidth + 16;
+    var trackLogicalLeft = (viewportLogicalWidth - locatorTrackLogicalWidth) / 2;
+    entries.forEach(function (entry) {
+      // Use a conservative 72px-wide label center for lane grouping. At the
+      // track ends the visible label shifts inward, so raw marker spacing can
+      // otherwise put two labels into the same lane after that correction.
+      entry.layoutPosition = clampMobileValue(
+        trackLogicalLeft + entry.position,
+        38,
+        viewportLogicalWidth - 38
+      );
+    });
+    var clusters = [];
+    entries.forEach(function (entry) {
+      var cluster = clusters[clusters.length - 1];
+      if (!cluster || entry.layoutPosition - cluster[cluster.length - 1].layoutPosition > 72) {
+        cluster = [];
+        clusters.push(cluster);
+      }
+      cluster.push(entry);
+    });
+    var maximumAboveDepth = 0;
+    var maximumBelowDepth = 0;
+    clusters.forEach(function (cluster) {
+      cluster.forEach(function (entry, index) {
+        entry.clusterIndex = index;
+        entry.clusterSize = cluster.length;
+        entry.below = index % 2 === 1;
+        entry.depth = Math.floor(index / 2);
+        if (entry.below) maximumBelowDepth = Math.max(maximumBelowDepth, entry.depth);
+        else maximumAboveDepth = Math.max(maximumAboveDepth, entry.depth);
+      });
+    });
+    var depthStep = 12;
+    var totalDepth = maximumAboveDepth + maximumBelowDepth;
+    if (locatorViewportHeight > 0 && totalDepth > 0) {
+      var viewportLogicalHeight = locatorViewportHeight / locatorPixelSize;
+      // A compact mobile canvas may not have room for 12 logical pixels on
+      // both sides of the track. Keep the name and distance lines inside the
+      // canvas while preserving enough separation for their smallest font.
+      depthStep = Math.min(12, Math.max(8.5, (viewportLogicalHeight - 36) / totalDepth));
+    }
+    entries.forEach(function (entry, index) {
+      var nearest = 72;
+      for (var direction = -1; direction <= 1; direction += 2) {
+        for (var otherIndex = index + direction; otherIndex >= 0 && otherIndex < entries.length; otherIndex += direction) {
+          var other = entries[otherIndex];
+          if (other.below === entry.below && other.depth === entry.depth) {
+            nearest = Math.min(nearest, Math.abs(other.layoutPosition - entry.layoutPosition) * 0.9);
+            break;
+          }
+        }
+      }
+      var availableWidth = Math.max(18, Math.min(72, nearest));
+      var fontSize = entry.clusterSize >= 7 ? 3.5 : entry.clusterSize >= 4 ? 4 : 5;
+      var maximumCharacters = entry.clusterSize >= 7 ? 8 : entry.clusterSize >= 4 ? 10 : 16;
+      while (fontSize > 3.5 && entry.nameWidthUnits * fontSize * 0.9 > availableWidth) {
+        fontSize -= 0.5;
+      }
+      maximumCharacters = Math.min(maximumCharacters, Math.max(4, Math.floor(availableWidth / (fontSize * 0.68))));
+      entry.marker.nameLabel.textContent = shortenLocatorName(entry.target.displayName, maximumCharacters);
+      entry.marker.nameLabel.setAttribute("data-sp-full-name", entry.target.displayName);
+      entry.marker.label.style.maxWidth = Math.round(availableWidth * locatorPixelSize * 10) / 10 + "px";
+      entry.marker.nameLabel.style.fontSize = Math.round(fontSize * locatorPixelSize * 10) / 10 + "px";
+      entry.marker.distanceLabel.style.fontSize = Math.round(4 * locatorPixelSize * 10) / 10 + "px";
+      var labelOffset = (2 + entry.depth * depthStep) * locatorPixelSize;
+      entry.marker.label.style.top = entry.below ? "calc(100% + " + labelOffset + "px)" : "auto";
+      entry.marker.label.style.bottom = entry.below ? "auto" : "calc(100% + " + labelOffset + "px)";
+      entry.marker.element.style.setProperty("--sp-label-depth", String(entry.depth));
+      constrainLocatorLabelToViewport(entry.marker, entry.marker.displayAngle === null ? entry.target.angle : entry.marker.displayAngle);
+      entry.marker.element.className = "sp-locator-marker"
+        + (Math.abs(entry.target.angle) > 90 ? " is-behind" : "")
+        + (entry.below ? " is-label-below" : " is-label-above");
+    });
+    locatorRoot.style.setProperty("--sp-locator-label-step", String(Math.round(depthStep * 100) / 100));
+    locatorRoot.style.setProperty("--sp-locator-track-top", (16 + maximumAboveDepth * depthStep) * locatorPixelSize + "px");
   }
 
   function renderLocatorSnapshot(snapshot) {
@@ -677,6 +916,7 @@
       delete locatorMarkers[id];
     });
     locatorHasTargets = validTargets.length > 0;
+    locatorLastTargets = validTargets;
     updateLocatorHudLayout();
     updateLocatorHudVisibility();
   }
@@ -712,6 +952,12 @@
     locatorRoot.style.height = bounds.height + "px";
     locatorRoot.style.setProperty("--sp-locator-pixel", pixel + "px");
     locatorRoot.style.setProperty("--sp-locator-width", width + "px");
+    locatorPixelSize = pixel;
+    locatorTrackLogicalWidth = width / pixel;
+    locatorViewportWidth = bounds.width;
+    locatorViewportHeight = bounds.height;
+    locatorTrackWidth = width;
+    layoutLocatorLabels(locatorLastTargets);
   }
 
   function pollLocatorHud() {
@@ -762,7 +1008,9 @@
     document.body.appendChild(locatorRoot);
     updateLocatorHudLayout();
     pollLocatorHud();
-    if (typeof window.setInterval === "function") window.setInterval(pollLocatorHud, 100);
+    // Five snapshots per second keep the 80ms marker interpolation responsive
+    // without making every connected client hammer the local bridge at 10Hz.
+    if (typeof window.setInterval === "function") window.setInterval(pollLocatorHud, 200);
   }
 
   function injectTPAPickerStyles() {
@@ -1169,62 +1417,59 @@
   }
 
   function dispatchMobileKeyPulse(key, code, keyCode) {
-    dispatchMobileKeyboardState(key, code, keyCode, true);
+    var generation = mobileHeldKeyGeneration;
+    setMobileKeyState(key, code, keyCode, true);
     // The client samples pressed keys on its next game tick. A synchronous
     // keydown/keyup pair can disappear between frames on slower phones.
-    setTimeout(function () { dispatchMobileKeyboardState(key, code, keyCode, false); }, 90);
+    setTimeout(function () {
+      // A blur or screen transition releases every active key. Do not let an
+      // older pulse timer release a new hold that began after that reset.
+      if (generation === mobileHeldKeyGeneration) setMobileKeyState(key, code, keyCode, false);
+    }, 90);
+  }
+
+  function dispatchMobileWheel(deltaY) {
+    var canvas = findMinecraftCanvas();
+    if (!canvas || typeof canvas.dispatchEvent !== "function" || typeof window.WheelEvent !== "function") return;
+    if (typeof canvas.focus === "function") canvas.focus();
+    canvas.dispatchEvent(new window.WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaMode: 0,
+      deltaY: deltaY,
+    }));
   }
 
   function setMobileKeyState(key, code, keyCode, pressed) {
+    var held = mobileHeldKeys[code];
     if (pressed) {
-      if (mobileHeldKeys[code]) return;
-      mobileHeldKeys[code] = { key: key, code: code, keyCode: keyCode };
+      if (held) {
+        held.count += 1;
+        return true;
+      }
+      mobileHeldKeys[code] = { key: key, code: code, keyCode: keyCode, count: 1 };
     } else {
-      if (!mobileHeldKeys[code]) return;
+      if (!held) return false;
+      held.count -= 1;
+      if (held.count > 0) return true;
       delete mobileHeldKeys[code];
     }
     dispatchMobileKeyboardState(key, code, keyCode, pressed);
+    return true;
   }
 
   function cancelMobileForwardPrime() {
-    mobileForwardSequence++;
     mobileForwardPressed = false;
-    if (!mobileForwardPrimingDown) return;
-    mobileForwardPrimingDown = false;
-    dispatchMobileKeyboardState("w", "KeyW", 87, false);
   }
 
   function pressMobileForward() {
     cancelMobileForwardPrime();
     mobileForwardPressed = true;
-    if (!mobileSprintEnabled) {
-      setMobileKeyState("w", "KeyW", 87, true);
-      return;
-    }
-    var sequence = ++mobileForwardSequence;
-    mobileForwardPrimingDown = true;
-    dispatchMobileKeyboardState("w", "KeyW", 87, true);
-    // Keep both halves longer than one 50ms game tick so the client samples
-    // a real release between the two W presses, even on a quick tap.
-    setTimeout(function () {
-      if (sequence !== mobileForwardSequence) return;
-      mobileForwardPrimingDown = false;
-      dispatchMobileKeyboardState("w", "KeyW", 87, false);
-      setTimeout(function () {
-        if (sequence !== mobileForwardSequence) return;
-        if (mobileForwardPressed) {
-          setMobileKeyState("w", "KeyW", 87, true);
-          return;
-        }
-        mobileForwardPrimingDown = true;
-        dispatchMobileKeyboardState("w", "KeyW", 87, true);
-        setTimeout(function () {
-          if (sequence !== mobileForwardSequence) return;
-          mobileForwardPrimingDown = false;
-          dispatchMobileKeyboardState("w", "KeyW", 87, false);
-        }, 90);
-      }, 70);
-    }, 70);
+    // R is the client's sprint binding. Keep W in the shared held-key
+    // registry so overlapping default and custom W controls cannot release
+    // each other early.
+    if (mobileSprintEnabled) dispatchMobileKeyPulse("r", "KeyR", 82);
+    setMobileKeyState("w", "KeyW", 87, true);
   }
 
   function releaseMobileForward() {
@@ -1280,19 +1525,23 @@
   function dispatchMobileMouseState(button, pressed, point) {
     var target = mobileMousePoint(point);
     if (!target || typeof window.MouseEvent !== "function") return false;
+    var heldCount = Number(mobileHeldMouseButtons[button] || 0);
     if (pressed) {
-      if (mobileHeldMouseButtons[button]) return false;
-      mobileHeldMouseButtons[button] = true;
+      mobileHeldMouseButtons[button] = heldCount + 1;
+      if (heldCount > 0) return true;
     } else {
-      if (!mobileHeldMouseButtons[button]) return false;
+      if (heldCount <= 0) return false;
+      if (heldCount > 1) {
+        mobileHeldMouseButtons[button] = heldCount - 1;
+        return true;
+      }
       delete mobileHeldMouseButtons[button];
     }
-    var buttonMask = button === 0 ? 1 : button === 1 ? 4 : 2;
     target.canvas.dispatchEvent(new window.MouseEvent(pressed ? "mousedown" : "mouseup", {
       bubbles: true,
       cancelable: true,
       button: button,
-      buttons: pressed ? buttonMask : 0,
+      buttons: mobileHeldMouseButtonMask(),
       clientX: target.clientX,
       clientY: target.clientY,
       screenX: target.screenX,
@@ -1327,6 +1576,9 @@
   }
 
   function dispatchMobileCanvasClick(point) {
+    // A second-finger tap while an attack control is held must not emit a
+    // synthetic mouseup that releases the first finger's shared mouse hold.
+    if (mobileHeldMouseButtons[0]) return;
     var target = mobileMousePoint(point);
     if (!target || typeof window.MouseEvent !== "function") return;
     ["mousedown", "mouseup", "click"].forEach(function (eventName) {
@@ -1378,6 +1630,7 @@
   }
 
   function releaseMobileHeldControls() {
+    mobileHeldKeyGeneration++;
     cancelMobileForwardPrime();
     clearMobileLookAttack(true, null);
     Object.keys(mobileHeldKeys).forEach(function (code) {
@@ -1394,10 +1647,13 @@
         bubbles: true,
         cancelable: true,
         button: numericButton,
-        buttons: 0,
+        buttons: mobileHeldMouseButtonMask(),
         clientX: target.clientX,
         clientY: target.clientY,
       }));
+    });
+    mobileEditableControls.forEach(function (button) {
+      if (button && typeof button.__spawnpointResetMobileHold === "function") button.__spawnpointResetMobileHold();
     });
     mobileHotbarTouchId = null;
     mobileHotbarSlot = -1;
@@ -1644,6 +1900,37 @@
     return Math.max(minimum, Math.min(maximum, value));
   }
 
+  function mobileSafeAreaInsets() {
+    var viewport = mobileViewportDimensions();
+    if (mobileSafeAreaCache
+      && mobileSafeAreaCache.width === viewport.width
+      && mobileSafeAreaCache.height === viewport.height) return mobileSafeAreaCache;
+    var insets = { width: viewport.width, height: viewport.height, left: 8, right: 8, top: 8, bottom: 8 };
+    if (document.createElement && document.body && typeof window.getComputedStyle === "function") {
+      var probe = document.createElement("div");
+      probe.style.cssText = [
+        "position:fixed", "visibility:hidden", "pointer-events:none",
+        "padding-left:max(8px,env(safe-area-inset-left))",
+        "padding-right:max(8px,env(safe-area-inset-right))",
+        "padding-top:max(8px,env(safe-area-inset-top))",
+        "padding-bottom:max(8px,env(safe-area-inset-bottom))",
+      ].join(";");
+      document.body.appendChild(probe);
+      try {
+        var computed = window.getComputedStyle(probe);
+        ["left", "right", "top", "bottom"].forEach(function (side) {
+          var value = Number.parseFloat(computed["padding" + side.charAt(0).toUpperCase() + side.slice(1)]);
+          if (isFinite(value)) insets[side] = Math.max(8, value);
+        });
+      } catch (_error) {
+        // The 8px fallback matches the CSS when env() is unavailable.
+      }
+      if (probe.parentNode) probe.parentNode.removeChild(probe);
+    }
+    mobileSafeAreaCache = insets;
+    return insets;
+  }
+
   function mobileControlProfileMatchesViewport(profile, viewport) {
     var width = Number(profile && profile.width);
     var height = Number(profile && profile.height);
@@ -1696,10 +1983,14 @@
 
   function readMobileLookSensitivity() {
     try {
-      var savedSensitivity = Number(window.localStorage.getItem(mobileLookSensitivityStorageKey));
-      return isFinite(savedSensitivity) && savedSensitivity >= 0.5 && savedSensitivity <= 4.05 ? savedSensitivity : 1.35;
+      var storedSensitivity = window.localStorage.getItem(mobileLookSensitivityStorageKey);
+      if (storedSensitivity === null || storedSensitivity === "") return mobileLookSensitivityAt100Percent;
+      var savedSensitivity = Number(storedSensitivity);
+      return isFinite(savedSensitivity) && savedSensitivity >= 0 && savedSensitivity <= mobileLookSensitivityMaximum
+        ? savedSensitivity
+        : mobileLookSensitivityAt100Percent;
     } catch (_error) {
-      return 1.35;
+      return mobileLookSensitivityAt100Percent;
     }
   }
 
@@ -1780,10 +2071,11 @@
   function setMobileControlFixedRect(button, left, top, width, height) {
     if (!button || !button.style) return;
     var viewport = mobileViewportDimensions();
-    width = clampMobileValue(width, 35, Math.max(35, viewport.width - 8));
-    height = clampMobileValue(height, 35, Math.max(35, viewport.height - 8));
-    left = clampMobileValue(left, 4, Math.max(4, viewport.width - width - 4));
-    top = clampMobileValue(top, 4, Math.max(4, viewport.height - height - 4));
+    var safeArea = mobileSafeAreaInsets();
+    width = clampMobileValue(width, 35, Math.max(35, viewport.width - safeArea.left - safeArea.right));
+    height = clampMobileValue(height, 35, Math.max(35, viewport.height - safeArea.top - safeArea.bottom));
+    left = clampMobileValue(left, safeArea.left, Math.max(safeArea.left, viewport.width - width - safeArea.right));
+    top = clampMobileValue(top, safeArea.top, Math.max(safeArea.top, viewport.height - height - safeArea.bottom));
     button.style.position = "fixed";
     button.style.left = Math.round(left) + "px";
     button.style.top = Math.round(top) + "px";
@@ -1791,7 +2083,7 @@
     button.style.bottom = "auto";
     button.style.width = Math.round(width) + "px";
     button.style.height = Math.round(height) + "px";
-    button.style.zIndex = "2";
+    button.style.zIndex = mobileExtraControlId(button) ? "3" : "2";
     button.setAttribute("data-sp-custom-position", "true");
     if (mobileControlsRoot) mobileControlsRoot.setAttribute("data-sp-custom-layout", "true");
   }
@@ -1815,17 +2107,44 @@
     if (!mobileControlsRoot || !mobileControlsRoot.style) return;
     var viewport = mobileViewportDimensions();
     var baseSize = clampMobileValue(viewport.height * 0.13, 44, 54);
-    var touchSize = clampMobileValue(baseSize * mobileControlScale, 35, 81);
+    if (mobileControlLayoutIsDefault()) {
+      var limits = mobileDefaultControlScaleLimits();
+      mobileControlScale = clampMobileValue(mobileControlScale, limits.minimum, limits.maximum);
+    }
+    var touchSize = clampMobileValue(baseSize * mobileControlScale, 30, Math.max(30, Math.min(viewport.width, viewport.height) - 8));
     touchSize = Math.round(touchSize * 10) / 10;
     mobileControlsRoot.style.setProperty("--sp-touch", touchSize + "px");
     mobileControlsRoot.setAttribute("data-sp-control-scale", String(mobileControlScale));
   }
 
+  function mobileDefaultControlScaleLimits() {
+    var viewport = mobileViewportDimensions();
+    var safeArea = mobileSafeAreaInsets();
+    var baseSize = clampMobileValue(viewport.height * 0.13, 44, 54);
+    // Each side has a three-column grid. Keep both grids visible with their
+    // own gaps and an 8px center gap, and keep all three movement rows inside
+    // the viewport. A moved custom layout can use the larger per-item limit.
+    var widthLimitedTouchSize = (viewport.width - safeArea.left - safeArea.right - 28) / 6;
+    var heightLimitedTouchSize = (viewport.height - safeArea.top - safeArea.bottom - 10) / 3;
+    var maximum = Math.min(
+      mobileDefaultControlScaleMaximum,
+      widthLimitedTouchSize / baseSize,
+      heightLimitedTouchSize / baseSize
+    );
+    return {
+      minimum: mobileControlScaleMinimum,
+      maximum: Math.max(mobileControlScaleMinimum, maximum),
+    };
+  }
+
   function updateMobileDefaultLayoutState() {
     var isDefault = mobileControlLayoutIsDefault();
+    var limits = isDefault
+      ? mobileDefaultControlScaleLimits()
+      : mobileCustomControlScaleLimits();
     if (mobileControlsRoot) mobileControlsRoot.setAttribute("data-sp-default-layout", isDefault ? "true" : "false");
-    if (mobileScaleDownButton) mobileScaleDownButton.disabled = !isDefault || mobileControlScale <= 0.8;
-    if (mobileScaleUpButton) mobileScaleUpButton.disabled = !isDefault || mobileControlScale >= 1.5;
+    if (mobileScaleDownButton) mobileScaleDownButton.disabled = mobileControlScale <= limits.minimum + 0.001;
+    if (mobileScaleUpButton) mobileScaleUpButton.disabled = mobileControlScale >= limits.maximum - 0.001;
   }
 
   function persistMobileControlLayoutStore() {
@@ -1953,6 +2272,7 @@
   function finishMobileControlEditing() {
     mobileControlGesture = null;
     mobileControlEditMode = false;
+    mobileControlScaleBasis = null;
     if (mobileControlLayoutIsDefault()) {
       clearMobileControlInlineLayout();
       applyMobileControlScale();
@@ -1995,6 +2315,7 @@
   function resetMobileControlLayout() {
     if (mobileControlLayout) removeActiveMobileControlLayoutProfile();
     mobileControlScale = 1;
+    mobileControlScaleBasis = null;
     mobileControlLayoutDirty = false;
     persistMobileControlLayoutStore();
     syncMobileExtraControls(false);
@@ -2004,26 +2325,139 @@
     updateMobileDefaultLayoutState();
   }
 
-  function adjustMobileDefaultControlScale(delta) {
-    if (!mobileControlEditMode || !mobileControlLayoutIsDefault()) return;
-    var nextScale = clampMobileValue(Math.round((mobileControlScale + delta) * 10) / 10, 0.8, 1.5);
-    if (nextScale === mobileControlScale) return;
+  // Custom controls scale from the safe-area-adjusted bottom corner on their
+  // side. The absolute basis keeps every +/- step reversible and lets the last
+  // + stop at the real viewport limit instead of accumulating hidden scale.
+  function captureMobileControlScaleBasis() {
+    if (mobileControlLayoutIsDefault() || !mobileEditableControls.length) return null;
+    var viewport = mobileViewportDimensions();
+    var scalableControls = mobileEditableControls.filter(function (button) {
+      if (!button) return false;
+      if (typeof button.getAttribute === "function") {
+        return button.getAttribute("data-sp-custom-position") === "true";
+      }
+      return button["data-sp-custom-position"] === "true";
+    });
+    if (!scalableControls.length) return null;
+    mobileControlScaleBasis = {
+      scale: mobileControlScale,
+      width: viewport.width,
+      height: viewport.height,
+      safeArea: mobileSafeAreaInsets(),
+      controls: scalableControls.map(function (button) {
+        var bounds = mobileControlRect(button);
+        return {
+          button: button,
+          left: bounds.left,
+          top: bounds.top,
+          width: bounds.width,
+          height: bounds.height,
+          isLeftHalf: bounds.left + bounds.width / 2 < viewport.width / 2,
+        };
+      }),
+    };
+    return mobileControlScaleBasis;
+  }
+
+  function currentMobileControlScaleBasis() {
+    var viewport = mobileViewportDimensions();
+    if (!mobileControlScaleBasis
+      || mobileControlScaleBasis.width !== viewport.width
+      || mobileControlScaleBasis.height !== viewport.height) {
+      return captureMobileControlScaleBasis();
+    }
+    return mobileControlScaleBasis;
+  }
+
+  function mobileCustomControlScaleLimits() {
+    var basis = currentMobileControlScaleBasis();
+    if (!basis) return { minimum: mobileControlScaleMinimum, maximum: mobileCustomControlScaleMaximum };
+    var minimumRatio = 0;
+    var maximumRatio = Infinity;
+    basis.controls.forEach(function (item) {
+      var safeArea = basis.safeArea;
+      var sideGap = item.isLeftHalf
+        ? Math.max(safeArea.left, item.left) - safeArea.left
+        : Math.max(safeArea.right, basis.width - item.left - item.width) - safeArea.right;
+      var bottomGap = Math.max(safeArea.bottom, basis.height - item.top - item.height) - safeArea.bottom;
+      minimumRatio = Math.max(minimumRatio, 35 / item.width, 35 / item.height);
+      maximumRatio = Math.min(
+        maximumRatio,
+        (basis.width - safeArea.left - safeArea.right) / Math.max(1, sideGap + item.width),
+        (basis.height - safeArea.top - safeArea.bottom) / Math.max(1, bottomGap + item.height)
+      );
+    });
+    return {
+      minimum: clampMobileValue(basis.scale * minimumRatio, mobileControlScaleMinimum, mobileCustomControlScaleMaximum),
+      maximum: clampMobileValue(basis.scale * maximumRatio, mobileControlScaleMinimum, mobileCustomControlScaleMaximum),
+    };
+  }
+
+  function scaleMobileCustomControls(scale) {
+    var basis = currentMobileControlScaleBasis();
+    if (!basis || !basis.scale) return;
+    var ratio = scale / basis.scale;
+    basis.controls.forEach(function (item) {
+      var safeArea = basis.safeArea;
+      var button = item.button;
+      var width = item.width * ratio;
+      var height = item.height * ratio;
+      var bottomGap = Math.max(safeArea.bottom, basis.height - item.top - item.height) - safeArea.bottom;
+      var sideGap = item.isLeftHalf
+        ? Math.max(safeArea.left, item.left) - safeArea.left
+        : Math.max(safeArea.right, basis.width - item.left - item.width) - safeArea.right;
+      var left = item.isLeftHalf
+        ? safeArea.left + sideGap * ratio
+        : basis.width - safeArea.right - sideGap * ratio - width;
+      var top = basis.height - safeArea.bottom - bottomGap * ratio - height;
+      setMobileControlFixedRect(button, left, top, width, height);
+    });
+  }
+
+  function adjustMobileControlScale(delta) {
+    if (!mobileControlEditMode) return;
+    var wasDefault = mobileControlLayoutIsDefault();
+    var limits = wasDefault
+      ? mobileDefaultControlScaleLimits()
+      : mobileCustomControlScaleLimits();
+    var nextScale = clampMobileValue(
+      Math.round((mobileControlScale + delta) * 1000) / 1000,
+      limits.minimum,
+      limits.maximum
+    );
+    if ((mobileControlScale > 1 && nextScale < 1) || (mobileControlScale < 1 && nextScale > 1)) {
+      nextScale = 1;
+    }
+    if (Math.abs(nextScale - mobileControlScale) < 0.001) return;
     mobileControlScale = nextScale;
-    clearMobileControlInlineLayout();
-    applyMobileControlScale();
-    promoteMobileControlsForEditing();
-    saveMobileDefaultControlScale();
+    if (wasDefault) {
+      clearMobileControlInlineLayout();
+      applyMobileControlScale();
+      promoteMobileControlsForEditing();
+      saveMobileDefaultControlScale();
+      return;
+    }
+    if (mobileControlsRoot) mobileControlsRoot.setAttribute("data-sp-control-scale", String(mobileControlScale));
+    scaleMobileCustomControls(mobileControlScale);
+    mobileControlLayoutDirty = true;
+    saveMobileControlLayout();
   }
 
   function syncMobileControlLayoutForViewport() {
     if (mobileControlGesture) return;
+    mobileControlScaleBasis = null;
+    mobileSafeAreaCache = null;
     var nextLayout = findMobileControlLayoutForViewport(mobileControlLayoutStore, mobileViewportDimensions());
     if (nextLayout !== mobileControlLayout) {
       mobileControlGesture = null;
       mobileControlLayoutDirty = false;
       mobileControlLayout = nextLayout;
       mobileControlScale = mobileControlLayout && isFinite(Number(mobileControlLayout.scale))
-        ? clampMobileValue(Number(mobileControlLayout.scale), 0.8, 1.5)
+        ? clampMobileValue(
+          Number(mobileControlLayout.scale),
+          mobileControlScaleMinimum,
+          mobileControlLayout && mobileControlLayout.controls ? mobileCustomControlScaleMaximum : mobileDefaultControlScaleMaximum
+        )
         : 1;
       clearMobileControlInlineLayout();
     }
@@ -2039,14 +2473,16 @@
   }
 
   function updateMobileSensitivityDisplay() {
-    if (mobileSensitivityInput) mobileSensitivityInput.value = String(mobileLookSensitivity);
-    if (mobileSensitivityValue) mobileSensitivityValue.textContent = Math.round(mobileLookSensitivity / 1.35 * 100) + "%";
+    var percentage = Math.round(mobileLookSensitivity / mobileLookSensitivityAt100Percent * 100);
+    if (mobileSensitivityInput) mobileSensitivityInput.value = String(percentage);
+    if (mobileSensitivityValue) mobileSensitivityValue.textContent = percentage + "%";
   }
 
-  function setMobileLookSensitivity(value) {
-    value = Number(value);
-    if (!isFinite(value)) return;
-    mobileLookSensitivity = clampMobileValue(value, 0.5, 4.05);
+  function setMobileLookSensitivityPercentage(value) {
+    var percentage = Number(value);
+    if (!isFinite(percentage)) return;
+    percentage = clampMobileValue(percentage, 0, 300);
+    mobileLookSensitivity = percentage / 100 * mobileLookSensitivityAt100Percent;
     updateMobileSensitivityDisplay();
     try {
       window.localStorage.setItem(mobileLookSensitivityStorageKey, String(mobileLookSensitivity));
@@ -2068,6 +2504,7 @@
 
   function beginMobileControlGesture(button, mode, event) {
     if (!mobileControlEditMode) return;
+    mobileControlScaleBasis = null;
     var firstTouch = event && event.changedTouches && event.changedTouches[0];
     var point = mobileEditorEventPoint(event, firstTouch ? firstTouch.identifier : null);
     if (!point) return;
@@ -2098,6 +2535,7 @@
     if (deltaX === 0 && deltaY === 0) return;
     if (mobileControlGesture.mode === "resize") {
       var viewport = mobileViewportDimensions();
+      var safeArea = mobileSafeAreaInsets();
       setMobileControlFixedRect(
         mobileControlGesture.button,
         mobileControlGesture.left,
@@ -2105,12 +2543,12 @@
         clampMobileValue(
           mobileControlGesture.width + deltaX,
           35,
-          Math.max(35, viewport.width - mobileControlGesture.left - 4)
+          Math.max(35, viewport.width - mobileControlGesture.left - safeArea.right)
         ),
         clampMobileValue(
           mobileControlGesture.height + deltaY,
           35,
-          Math.max(35, viewport.height - mobileControlGesture.top - 4)
+          Math.max(35, viewport.height - mobileControlGesture.top - safeArea.bottom)
         )
       );
     } else {
@@ -2123,7 +2561,9 @@
       );
     }
     mobileControlLayoutDirty = true;
-    updateMobileDefaultLayoutState();
+    // Do not capture a +/- scale basis from an intermediate drag frame.
+    // The final touchend rect becomes the only reversible scaling basis.
+    mobileControlScaleBasis = null;
   }
 
   function endMobileControlGesture(event) {
@@ -2134,6 +2574,7 @@
     preventMobileControlDefault(event);
     var changed = mobileControlLayoutDirty;
     mobileControlGesture = null;
+    mobileControlScaleBasis = null;
     if (changed) saveMobileControlLayout();
   }
 
@@ -2145,6 +2586,15 @@
     document.addEventListener("touchcancel", endMobileControlGesture, { capture: true, passive: false });
     document.addEventListener("mousemove", moveMobileControlGesture, true);
     document.addEventListener("mouseup", endMobileControlGesture, true);
+  }
+
+  function mobileEventTargetIsWithin(target, container) {
+    var node = target;
+    while (node) {
+      if (node === container) return true;
+      node = node.parentNode;
+    }
+    return false;
   }
 
   function registerMobileEditableControl(button) {
@@ -2160,18 +2610,20 @@
       button.addEventListener("touchstart", function (event) {
         if (event.target && event.target.className === "sp-mobile-delete-handle") {
           preventMobileControlDefault(event);
+          if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
           removeMobileExtraControl(button, true);
           return;
         }
-        beginMobileControlGesture(button, event.target === handle ? "resize" : "move", event);
+        beginMobileControlGesture(button, mobileEventTargetIsWithin(event.target, handle) ? "resize" : "move", event);
       }, { capture: true, passive: false });
       button.addEventListener("mousedown", function (event) {
         if (event.target && event.target.className === "sp-mobile-delete-handle") {
           preventMobileControlDefault(event);
+          if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
           removeMobileExtraControl(button, true);
           return;
         }
-        beginMobileControlGesture(button, event.target === handle ? "resize" : "move", event);
+        beginMobileControlGesture(button, mobileEventTargetIsWithin(event.target, handle) ? "resize" : "move", event);
       }, true);
     }
     return button;
@@ -2367,7 +2819,10 @@
       if (active) return;
       active = true;
       setMobileButtonPressed(button, true);
-      press();
+      if (press() === false) {
+        active = false;
+        setMobileButtonPressed(button, false);
+      }
     }
     function end(event) {
       preventMobileControlDefault(event);
@@ -2382,6 +2837,16 @@
     button.onmousedown = start;
     button.onmouseup = end;
     button.onmouseleave = end;
+    button.__spawnpointReleaseMobileHold = function () {
+      if (!active) return;
+      active = false;
+      setMobileButtonPressed(button, false);
+      release();
+    };
+    button.__spawnpointResetMobileHold = function () {
+      active = false;
+      setMobileButtonPressed(button, false);
+    };
   }
 
   function bindMobilePulseButton(button, action) {
@@ -2631,9 +3096,9 @@
   function appendMobileKeyButton(parent, label, accessibleLabel, actionName, key, code, keyCode) {
     var button = createMobileButton(label, accessibleLabel, actionName);
     bindMobileHoldButton(button, function () {
-      setMobileKeyState(key, code, keyCode, true);
+      return setMobileKeyState(key, code, keyCode, true);
     }, function () {
-      setMobileKeyState(key, code, keyCode, false);
+      return setMobileKeyState(key, code, keyCode, false);
     });
     parent.appendChild(button);
     return registerMobileEditableControl(button);
@@ -2645,15 +3110,32 @@
       return mobileExtraControlId(button) === choice.id;
     });
     if (existing) return existing;
-    var button = appendMobileKeyButton(
-      mobileExtraControlsContainer,
-      choice.label,
-      choice.label + " 키",
-      "extra-" + choice.id,
-      choice.key,
-      choice.code,
-      choice.keyCode
-    );
+    var button;
+    if (typeof choice.mouseButton === "number") {
+      button = createMobileButton(choice.label, choice.label + " 조작", "extra-" + choice.id);
+      bindMobileHoldButton(button, function () {
+        return dispatchMobileMouseState(choice.mouseButton, true, null);
+      }, function () {
+        return dispatchMobileMouseState(choice.mouseButton, false, null);
+      });
+      mobileExtraControlsContainer.appendChild(button);
+      registerMobileEditableControl(button);
+    } else if (typeof choice.wheelDelta === "number") {
+      button = createMobileButton(choice.label, choice.label + " 조작", "extra-" + choice.id);
+      bindMobilePulseButton(button, function () { dispatchMobileWheel(choice.wheelDelta); });
+      mobileExtraControlsContainer.appendChild(button);
+      registerMobileEditableControl(button);
+    } else {
+      button = appendMobileKeyButton(
+        mobileExtraControlsContainer,
+        choice.label,
+        choice.label + " 키",
+        "extra-" + choice.id,
+        choice.key,
+        choice.code,
+        choice.keyCode
+      );
+    }
     button.className += " sp-mobile-extra-key sp-mobile-key-label";
     var remove = document.createElement("span");
     remove.className = "sp-mobile-delete-handle";
@@ -2672,9 +3154,8 @@
   }
 
   function removeMobileExtraControl(button, save) {
-    var id = mobileExtraControlId(button);
-    var choice = mobileExtraKeyChoice(id);
-    if (choice) setMobileKeyState(choice.key, choice.code, choice.keyCode, false);
+    mobileControlScaleBasis = null;
+    if (button && typeof button.__spawnpointReleaseMobileHold === "function") button.__spawnpointReleaseMobileHold();
     var extraIndex = mobileExtraControls.indexOf(button);
     if (extraIndex !== -1) mobileExtraControls.splice(extraIndex, 1);
     var editableIndex = mobileEditableControls.indexOf(button);
@@ -2700,6 +3181,7 @@
     if (!choice) return;
     var button = createMobileExtraControl(choice, true);
     if (!button) return;
+    mobileControlScaleBasis = null;
     saveMobileControlLayout();
   }
 
@@ -2717,10 +3199,10 @@
       "#spawnpoint-mobile-controls.is-chat .sp-mobile-gameplay{display:none}",
       "#spawnpoint-mobile-controls.is-chat .sp-mobile-button.sp-mobile-chat-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid}",
       "#spawnpoint-mobile-controls.is-menu .sp-mobile-button.sp-mobile-menu-only{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));display:grid}",
-      "#spawnpoint-mobile-controls .sp-mobile-tools{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));display:flex;gap:5px}",
+      "#spawnpoint-mobile-controls .sp-mobile-tools{position:absolute;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));z-index:10;display:flex;gap:5px}",
       "#spawnpoint-mobile-controls .sp-mobile-button.sp-mobile-default-scale{display:none}",
-      "#spawnpoint-mobile-controls.is-editing[data-sp-default-layout=true] .sp-mobile-button.sp-mobile-default-scale{display:grid}",
-      "#spawnpoint-mobile-controls .sp-mobile-editor{position:absolute;top:max(60px,calc(env(safe-area-inset-top) + 52px));left:max(8px,env(safe-area-inset-left));display:none;max-width:calc(100vw - 16px);flex-wrap:wrap;align-items:center;gap:7px;box-sizing:border-box;min-height:44px;padding:6px 7px;pointer-events:auto;color:#fff;background:rgba(3,6,4,.78);border:1px solid rgba(255,255,255,.32);border-radius:6px;font:700 11px/1.1 \"Spawnpoint Mark\",monospace}",
+      "#spawnpoint-mobile-controls.is-editing .sp-mobile-button.sp-mobile-default-scale{display:grid}",
+      "#spawnpoint-mobile-controls .sp-mobile-editor{position:absolute;top:max(60px,calc(env(safe-area-inset-top) + 52px));left:max(8px,env(safe-area-inset-left));z-index:10;display:none;max-width:calc(100vw - 16px);flex-wrap:wrap;align-items:center;gap:7px;box-sizing:border-box;min-height:44px;padding:6px 7px;pointer-events:auto;color:#fff;background:rgba(3,6,4,.78);border:1px solid rgba(255,255,255,.32);border-radius:6px;font:700 11px/1.1 \"Spawnpoint Mark\",monospace}",
       "#spawnpoint-mobile-controls.is-editing .sp-mobile-editor{display:flex}",
       "#spawnpoint-mobile-controls .sp-mobile-sensitivity{display:grid;grid-template-columns:auto auto;align-items:center;gap:4px 7px;white-space:nowrap}",
       "#spawnpoint-mobile-controls .sp-mobile-sensitivity output{justify-self:end;color:rgba(255,255,255,.75)}",
@@ -2729,7 +3211,7 @@
       "#spawnpoint-mobile-controls .sp-mobile-key-adder select,#spawnpoint-mobile-controls .sp-mobile-key-adder button{box-sizing:border-box;min-height:36px;margin:0;padding:6px 8px;border:0;border-radius:5px;color:#fff;background:rgba(8,12,10,.72);font:inherit}",
       "#spawnpoint-mobile-controls .sp-mobile-key-adder select{min-width:72px;touch-action:manipulation}",
       "#spawnpoint-mobile-controls .sp-mobile-reset{box-sizing:border-box;min-width:64px;min-height:44px;margin:0;padding:7px;pointer-events:auto;touch-action:manipulation;border:0;border-radius:5px;color:#fff;background:rgba(8,12,10,.62);font:inherit}",
-      "#spawnpoint-mobile-controls .sp-mobile-extra-controls{position:fixed;inset:0}",
+      "#spawnpoint-mobile-controls .sp-mobile-extra-controls{position:fixed;inset:0;z-index:3}",
       "#spawnpoint-mobile-controls .sp-mobile-move{position:absolute;left:max(8px,env(safe-area-inset-left));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(3,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
       "#spawnpoint-mobile-controls .sp-mobile-actions{position:absolute;right:max(8px,env(safe-area-inset-right));bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template:repeat(2,var(--sp-touch))/repeat(3,var(--sp-touch));gap:5px}",
       "#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-move,#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-actions,#spawnpoint-mobile-controls.are-controls-hidden .sp-mobile-extra-controls{display:none}",
@@ -2807,11 +3289,11 @@
     tools.setAttribute("aria-label", "컨트롤 설정");
     mobileScaleDownButton = createMobileButton("−", "전체 컨트롤 축소", "scale-down");
     mobileScaleDownButton.className += " sp-mobile-default-scale";
-    bindMobilePulseButton(mobileScaleDownButton, function () { adjustMobileDefaultControlScale(-0.1); });
+    bindMobilePulseButton(mobileScaleDownButton, function () { adjustMobileControlScale(-0.1); });
     tools.appendChild(mobileScaleDownButton);
     mobileScaleUpButton = createMobileButton("+", "전체 컨트롤 확대", "scale-up");
     mobileScaleUpButton.className += " sp-mobile-default-scale";
-    bindMobilePulseButton(mobileScaleUpButton, function () { adjustMobileDefaultControlScale(0.1); });
+    bindMobilePulseButton(mobileScaleUpButton, function () { adjustMobileControlScale(0.1); });
     tools.appendChild(mobileScaleUpButton);
     mobileEditButton = createMobileButton("편집", "컨트롤 편집", "edit-controls");
     bindMobilePulseButton(mobileEditButton, function () { setMobileControlEditMode(!mobileControlEditMode); });
@@ -2836,11 +3318,11 @@
     sensitivity.appendChild(mobileSensitivityValue);
     mobileSensitivityInput = document.createElement("input");
     mobileSensitivityInput.type = "range";
-    mobileSensitivityInput.min = "0.5";
-    mobileSensitivityInput.max = "4.05";
-    mobileSensitivityInput.step = "0.05";
+    mobileSensitivityInput.min = "0";
+    mobileSensitivityInput.max = "300";
+    mobileSensitivityInput.step = "1";
     mobileSensitivityInput.setAttribute("aria-label", "마우스 감도");
-    mobileSensitivityInput.oninput = function () { setMobileLookSensitivity(mobileSensitivityInput.value); };
+    mobileSensitivityInput.oninput = function () { setMobileLookSensitivityPercentage(mobileSensitivityInput.value); };
     sensitivity.appendChild(mobileSensitivityInput);
     editor.appendChild(sensitivity);
     var resetButton = document.createElement("button");
@@ -2918,11 +3400,11 @@
     var actions = document.createElement("div");
     actions.className = "sp-mobile-gameplay sp-mobile-actions";
     var attackButton = createMobileButton("부수기", "공격 또는 부수기", "attack");
-    bindMobileHoldButton(attackButton, function () { dispatchMobileMouseState(0, true, null); }, function () { dispatchMobileMouseState(0, false, null); });
+    bindMobileHoldButton(attackButton, function () { return dispatchMobileMouseState(0, true, null); }, function () { return dispatchMobileMouseState(0, false, null); });
     actions.appendChild(attackButton);
     registerMobileEditableControl(attackButton);
     var useButton = createMobileButton("놓기", "놓기 또는 사용", "use");
-    bindMobileHoldButton(useButton, function () { dispatchMobileMouseState(2, true, null); }, function () { dispatchMobileMouseState(2, false, null); });
+    bindMobileHoldButton(useButton, function () { return dispatchMobileMouseState(2, true, null); }, function () { return dispatchMobileMouseState(2, false, null); });
     actions.appendChild(useButton);
     registerMobileEditableControl(useButton);
     appendMobileKeyButton(actions, "점프", "점프", "jump", " ", "Space", 32);
@@ -2967,6 +3449,10 @@
 
   function isRelayedBackquote(event) {
     return !!event && event.__spawnpointRelayedBackquote === true;
+  }
+
+  function isAllowedSyntheticBackquote(event) {
+    return isRelayedBackquote(event) || !!event && event.__spawnpointMobileControl === true;
   }
 
   function isEscapeEvent(event) {
@@ -3126,7 +3612,7 @@
   }
 
   function blockClientBackquote(event) {
-    if (isRelayedBackquote(event)) return;
+    if (isAllowedSyntheticBackquote(event)) return;
     if (isClientTextInput(event.target) || isMobileChatInput(event.target)) return;
     if (!isBackquoteEvent(event)) return;
     // The vendored client listens on window capture before document receives
@@ -3217,7 +3703,7 @@
             // Never let the physical Escape reach the client as a second key.
             // relayNativeEscape translates it to one marked Backquote action.
             if (isEscapeEvent(event)) return;
-            if (!isRelayedBackquote(event) && !isClientTextInput(event.target) && isBackquoteEvent(event)) {
+            if (!isAllowedSyntheticBackquote(event) && !isClientTextInput(event.target) && isBackquoteEvent(event)) {
               event.preventDefault();
               event.stopImmediatePropagation();
               return;
@@ -3282,7 +3768,7 @@
           nativeSetter.call(target, function (event) {
             if (isClientTextKeyboardEvent(event)) return;
             if (isEscapeEvent(event)) return;
-            if (!isRelayedBackquote(event) && !isClientTextInput(event.target) && isBackquoteEvent(event)) {
+            if (!isAllowedSyntheticBackquote(event) && !isClientTextInput(event.target) && isBackquoteEvent(event)) {
               event.preventDefault();
               event.stopImmediatePropagation();
               return;
