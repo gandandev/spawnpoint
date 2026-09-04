@@ -9,7 +9,6 @@ interface UseAdminHistoryOptions {
   query: string;
   from: number | null;
   to: number | null;
-  revealIp?: boolean;
 }
 
 export function useAdminHistory<T extends { id: number }>({
@@ -19,7 +18,6 @@ export function useAdminHistory<T extends { id: number }>({
   query,
   from,
   to,
-  revealIp = false,
 }: UseAdminHistoryOptions) {
   const [page, setPage] = useState<AdminHistoryPage<T>>({ entries: [], nextCursor: null });
   const [loadedSection, setLoadedSection] = useState<AdminHistorySection | null>(null);
@@ -37,13 +35,12 @@ export function useAdminHistory<T extends { id: number }>({
     if (from !== null) params.set("from", String(from));
     if (to !== null) params.set("to", String(to));
     if (before !== undefined) params.set("before", String(before));
-    if (section === "access" && revealIp) params.set("revealIp", "1");
     const suffix = params.size > 0 ? `?${params}` : "";
     return api<AdminHistoryPage<T>>(`/admin/history/${section}${suffix}`, {
       headers: { "x-spawnpoint-csrf": csrf! },
       signal,
     });
-  }, [csrf, from, query, revealIp, section, to]);
+  }, [csrf, from, query, section, to]);
 
   useEffect(() => {
     if (!active) return;

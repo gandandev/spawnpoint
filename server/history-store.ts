@@ -1,4 +1,3 @@
-import net from "node:net";
 import path from "node:path";
 import Database from "better-sqlite3";
 
@@ -114,14 +113,14 @@ function pageFromRows<T extends { id: number }>(rows: T[], limit: number): Histo
   return { entries, nextCursor: hasMore ? entries.at(-1)!.id : null };
 }
 
-function mapAccessRow(row: AccessHistoryRow, revealIp: boolean): AccessHistoryEntry {
+function mapAccessRow(row: AccessHistoryRow): AccessHistoryEntry {
   return {
     id: row.id,
     accountId: row.account_id,
     accountUsername: row.account_username,
     gameUsername: row.game_username,
     displayName: row.display_name,
-    ipAddress: revealIp ? row.ip_address : maskIpAddress(row.ip_address),
+    ipAddress: row.ip_address,
     connectedAt: row.connected_at,
     lastSeenAt: row.last_seen_at,
     joinedAt: row.joined_at,
@@ -155,18 +154,6 @@ function mapServerLogRow(row: ServerLogHistoryRow): ServerLogHistoryEntry {
     source: row.source,
     line: row.line,
   };
-}
-
-export function maskIpAddress(value: string): string {
-  if (net.isIPv4(value)) {
-    const parts = value.split(".");
-    return `${parts[0]}.${parts[1]}.${parts[2]}.•••`;
-  }
-  if (net.isIPv6(value)) {
-    const parts = value.split(":").filter(Boolean);
-    return `${parts.slice(0, 3).join(":")}:…`;
-  }
-  return "숨김";
 }
 
 export class HistoryStore {
@@ -384,7 +371,7 @@ export class HistoryStore {
     importAll(entries);
   }
 
-  listAccessHistory(options: HistoryQuery = {}, revealIp = false): HistoryPage<AccessHistoryEntry> {
+  listAccessHistory(options: HistoryQuery = {}): HistoryPage<AccessHistoryEntry> {
     const limit = clampPageSize(options.limit);
     const query = options.query?.trim() ?? "";
     const rows = this.db.prepare(`
@@ -409,7 +396,7 @@ export class HistoryStore {
       pattern: `%${escapeLike(query)}%`,
       rowLimit: limit + 1,
     }) as AccessHistoryRow[];
-    return pageFromRows(rows.map((row) => mapAccessRow(row, revealIp)), limit);
+    return pageFromRows(rows.map(mapAccessRow), limit);
   }
 
   listChatHistory(options: HistoryQuery = {}): HistoryPage<ChatHistoryEntry> {

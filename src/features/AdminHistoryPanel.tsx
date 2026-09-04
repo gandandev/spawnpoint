@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowRight, Clock3, Eye, EyeOff, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "lucide-react";
+import { ArrowRight, Clock3, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -142,8 +142,7 @@ export function AdminHistoryPanel({ active, csrf }: { active: boolean; csrf: str
   const [from, setFrom] = useState<number | null>(null);
   const [to, setTo] = useState<number | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
-  const [revealIp, setRevealIp] = useState(false);
-  const history = useAdminHistory<HistoryEntry>({ active, csrf, section, query, from, to, revealIp });
+  const history = useAdminHistory<HistoryEntry>({ active, csrf, section, query, from, to });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(searchInput.trim()), 250);
@@ -181,7 +180,6 @@ export function AdminHistoryPanel({ active, csrf }: { active: boolean; csrf: str
     setSection(nextSection);
     setSearchInput("");
     setQuery("");
-    setRevealIp(false);
   };
 
   return <div className="admin-history-layout">
@@ -202,7 +200,6 @@ export function AdminHistoryPanel({ active, csrf }: { active: boolean; csrf: str
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} className="pl-8" placeholder={placeholder} aria-label="영구 기록 검색" autoComplete="off" />
           </div>
-          {section === "access" && <Button type="button" variant="outline" size="sm" aria-pressed={revealIp} onClick={() => setRevealIp((value) => !value)}>{revealIp ? <EyeOff /> : <Eye />}{revealIp ? "IP 가리기" : "IP 원문 보기"}</Button>}
           <Button type="button" variant="outline" size="sm" onClick={history.refresh}><RefreshCw />새로고침</Button>
         </div>
         <form className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]" onSubmit={applyTimeRange}>

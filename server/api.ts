@@ -1407,7 +1407,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      const page = context.history.listAccessHistory(query, request.query.revealIp === "1");
+      const page = context.history.listAccessHistory(query);
       response.setHeader("Cache-Control", "no-store");
       response.json({
         ...page,

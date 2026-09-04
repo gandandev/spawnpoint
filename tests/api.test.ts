@@ -1386,7 +1386,7 @@ describe("permanent player and server history", () => {
     });
   });
 
-  it("returns masked access history until the administrator explicitly reveals IP addresses", async () => {
+  it("returns full IP addresses in access history", async () => {
     const harness = await createHarness();
     const connectedAt = Date.now() - 10_000;
     const sessionId = harness.history.startGameConnection({
@@ -1401,18 +1401,12 @@ describe("permanent player and server history", () => {
     harness.history.markPlayerJoined(harness.user.id, connectedAt + 1_000);
     harness.history.endGameConnection(sessionId, "closed", connectedAt + 9_000);
 
-    const maskedResponse = await fetch(`${harness.origin}/api/admin/history/access?from=${connectedAt}&to=${connectedAt + 20_000}`, {
+    const response = await fetch(`${harness.origin}/api/admin/history/access?from=${connectedAt}&to=${connectedAt + 20_000}`, {
       headers: harness.adminHeaders,
     });
-    expect(maskedResponse.headers.get("cache-control")).toBe("no-store");
-    const masked = await maskedResponse.json() as { entries: Array<Record<string, unknown>> };
-    expect(masked.entries[0]).toMatchObject({ ipAddress: "198.51.100.•••", joinedAt: connectedAt + 1_000 });
-
-    const revealedResponse = await fetch(`${harness.origin}/api/admin/history/access?revealIp=1`, {
-      headers: harness.adminHeaders,
-    });
-    const revealed = await revealedResponse.json() as { entries: Array<Record<string, unknown>> };
-    expect(revealed.entries[0].ipAddress).toBe("198.51.100.77");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const result = await response.json() as { entries: Array<Record<string, unknown>> };
+    expect(result.entries[0]).toMatchObject({ ipAddress: "198.51.100.77", joinedAt: connectedAt + 1_000 });
   });
 
   it("rejects unauthenticated event writes and backwards time ranges", async () => {

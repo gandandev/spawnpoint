@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
-import { HistoryStore, maskIpAddress } from "../server/history-store.js";
+import { HistoryStore } from "../server/history-store.js";
 
 const dataDirectories: string[] = [];
 
@@ -51,7 +51,7 @@ describe("permanent administrator history", () => {
     store.close();
   });
 
-  it("stores searchable access sessions with masked and explicit IP views", () => {
+  it("stores searchable access sessions with full IP addresses", () => {
     const store = new HistoryStore(temporaryDataDirectory());
     const accountId = crypto.randomUUID();
     const sessionId = store.startGameConnection({
@@ -71,13 +71,13 @@ describe("permanent administrator history", () => {
     expect(store.listAccessHistory({ query: "203.0.113", from: 1_100, to: 2_900 }).entries).toEqual([
       expect.objectContaining({
         id: sessionId,
-        ipAddress: "203.0.113.•••",
+        ipAddress: "203.0.113.42",
         joinedAt: 1_200,
         leftAt: 2_800,
         disconnectedAt: 3_000,
       }),
     ]);
-    expect(store.listAccessHistory({ query: "친구" }, true).entries[0].ipAddress).toBe("203.0.113.42");
+    expect(store.listAccessHistory({ query: "친구" }).entries[0].ipAddress).toBe("203.0.113.42");
     expect(store.listAccessHistory({ from: 3_001 }).entries).toHaveLength(0);
     store.close();
   });
@@ -148,7 +148,7 @@ describe("permanent administrator history", () => {
     first.close();
 
     const reopened = new HistoryStore(dataDir);
-    expect(reopened.listAccessHistory({}, true).entries[0]).toMatchObject({
+    expect(reopened.listAccessHistory().entries[0]).toMatchObject({
       disconnectedAt: 9_000,
       disconnectReason: "interrupted",
     });
@@ -190,11 +190,5 @@ describe("permanent administrator history", () => {
     expect(store.needsLegacyServerLogImport()).toBe(false);
     expect(store.listServerLogs().entries.map((entry) => entry.line)).toEqual(["new line", "old line"]);
     store.close();
-  });
-
-  it("masks IPv4 and IPv6 addresses", () => {
-    expect(maskIpAddress("192.0.2.9")).toBe("192.0.2.•••");
-    expect(maskIpAddress("2001:db8:abcd::1")).toBe("2001:db8:abcd:…");
-    expect(maskIpAddress("unknown")).toBe("숨김");
   });
 });

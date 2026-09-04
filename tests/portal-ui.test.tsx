@@ -1309,26 +1309,6 @@ describe("administrator console and account actions", () => {
             gameUsername: "friend",
             displayName: "친구",
             skinUrl: "/assets/skins/spawnpoint.png",
-            ipAddress: "198.51.100.•••",
-            connectedAt: occurredAt - 10_000,
-            lastSeenAt: occurredAt,
-            joinedAt: occurredAt - 9_000,
-            leftAt: occurredAt,
-            disconnectedAt: occurredAt,
-            disconnectReason: "closed",
-          }],
-          nextCursor: null,
-        }));
-      }
-      if (path === "/api/admin/history/access?revealIp=1") {
-        return Promise.resolve(jsonResponse({
-          entries: [{
-            id: 2,
-            accountId: "00000000-0000-4000-8000-000000000001",
-            accountUsername: "friend",
-            gameUsername: "friend",
-            displayName: "친구",
-            skinUrl: "/assets/skins/spawnpoint.png",
             ipAddress: "198.51.100.77",
             connectedAt: occurredAt - 10_000,
             lastSeenAt: occurredAt,
@@ -1373,12 +1353,6 @@ describe("administrator console and account actions", () => {
     const historyNav = document.body.querySelector('[aria-label="기록 분류"]')!;
     await act(async () => {
       ([...historyNav.querySelectorAll("button")].find((button) => button.textContent === "접속") as HTMLButtonElement).click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(document.body.textContent).toContain("198.51.100.•••");
-    await act(async () => {
-      ([...document.body.querySelectorAll("button")].find((button) => button.textContent === "IP 원문 보기") as HTMLButtonElement).click();
       await Promise.resolve();
       await Promise.resolve();
     });
