@@ -3,6 +3,7 @@ package dev.spawnpoint;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
@@ -93,17 +94,44 @@ public final class CommandRewriteTest {
         for (int index = 0; index < samples; index++) {
             int x = index - samples / 2;
             int z = Math.floorDiv(index * 37, 19) - samples / 4;
-            boolean first = SpawnpointBridgePlugin.shouldAddDiamondBonus(seed, x, z, 0.25D);
-            boolean second = SpawnpointBridgePlugin.shouldAddDiamondBonus(seed, x, z, 0.25D);
+            boolean first = SpawnpointBridgePlugin.shouldAddDiamondBonus(seed, x, z, 0.35D);
+            boolean second = SpawnpointBridgePlugin.shouldAddDiamondBonus(seed, x, z, 0.35D);
             if (first != second) throw new AssertionError("diamond chunk selection must be deterministic");
             if (first) selected++;
         }
-        if (selected < samples * 0.22D || selected > samples * 0.28D) {
-            throw new AssertionError("diamond chunk selection must stay close to the configured 25% rate");
+        if (selected < samples * 0.33D || selected > samples * 0.40D) {
+            throw new AssertionError("balanced diamond selection must stay close to the configured 35% target");
         }
         if (SpawnpointBridgePlugin.shouldAddDiamondBonus(seed, 0, 0, 0.0D)
             || !SpawnpointBridgePlugin.shouldAddDiamondBonus(seed, 0, 0, 1.0D)) {
             throw new AssertionError("diamond chunk selection must respect rate bounds");
+        }
+        for (int tileX = -32; tileX < 32; tileX++) {
+            for (int tileZ = -32; tileZ < 32; tileZ++) {
+                int tileSelected = 0;
+                int[] rows = new int[4];
+                int[] columns = new int[4];
+                for (int localX = 0; localX < 4; localX++) {
+                    for (int localZ = 0; localZ < 4; localZ++) {
+                        int chunkX = tileX * 4 + localX;
+                        int chunkZ = tileZ * 4 + localZ;
+                        boolean balanced = SpawnpointBridgePlugin.shouldAddDiamondBonus(seed, chunkX, chunkZ, 0.35D);
+                        boolean legacy = SpawnpointBridgePlugin.shouldAddLegacyDiamondBonus(seed, chunkX, chunkZ, 0.25D);
+                        if (legacy && !balanced) throw new AssertionError("balanced selection must preserve every legacy selected chunk");
+                        if (balanced) {
+                            tileSelected++;
+                            rows[localZ]++;
+                            columns[localX]++;
+                        }
+                    }
+                }
+                if (tileSelected < 5) throw new AssertionError("every 4x4 tile must contain at least five selected chunks");
+                for (int lane = 0; lane < 4; lane++) {
+                    if (rows[lane] == 0 || columns[lane] == 0) {
+                        throw new AssertionError("every 4x4 tile row and column must contain a selected chunk");
+                    }
+                }
+            }
         }
 
         List<SpawnpointBridgePlugin.DiamondBonusBlock> vein = SpawnpointBridgePlugin.diamondBonusVein(seed, -12, 7, 0);
@@ -127,13 +155,37 @@ public final class CommandRewriteTest {
         Path marker = null;
         try {
             marker = Files.createTempFile("spawnpoint-diamond-marker-", ".bin");
-            Set<SpawnpointBridgePlugin.ProcessedChunk> expected = Set.of(
+            Set<SpawnpointBridgePlugin.ProcessedChunk> legacy = Set.of(
                 new SpawnpointBridgePlugin.ProcessedChunk(UUID.fromString("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"), -12, 7),
                 new SpawnpointBridgePlugin.ProcessedChunk(UUID.fromString("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), 4, -19)
             );
-            SpawnpointBridgePlugin.writeDiamondMarkers(marker, expected);
-            if (!SpawnpointBridgePlugin.readDiamondMarkers(marker).equals(expected)) {
-                throw new AssertionError("diamond processed markers must survive a restart round trip");
+            Set<SpawnpointBridgePlugin.ProcessedChunk> balanced = Set.of(
+                new SpawnpointBridgePlugin.ProcessedChunk(UUID.fromString("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), 21, 8)
+            );
+            SpawnpointBridgePlugin.writeDiamondMarkers(marker, legacy, balanced);
+            SpawnpointBridgePlugin.DiamondMarkerState roundTrip = SpawnpointBridgePlugin.readDiamondMarkers(marker);
+            if (!roundTrip.legacyProcessedChunks().equals(legacy)
+                || !roundTrip.balancedProcessedChunks().equals(balanced)
+                || roundTrip.requiresMigration()) {
+                throw new AssertionError("version 2 diamond markers must survive a restart round trip");
+            }
+
+            try (DataOutputStream output = new DataOutputStream(Files.newOutputStream(marker))) {
+                output.writeInt(0x5350444D);
+                output.writeInt(1);
+                output.writeInt(legacy.size());
+                for (SpawnpointBridgePlugin.ProcessedChunk entry : legacy) {
+                    output.writeLong(entry.worldId().getMostSignificantBits());
+                    output.writeLong(entry.worldId().getLeastSignificantBits());
+                    output.writeInt(entry.chunkX());
+                    output.writeInt(entry.chunkZ());
+                }
+            }
+            SpawnpointBridgePlugin.DiamondMarkerState migration = SpawnpointBridgePlugin.readDiamondMarkers(marker);
+            if (!migration.legacyProcessedChunks().equals(legacy)
+                || !migration.balancedProcessedChunks().isEmpty()
+                || !migration.requiresMigration()) {
+                throw new AssertionError("version 1 diamond markers must migrate without losing legacy chunks");
             }
         } catch (IOException exception) {
             throw new AssertionError("diamond marker round trip failed", exception);

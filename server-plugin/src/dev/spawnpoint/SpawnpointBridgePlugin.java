@@ -131,11 +131,16 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private static final int DIAMOND_BONUS_Y_MAX = 12;
     private static final int DIAMOND_BONUS_VEIN_SIZE = 5;
     private static final int DIAMOND_BONUS_CANDIDATES = 6;
-    private static final double DEFAULT_DIAMOND_BONUS_RATE = 0.25D;
+    private static final double LEGACY_DIAMOND_BONUS_RATE = 0.25D;
+    private static final double DEFAULT_DIAMOND_BONUS_RATE = 0.35D;
+    private static final int DIAMOND_BONUS_PROFILE_VERSION = 2;
+    private static final int DIAMOND_BALANCE_TILE_SIZE = 4;
+    private static final int DIAMOND_BALANCE_TILE_CELLS = DIAMOND_BALANCE_TILE_SIZE * DIAMOND_BALANCE_TILE_SIZE;
     private static final int DIAMOND_BONUS_CHUNKS_PER_TICK = 1;
     private static final long DIAMOND_MARKER_FLUSH_TICKS = 20L * 60L;
     private static final int DIAMOND_MARKER_MAGIC = 0x5350444D;
-    private static final int DIAMOND_MARKER_VERSION = 1;
+    private static final int LEGACY_DIAMOND_MARKER_VERSION = 1;
+    private static final int DIAMOND_MARKER_VERSION = 2;
     private static final int MAX_DIAMOND_MARKERS = 5_000_000;
     private static final Pattern TECHNICAL_GAME_USERNAME = Pattern.compile("(?i)sp_[a-f0-9]{13}");
     private static final Pattern PLAYER_KEY = Pattern.compile("(?i)(?:[a-z0-9_]{3,16}|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})");
@@ -169,6 +174,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private final Map<UUID, String> advancementRuleRestores = new HashMap<>();
     private final Object diamondMarkerLock = new Object();
     private final Object diamondMarkerWriteLock = new Object();
+    private final Set<ProcessedChunk> legacyProcessedDiamondChunks = new HashSet<>();
     private final Set<ProcessedChunk> processedDiamondChunks = new HashSet<>();
     private final Set<ProcessedChunk> queuedDiamondChunks = new HashSet<>();
     private final Deque<Chunk> diamondChunkQueue = new ArrayDeque<>();
@@ -190,11 +196,17 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        boolean migrateDiamondBonusProfile = !getConfig().contains("diamond-bonus.profile-version");
         getConfig().addDefault("tpa-enabled", true);
         getConfig().addDefault("keep-inventory", true);
         getConfig().addDefault("diamond-bonus.enabled", true);
         getConfig().addDefault("diamond-bonus.rate", DEFAULT_DIAMOND_BONUS_RATE);
+        getConfig().addDefault("diamond-bonus.profile-version", DIAMOND_BONUS_PROFILE_VERSION);
         getConfig().options().copyDefaults(true);
+        if (migrateDiamondBonusProfile) {
+            getConfig().set("diamond-bonus.rate", DEFAULT_DIAMOND_BONUS_RATE);
+            getConfig().set("diamond-bonus.profile-version", DIAMOND_BONUS_PROFILE_VERSION);
+        }
         try {
             savePluginConfig();
         } catch (IOException exception) {
@@ -288,9 +300,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (!diamondBonusEnabled || diamondBonusRate <= 0.0D) return;
         try {
             synchronized (diamondMarkerLock) {
-                processedDiamondChunks.addAll(readDiamondMarkers(diamondMarkerPath()));
+                DiamondMarkerState markerState = readDiamondMarkers(diamondMarkerPath());
+                legacyProcessedDiamondChunks.addAll(markerState.legacyProcessedChunks);
+                processedDiamondChunks.addAll(markerState.balancedProcessedChunks);
                 diamondMarkerGeneration = processedDiamondChunks.size();
-                flushedDiamondMarkerGeneration = diamondMarkerGeneration;
+                flushedDiamondMarkerGeneration = markerState.requiresMigration ? -1L : diamondMarkerGeneration;
                 diamondMarkersLoaded = true;
             }
         } catch (IOException exception) {
@@ -310,8 +324,9 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         for (World world : getServer().getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) queueDiamondBonusChunk(chunk);
         }
-        getLogger().info("Diamond bonus is enabled for a deterministic "
-            + Math.round(diamondBonusRate * 100.0D) + "% of normal-world chunks.");
+        getLogger().info("Diamond bonus is enabled with a balanced target near "
+            + Math.round(diamondBonusRate * 100.0D) + "% of normal-world chunks."
+            + (legacyProcessedDiamondChunks.isEmpty() ? "" : " Legacy coverage is preserved without duplicate veins."));
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
@@ -334,24 +349,32 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         for (int index = 0; index < DIAMOND_BONUS_CHUNKS_PER_TICK; index++) {
             Chunk chunk;
             ProcessedChunk marker;
+            boolean legacyProcessed;
             synchronized (diamondMarkerLock) {
                 chunk = diamondChunkQueue.pollFirst();
                 if (chunk == null) return;
                 marker = new ProcessedChunk(chunk.getWorld().getUID(), chunk.getX(), chunk.getZ());
                 queuedDiamondChunks.remove(marker);
                 if (processedDiamondChunks.contains(marker)) continue;
+                legacyProcessed = legacyProcessedDiamondChunks.contains(marker);
             }
             if (!chunk.isLoaded()) continue;
-            applyDiamondBonus(chunk);
+            applyDiamondBonus(chunk, legacyProcessed);
             synchronized (diamondMarkerLock) {
                 if (processedDiamondChunks.add(marker)) diamondMarkerGeneration++;
             }
         }
     }
 
-    private void applyDiamondBonus(Chunk chunk) {
+    private void applyDiamondBonus(Chunk chunk, boolean legacyProcessed) {
         World world = chunk.getWorld();
         if (!shouldAddDiamondBonus(world.getSeed(), chunk.getX(), chunk.getZ(), diamondBonusRate)) return;
+        if (legacyProcessed && shouldAddLegacyDiamondBonus(
+            world.getSeed(),
+            chunk.getX(),
+            chunk.getZ(),
+            LEGACY_DIAMOND_BONUS_RATE
+        )) return;
         for (int candidate = 0; candidate < DIAMOND_BONUS_CANDIDATES; candidate++) {
             List<DiamondBonusBlock> vein = diamondBonusVein(world.getSeed(), chunk.getX(), chunk.getZ(), candidate);
             if (vein.size() != DIAMOND_BONUS_VEIN_SIZE || !vein.stream().allMatch(position -> isFullyEnclosedStone(world, position))) {
@@ -379,6 +402,81 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     }
 
     static boolean shouldAddDiamondBonus(long worldSeed, int chunkX, int chunkZ, double rate) {
+        rate = boundedDiamondBonusRate(rate);
+        if (rate <= 0.0D) return false;
+        if (rate >= 1.0D) return true;
+        if (rate <= LEGACY_DIAMOND_BONUS_RATE) {
+            return shouldAddLegacyDiamondBonus(worldSeed, chunkX, chunkZ, rate);
+        }
+
+        int tileX = Math.floorDiv(chunkX, DIAMOND_BALANCE_TILE_SIZE);
+        int tileZ = Math.floorDiv(chunkZ, DIAMOND_BALANCE_TILE_SIZE);
+        int localX = Math.floorMod(chunkX, DIAMOND_BALANCE_TILE_SIZE);
+        int localZ = Math.floorMod(chunkZ, DIAMOND_BALANCE_TILE_SIZE);
+        boolean[] selected = new boolean[DIAMOND_BALANCE_TILE_CELLS];
+        int[] rowCounts = new int[DIAMOND_BALANCE_TILE_SIZE];
+        int[] columnCounts = new int[DIAMOND_BALANCE_TILE_SIZE];
+        int selectedCount = 0;
+        for (int index = 0; index < DIAMOND_BALANCE_TILE_CELLS; index++) {
+            int candidateLocalX = index % DIAMOND_BALANCE_TILE_SIZE;
+            int candidateLocalZ = index / DIAMOND_BALANCE_TILE_SIZE;
+            int candidateX = tileX * DIAMOND_BALANCE_TILE_SIZE + candidateLocalX;
+            int candidateZ = tileZ * DIAMOND_BALANCE_TILE_SIZE + candidateLocalZ;
+            if (!shouldAddLegacyDiamondBonus(worldSeed, candidateX, candidateZ, LEGACY_DIAMOND_BONUS_RATE)) continue;
+            selected[index] = true;
+            rowCounts[candidateLocalZ]++;
+            columnCounts[candidateLocalX]++;
+            selectedCount++;
+        }
+
+        double desiredInTile = rate * DIAMOND_BALANCE_TILE_CELLS;
+        int targetCount = (int) Math.floor(desiredInTile);
+        double fractionalTarget = desiredInTile - targetCount;
+        long quotaSample = mixDiamondSeed(worldSeed, tileX, tileZ, 64);
+        double quotaFraction = (double) (quotaSample >>> 11) * 0x1.0p-53;
+        if (quotaFraction < fractionalTarget) targetCount++;
+
+        while (selectedCount < targetCount || hasEmptyDiamondBalanceLane(rowCounts) || hasEmptyDiamondBalanceLane(columnCounts)) {
+            int bestIndex = -1;
+            int bestCoverageScore = Integer.MIN_VALUE;
+            long bestTieBreaker = 0L;
+            for (int index = 0; index < DIAMOND_BALANCE_TILE_CELLS; index++) {
+                if (selected[index]) continue;
+                int candidateLocalX = index % DIAMOND_BALANCE_TILE_SIZE;
+                int candidateLocalZ = index / DIAMOND_BALANCE_TILE_SIZE;
+                int coverageScore = (rowCounts[candidateLocalZ] == 0 ? 100 : 0)
+                    + (columnCounts[candidateLocalX] == 0 ? 100 : 0)
+                    - rowCounts[candidateLocalZ]
+                    - columnCounts[candidateLocalX];
+                int candidateX = tileX * DIAMOND_BALANCE_TILE_SIZE + candidateLocalX;
+                int candidateZ = tileZ * DIAMOND_BALANCE_TILE_SIZE + candidateLocalZ;
+                long tieBreaker = mixDiamondSeed(worldSeed, candidateX, candidateZ, 65);
+                if (coverageScore > bestCoverageScore
+                    || (coverageScore == bestCoverageScore && (bestIndex < 0 || Long.compareUnsigned(tieBreaker, bestTieBreaker) < 0))) {
+                    bestIndex = index;
+                    bestCoverageScore = coverageScore;
+                    bestTieBreaker = tieBreaker;
+                }
+            }
+            if (bestIndex < 0) break;
+            selected[bestIndex] = true;
+            int selectedLocalX = bestIndex % DIAMOND_BALANCE_TILE_SIZE;
+            int selectedLocalZ = bestIndex / DIAMOND_BALANCE_TILE_SIZE;
+            rowCounts[selectedLocalZ]++;
+            columnCounts[selectedLocalX]++;
+            selectedCount++;
+        }
+        return selected[localZ * DIAMOND_BALANCE_TILE_SIZE + localX];
+    }
+
+    private static boolean hasEmptyDiamondBalanceLane(int[] counts) {
+        for (int count : counts) {
+            if (count == 0) return true;
+        }
+        return false;
+    }
+
+    static boolean shouldAddLegacyDiamondBonus(long worldSeed, int chunkX, int chunkZ, double rate) {
         rate = boundedDiamondBonusRate(rate);
         if (rate <= 0.0D) return false;
         if (rate >= 1.0D) return true;
@@ -469,7 +567,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                     // overwrite the newer marker file afterward.
                     if (flushedDiamondMarkerGeneration >= generation) return;
                 }
-                writeDiamondMarkers(diamondMarkerPath(), snapshot);
+                writeDiamondMarkers(diamondMarkerPath(), legacyProcessedDiamondChunks, snapshot);
                 synchronized (diamondMarkerLock) {
                     flushedDiamondMarkerGeneration = Math.max(flushedDiamondMarkerGeneration, generation);
                 }
@@ -479,45 +577,69 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
     }
 
-    static Set<ProcessedChunk> readDiamondMarkers(Path path) throws IOException {
-        if (!Files.exists(path)) return new HashSet<>();
+    static DiamondMarkerState readDiamondMarkers(Path path) throws IOException {
+        if (!Files.exists(path)) return new DiamondMarkerState(new HashSet<>(), new HashSet<>(), false);
         try (DataInputStream input = new DataInputStream(new BufferedInputStream(Files.newInputStream(path)))) {
-            if (input.readInt() != DIAMOND_MARKER_MAGIC || input.readInt() != DIAMOND_MARKER_VERSION) {
-                throw new IOException("unknown marker format");
+            if (input.readInt() != DIAMOND_MARKER_MAGIC) throw new IOException("unknown marker format");
+            int version = input.readInt();
+            if (version == LEGACY_DIAMOND_MARKER_VERSION) {
+                Set<ProcessedChunk> legacyMarkers = readDiamondMarkerEntries(input);
+                if (input.read() != -1) throw new IOException("unexpected marker data");
+                return new DiamondMarkerState(legacyMarkers, new HashSet<>(), true);
             }
-            int count = input.readInt();
-            if (count < 0 || count > MAX_DIAMOND_MARKERS) throw new IOException("invalid marker count");
-            Set<ProcessedChunk> markers = new HashSet<>();
-            for (int index = 0; index < count; index++) {
-                UUID worldId = new UUID(input.readLong(), input.readLong());
-                markers.add(new ProcessedChunk(worldId, input.readInt(), input.readInt()));
-            }
+            if (version != DIAMOND_MARKER_VERSION) throw new IOException("unknown marker format");
+            Set<ProcessedChunk> legacyMarkers = readDiamondMarkerEntries(input);
+            Set<ProcessedChunk> balancedMarkers = readDiamondMarkerEntries(input);
             if (input.read() != -1) throw new IOException("unexpected marker data");
-            return markers;
+            return new DiamondMarkerState(legacyMarkers, balancedMarkers, false);
         }
     }
 
-    static void writeDiamondMarkers(Path path, Iterable<ProcessedChunk> markers) throws IOException {
-        List<ProcessedChunk> snapshot = new ArrayList<>();
-        markers.forEach(snapshot::add);
-        if (snapshot.size() > MAX_DIAMOND_MARKERS) throw new IOException("too many diamond markers");
+    private static Set<ProcessedChunk> readDiamondMarkerEntries(DataInputStream input) throws IOException {
+        int count = input.readInt();
+        if (count < 0 || count > MAX_DIAMOND_MARKERS) throw new IOException("invalid marker count");
+        Set<ProcessedChunk> markers = new HashSet<>();
+        for (int index = 0; index < count; index++) {
+            UUID worldId = new UUID(input.readLong(), input.readLong());
+            markers.add(new ProcessedChunk(worldId, input.readInt(), input.readInt()));
+        }
+        return markers;
+    }
+
+    static void writeDiamondMarkers(
+        Path path,
+        Iterable<ProcessedChunk> legacyMarkers,
+        Iterable<ProcessedChunk> balancedMarkers
+    ) throws IOException {
+        List<ProcessedChunk> legacySnapshot = new ArrayList<>();
+        legacyMarkers.forEach(legacySnapshot::add);
+        List<ProcessedChunk> balancedSnapshot = new ArrayList<>();
+        balancedMarkers.forEach(balancedSnapshot::add);
+        if (legacySnapshot.size() > MAX_DIAMOND_MARKERS || balancedSnapshot.size() > MAX_DIAMOND_MARKERS) {
+            throw new IOException("too many diamond markers");
+        }
         Files.createDirectories(path.getParent());
         Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
         try (DataOutputStream output = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(temporary)))) {
             output.writeInt(DIAMOND_MARKER_MAGIC);
             output.writeInt(DIAMOND_MARKER_VERSION);
-            output.writeInt(snapshot.size());
-            for (ProcessedChunk marker : snapshot) {
-                output.writeLong(marker.worldId.getMostSignificantBits());
-                output.writeLong(marker.worldId.getLeastSignificantBits());
-                output.writeInt(marker.chunkX);
-                output.writeInt(marker.chunkZ);
-            }
+            writeDiamondMarkerEntries(output, legacySnapshot);
+            writeDiamondMarkerEntries(output, balancedSnapshot);
         }
         try {
             Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException exception) {
             Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void writeDiamondMarkerEntries(DataOutputStream output, List<ProcessedChunk> markers) throws IOException {
+        output.writeInt(markers.size());
+        for (ProcessedChunk marker : markers) {
+            output.writeLong(marker.worldId.getMostSignificantBits());
+            output.writeLong(marker.worldId.getLeastSignificantBits());
+            output.writeInt(marker.chunkX);
+            output.writeInt(marker.chunkZ);
         }
     }
 
@@ -2549,6 +2671,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private record TeleportRequest(UUID requesterId, UUID targetId, long expiresAt) {}
 
     record ProcessedChunk(UUID worldId, int chunkX, int chunkZ) {}
+
+    record DiamondMarkerState(
+        Set<ProcessedChunk> legacyProcessedChunks,
+        Set<ProcessedChunk> balancedProcessedChunks,
+        boolean requiresMigration
+    ) {}
 
     record DiamondBonusBlock(int x, int y, int z) {}
 

@@ -28,7 +28,7 @@ const result = {
     paper: "1.12.2",
     memoryMb: 512,
     existingTerrainFirstBoot: true,
-    bonusRate: 0.25,
+    bonusRate: 0.35,
     expectedOneTimeApplication: true,
   },
   phases: [],
@@ -137,12 +137,16 @@ async function stopPaper(phase) {
   paper = null;
 }
 
-function setDiamondBonus(config, enabled) {
+function setDiamondBonus(config, enabled, rate) {
   const replacement = `diamond-bonus:\n  enabled: ${enabled ? "true" : "false"}`;
   if (!/diamond-bonus:\s*\n\s*enabled:\s*(?:true|false)/.test(config)) {
     throw new Error("SpawnpointBridge config does not contain diamond-bonus.enabled");
   }
-  return config.replace(/diamond-bonus:\s*\n\s*enabled:\s*(?:true|false)/, replacement);
+  const updated = config.replace(/diamond-bonus:\s*\n\s*enabled:\s*(?:true|false)/, replacement);
+  if (!/\n\s*rate:\s*[\d.]+/.test(updated)) {
+    throw new Error("SpawnpointBridge config does not contain diamond-bonus.rate");
+  }
+  return updated.replace(/(\n\s*rate:)\s*[\d.]+/, `$1 ${rate}`);
 }
 
 function skipNbtPayload(buffer, cursor, type, name, counter) {
@@ -280,12 +284,57 @@ async function countWorldDiamonds() {
   return { diamonds, chunks, regionFiles: files };
 }
 
-async function readMarkerCount() {
+async function readMarkerState() {
   const marker = await fs.readFile(markerPath);
-  if (marker.length < 12 || marker.readUInt32BE(0) !== 0x5350444D || marker.readUInt32BE(4) !== 1) {
+  if (marker.length < 12 || marker.readUInt32BE(0) !== 0x5350444D) {
     throw new Error("Invalid diamond marker header");
   }
-  return marker.readUInt32BE(8);
+  const version = marker.readUInt32BE(4);
+  if (version === 1) {
+    const legacyCount = marker.readUInt32BE(8);
+    const legacyEntries = marker.subarray(12, 12 + legacyCount * 24);
+    if (legacyEntries.length !== legacyCount * 24 || 12 + legacyEntries.length !== marker.length) {
+      throw new Error("Invalid legacy diamond marker length");
+    }
+    return { version, legacyCount, balancedCount: 0, legacyEntries, balancedEntries: Buffer.alloc(0) };
+  }
+  if (version !== 2) throw new Error(`Unsupported diamond marker version ${version}`);
+  const legacyCount = marker.readUInt32BE(8);
+  const legacyStart = 12;
+  const legacyEnd = legacyStart + legacyCount * 24;
+  if (legacyEnd + 4 > marker.length) throw new Error("Invalid diamond marker length");
+  const balancedCount = marker.readUInt32BE(legacyEnd);
+  const balancedStart = legacyEnd + 4;
+  const balancedEnd = balancedStart + balancedCount * 24;
+  if (balancedEnd !== marker.length) throw new Error("Invalid balanced diamond marker length");
+  return {
+    version,
+    legacyCount,
+    balancedCount,
+    legacyEntries: marker.subarray(legacyStart, legacyEnd),
+    balancedEntries: marker.subarray(balancedStart, balancedEnd),
+  };
+}
+
+async function convertBalancedMarkerToLegacyV1() {
+  const state = await readMarkerState();
+  if (state.version !== 2 || state.balancedCount <= 0) throw new Error("Expected populated version 2 marker before migration fixture");
+  const header = Buffer.alloc(12);
+  header.writeUInt32BE(0x5350444D, 0);
+  header.writeUInt32BE(1, 4);
+  header.writeUInt32BE(state.balancedCount, 8);
+  await fs.writeFile(markerPath, Buffer.concat([header, state.balancedEntries]));
+  return state.balancedCount;
+}
+
+async function readDiamondProfile() {
+  const config = await fs.readFile(configPath, "utf8");
+  const rate = /\n\s*rate:\s*([\d.]+)/.exec(config)?.[1];
+  const version = /\n\s*profile-version:\s*(\d+)/.exec(config)?.[1];
+  return {
+    rate: rate === undefined ? null : Number(rate),
+    version: version === undefined ? null : Number(version),
+  };
 }
 
 try {
@@ -299,7 +348,7 @@ try {
     : `${properties.trimEnd()}\nlevel-seed=8894872356127244011\n`;
   await fs.writeFile(propertiesPath, fixedSeedProperties, "utf8");
   let config = await fs.readFile(configPath, "utf8");
-  await fs.writeFile(configPath, setDiamondBonus(config, false), "utf8");
+  await fs.writeFile(configPath, setDiamondBonus(config, false, 0.35), "utf8");
 
   const baselinePhase = await startPaper("baseline-existing-terrain");
   result.phases.push(baselinePhase);
@@ -309,32 +358,55 @@ try {
   result.baseline = baseline;
 
   config = await fs.readFile(configPath, "utf8");
-  await fs.writeFile(configPath, setDiamondBonus(config, true), "utf8");
-  const bonusPhase = await startPaper("bonus-first-load");
-  result.phases.push(bonusPhase);
+  await fs.writeFile(configPath, setDiamondBonus(config, true, 0.25), "utf8");
+  const legacyPhase = await startPaper("legacy-quarter-first-load");
+  result.phases.push(legacyPhase);
   await delay(20_000);
-  await stopPaper(bonusPhase);
+  await stopPaper(legacyPhase);
+  const afterLegacy = await countWorldDiamonds();
+  const legacyV1MarkerCount = await convertBalancedMarkerToLegacyV1();
+  result.afterLegacy = { ...afterLegacy, markerCount: legacyV1MarkerCount };
+
+  config = await fs.readFile(configPath, "utf8");
+  config = setDiamondBonus(config, true, 0.25).replace(/^\s*profile-version:\s*\d+\s*$/m, "");
+  await fs.writeFile(configPath, config, "utf8");
+  const migrationPhase = await startPaper("balanced-v1-migration");
+  result.phases.push(migrationPhase);
+  await delay(20_000);
+  await stopPaper(migrationPhase);
   const afterBonus = await countWorldDiamonds();
-  const markerCount = await readMarkerCount();
-  result.afterBonus = { ...afterBonus, markerCount };
+  const migratedMarker = await readMarkerState();
+  const migratedProfile = await readDiamondProfile();
+  result.afterBonus = {
+    ...afterBonus,
+    markerVersion: migratedMarker.version,
+    legacyMarkerCount: migratedMarker.legacyCount,
+    markerCount: migratedMarker.balancedCount,
+    profile: migratedProfile,
+  };
 
   const repeatPhase = await startPaper("bonus-repeat-load");
   result.phases.push(repeatPhase);
   await delay(5_000);
   await stopPaper(repeatPhase);
   const afterRepeat = await countWorldDiamonds();
-  const repeatMarkerCount = await readMarkerCount();
-  result.afterRepeat = { ...afterRepeat, markerCount: repeatMarkerCount };
+  const repeatMarker = await readMarkerState();
+  result.afterRepeat = { ...afterRepeat, markerCount: repeatMarker.balancedCount };
 
   result.assertions = {
     baselineChunksWereAlreadyGenerated: baseline.chunks > 0,
-    bonusAddedDiamondOre: afterBonus.diamonds > baseline.diamonds,
-    bonusAddedExactWholeVeins: (afterBonus.diamonds - baseline.diamonds) % 5 === 0,
-    bonusIsNearFiftyPercent: (afterBonus.diamonds - baseline.diamonds) / baseline.diamonds >= 0.35
+    legacyBonusAddedDiamondOre: afterLegacy.diamonds > baseline.diamonds,
+    migrationAddedOnlyMissingDiamondOre: afterBonus.diamonds > afterLegacy.diamonds,
+    bonusAddedExactWholeVeins: (afterBonus.diamonds - baseline.diamonds) % 5 === 0
+      && (afterBonus.diamonds - afterLegacy.diamonds) % 5 === 0,
+    bonusIsNearExpectedIncrease: (afterBonus.diamonds - baseline.diamonds) / baseline.diamonds >= 0.35
       && (afterBonus.diamonds - baseline.diamonds) / baseline.diamonds <= 0.65,
-    processedMarkersPersisted: markerCount > 0,
+    legacyMarkersMigrated: migratedMarker.version === 2
+      && migratedMarker.legacyCount === legacyV1MarkerCount
+      && migratedMarker.balancedCount === legacyV1MarkerCount,
+    legacyConfigMigrated: migratedProfile.rate === 0.35 && migratedProfile.version === 2,
     repeatLoadAddedNoDiamondOre: afterRepeat.diamonds === afterBonus.diamonds,
-    repeatLoadAddedNoMarkers: repeatMarkerCount === markerCount,
+    repeatLoadAddedNoMarkers: repeatMarker.balancedCount === migratedMarker.balancedCount,
   };
   result.success = Object.values(result.assertions).every(Boolean);
   if (!result.success) throw new Error(`Diamond retrogen assertions failed: ${JSON.stringify(result.assertions)}`);
@@ -360,6 +432,7 @@ try {
     resultPath,
     success: result.success,
     baseline: result.baseline,
+    afterLegacy: result.afterLegacy,
     afterBonus: result.afterBonus,
     afterRepeat: result.afterRepeat,
     assertions: result.assertions,
