@@ -9,6 +9,9 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { gunzipSync, inflateSync } from "node:zlib";
 
+// Export the profile-2 JAR from the pre-change commit, then pass its path below.
+const previousPluginPath = process.env.DIAMOND_PREVIOUS_PLUGIN;
+if (!previousPluginPath) throw new Error("Set DIAMOND_PREVIOUS_PLUGIN to the deployed profile-2 plugin JAR");
 const root = process.cwd();
 const seedDir = path.join(root, "server-runtime/seed");
 const testId = crypto.randomUUID();
@@ -28,7 +31,7 @@ const result = {
     paper: "1.12.2",
     memoryMb: 512,
     existingTerrainFirstBoot: true,
-    bonusRate: 0.35,
+    bonusRate: 0.70,
     expectedOneTimeApplication: true,
   },
   phases: [],
@@ -298,7 +301,7 @@ async function readMarkerState() {
     }
     return { version, legacyCount, balancedCount: 0, legacyEntries, balancedEntries: Buffer.alloc(0) };
   }
-  if (version !== 2) throw new Error(`Unsupported diamond marker version ${version}`);
+  if (version !== 2 && version !== 3) throw new Error(`Unsupported diamond marker version ${version}`);
   const legacyCount = marker.readUInt32BE(8);
   const legacyStart = 12;
   const legacyEnd = legacyStart + legacyCount * 24;
@@ -306,11 +309,13 @@ async function readMarkerState() {
   const balancedCount = marker.readUInt32BE(legacyEnd);
   const balancedStart = legacyEnd + 4;
   const balancedEnd = balancedStart + balancedCount * 24;
-  if (balancedEnd !== marker.length) throw new Error("Invalid balanced diamond marker length");
+  const frequentCount = version === 3 ? marker.readUInt32BE(balancedEnd) : 0;
+  if (balancedEnd + (version === 3 ? 4 + frequentCount * 24 : 0) !== marker.length) throw new Error("Invalid diamond marker length");
   return {
     version,
     legacyCount,
     balancedCount,
+    frequentCount,
     legacyEntries: marker.subarray(legacyStart, legacyEnd),
     balancedEntries: marker.subarray(balancedStart, balancedEnd),
   };
@@ -329,9 +334,11 @@ async function convertBalancedMarkerToLegacyV1() {
 
 async function readDiamondProfile() {
   const config = await fs.readFile(configPath, "utf8");
+  const existingRate = /\n\s*existing-chunk-rate:\s*([\d.]+)/.exec(config)?.[1];
   const rate = /\n\s*rate:\s*([\d.]+)/.exec(config)?.[1];
   const version = /\n\s*profile-version:\s*(\d+)/.exec(config)?.[1];
   return {
+    existingRate: existingRate === undefined ? null : Number(existingRate),
     rate: rate === undefined ? null : Number(rate),
     version: version === undefined ? null : Number(version),
   };
@@ -340,6 +347,7 @@ async function readDiamondProfile() {
 try {
   if (!(await isPortFree(25565))) throw new Error("Port 25565 is already in use");
   await fs.cp(seedDir, minecraftDir, { recursive: true, force: false });
+  await fs.copyFile(previousPluginPath, path.join(minecraftDir, "plugins/SpawnpointBridge.jar"));
   await fs.writeFile(path.join(minecraftDir, "eula.txt"), "eula=true\n", "utf8");
   const propertiesPath = path.join(minecraftDir, "server.properties");
   const properties = await fs.readFile(propertiesPath, "utf8");
@@ -348,7 +356,7 @@ try {
     : `${properties.trimEnd()}\nlevel-seed=8894872356127244011\n`;
   await fs.writeFile(propertiesPath, fixedSeedProperties, "utf8");
   let config = await fs.readFile(configPath, "utf8");
-  await fs.writeFile(configPath, setDiamondBonus(config, false, 0.35), "utf8");
+  await fs.writeFile(configPath, setDiamondBonus(config, false, 0.35).replace(/profile-version:\s*3/, "profile-version: 2"), "utf8");
 
   const baselinePhase = await startPaper("baseline-existing-terrain");
   result.phases.push(baselinePhase);
@@ -385,13 +393,23 @@ try {
     profile: migratedProfile,
   };
 
+  await fs.copyFile(path.join(seedDir, "plugins/SpawnpointBridge.jar"), path.join(minecraftDir, "plugins/SpawnpointBridge.jar"));
+  const frequentPhase = await startPaper("frequent-v2-migration");
+  result.phases.push(frequentPhase);
+  await delay(20_000);
+  await stopPaper(frequentPhase);
+  const afterFrequent = await countWorldDiamonds();
+  const frequentMarker = await readMarkerState();
+  const frequentProfile = await readDiamondProfile();
+  result.afterFrequent = { ...afterFrequent, markerCount: frequentMarker.frequentCount, profile: frequentProfile };
+
   const repeatPhase = await startPaper("bonus-repeat-load");
   result.phases.push(repeatPhase);
   await delay(5_000);
   await stopPaper(repeatPhase);
   const afterRepeat = await countWorldDiamonds();
   const repeatMarker = await readMarkerState();
-  result.afterRepeat = { ...afterRepeat, markerCount: repeatMarker.balancedCount };
+  result.afterRepeat = { ...afterRepeat, markerCount: repeatMarker.frequentCount };
 
   result.assertions = {
     baselineChunksWereAlreadyGenerated: baseline.chunks > 0,
@@ -403,10 +421,19 @@ try {
       && (afterBonus.diamonds - baseline.diamonds) / baseline.diamonds <= 0.65,
     legacyMarkersMigrated: migratedMarker.version === 2
       && migratedMarker.legacyCount === legacyV1MarkerCount
-      && migratedMarker.balancedCount === legacyV1MarkerCount,
+      // Additional chunks can load between boots, increasing the processed count.
+      && migratedMarker.balancedCount >= legacyV1MarkerCount,
     legacyConfigMigrated: migratedProfile.rate === 0.35 && migratedProfile.version === 2,
-    repeatLoadAddedNoDiamondOre: afterRepeat.diamonds === afterBonus.diamonds,
-    repeatLoadAddedNoMarkers: repeatMarker.balancedCount === migratedMarker.balancedCount,
+    frequentPassAddedOreToExistingChunks: afterFrequent.diamonds > afterBonus.diamonds,
+    frequentMarkersMigrated: frequentMarker.version === 3
+      && frequentMarker.legacyCount === migratedMarker.legacyCount
+      && frequentMarker.balancedCount === migratedMarker.balancedCount
+      && frequentMarker.frequentCount > 0
+      && frequentMarker.legacyEntries.equals(migratedMarker.legacyEntries)
+      && frequentMarker.balancedEntries.equals(migratedMarker.balancedEntries),
+    frequentConfigMigrated: frequentProfile.rate === 0.70 && frequentProfile.existingRate === 0.50 && frequentProfile.version === 3,
+    repeatLoadAddedNoDiamondOre: afterRepeat.diamonds === afterFrequent.diamonds,
+    repeatLoadAddedNoMarkers: repeatMarker.frequentCount === frequentMarker.frequentCount,
   };
   result.success = Object.values(result.assertions).every(Boolean);
   if (!result.success) throw new Error(`Diamond retrogen assertions failed: ${JSON.stringify(result.assertions)}`);

@@ -1,10 +1,12 @@
 tpa-enabled: true
 keep-inventory: true
 
-# Add one small, fully enclosed diamond vein to a balanced set of normal-world
-# chunks. The 4x4 chunk balancing reduces long dry runs while preserving every
-# vein selected by the earlier 25% algorithm. Versioned markers prevent repeats.
+# Add a fully enclosed 2-5 ore vein at Y=10-12 per selected normal-world chunk.
+# Profile 3 also processes existing chunks once at a lower rate because their
+# previous bonus ore remains. At 1000m/hour, Y=11-12 tunnels average ~5min/vein.
+# Separate versioned markers prevent this pass from repeating after reloads.
 diamond-bonus:
   enabled: true
-  rate: 0.35
-  profile-version: 2
+  rate: 0.70
+  existing-chunk-rate: 0.50
+  profile-version: 3

@@ -152,6 +152,32 @@ public final class CommandRewriteTest {
             }
         }
 
+        Set<Integer> sizes = new HashSet<>();
+        for (int x = -100; x < 100; x++) {
+            List<SpawnpointBridgePlugin.DiamondBonusBlock> frequent = SpawnpointBridgePlugin.frequentDiamondBonusVein(seed, x, 7, 0);
+            if (!frequent.equals(SpawnpointBridgePlugin.frequentDiamondBonusVein(seed, x, 7, 0))) {
+                throw new AssertionError("frequent veins must be deterministic");
+            }
+            if (frequent.isEmpty()) continue;
+            sizes.add(frequent.size());
+            if (frequent.size() < 2 || frequent.size() > 5 || new HashSet<>(frequent).size() != frequent.size()) {
+                throw new AssertionError("frequent veins must contain 2-5 unique ore blocks");
+            }
+            for (int i = 0; i < frequent.size(); i++) {
+                var block = frequent.get(i);
+                if (block.y() < 10 || block.y() > 12 || Math.floorDiv(block.x(), 16) != x || Math.floorDiv(block.z(), 16) != 7) {
+                    throw new AssertionError("frequent vein escaped its depth or chunk");
+                }
+                if (i > 0) {
+                    var previous = frequent.get(i - 1);
+                    if (Math.abs(block.x() - previous.x()) + Math.abs(block.y() - previous.y()) + Math.abs(block.z() - previous.z()) != 1) {
+                        throw new AssertionError("frequent veins must stay connected");
+                    }
+                }
+            }
+        }
+        if (!sizes.equals(Set.of(2, 3, 4, 5))) throw new AssertionError("all frequent vein sizes must occur");
+
         Path marker = null;
         try {
             marker = Files.createTempFile("spawnpoint-diamond-marker-", ".bin");
@@ -162,12 +188,34 @@ public final class CommandRewriteTest {
             Set<SpawnpointBridgePlugin.ProcessedChunk> balanced = Set.of(
                 new SpawnpointBridgePlugin.ProcessedChunk(UUID.fromString("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), 21, 8)
             );
-            SpawnpointBridgePlugin.writeDiamondMarkers(marker, legacy, balanced);
+            SpawnpointBridgePlugin.writeDiamondMarkers(marker, legacy, balanced, balanced);
             SpawnpointBridgePlugin.DiamondMarkerState roundTrip = SpawnpointBridgePlugin.readDiamondMarkers(marker);
             if (!roundTrip.legacyProcessedChunks().equals(legacy)
                 || !roundTrip.balancedProcessedChunks().equals(balanced)
+                || !roundTrip.frequentProcessedChunks().equals(balanced)
                 || roundTrip.requiresMigration()) {
-                throw new AssertionError("version 2 diamond markers must survive a restart round trip");
+                throw new AssertionError("version 3 diamond markers must survive a restart round trip");
+            }
+
+            // A real v2 file has two sections. Migrating it must preserve both
+            // while leaving every chunk eligible for the new one-time pass.
+            byte[] version3 = Files.readAllBytes(marker);
+            byte[] version2 = java.util.Arrays.copyOf(version3, version3.length - 4 - balanced.size() * 24);
+            version2[7] = 2;
+            Files.write(marker, version2);
+            var v2Migration = SpawnpointBridgePlugin.readDiamondMarkers(marker);
+            if (!v2Migration.legacyProcessedChunks().equals(legacy)
+                || !v2Migration.balancedProcessedChunks().equals(balanced)
+                || !v2Migration.frequentProcessedChunks().isEmpty()
+                || !v2Migration.requiresMigration()) {
+                throw new AssertionError("v2 migration must preserve old sections and queue the new pass");
+            }
+            Files.write(marker, java.util.Arrays.copyOf(version3, version3.length - 1));
+            try {
+                SpawnpointBridgePlugin.readDiamondMarkers(marker);
+                throw new AssertionError("truncated markers must fail closed to prevent duplicate ore");
+            } catch (IOException expected) {
+                // Expected: never treat corrupt markers as an empty history.
             }
 
             try (DataOutputStream output = new DataOutputStream(Files.newOutputStream(marker))) {
