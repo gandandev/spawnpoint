@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { preserveSettings } from './preserve-settings.mjs';
 import { createHash } from 'node:crypto';
 const data = process.env.DATA_DIR || '/data';
 const incoming = path.resolve(process.argv[2] || '');
@@ -21,6 +22,8 @@ await verify(incoming, manifest.files);
 const players = (await fs.readdir(path.join(incoming, 'runtime/world/players/data'))).filter(f => f.endsWith('.dat'));
 if (players.length !== manifest.players) throw Error('Player count mismatch');
 if ((await (await fetch(`http://127.0.0.1:${process.env.PORT}/healthz`)).json()).server !== 'off') throw Error('Server restarted during verification');
+await preserveSettings(path.join(data, 'minecraft/server.properties'), path.join(incoming, 'runtime/server.properties'));
+manifest.files['runtime/server.properties'] = createHash('sha256').update(await fs.readFile(path.join(incoming, 'runtime/server.properties'))).digest('hex');
 await fs.rename(path.join(incoming, 'runtime'), path.join(data, 'runtime'));
 await fs.copyFile(path.join(incoming, 'transfer-report.json'), path.join(data, 'transfer-report-26.2.json'));
 await fs.writeFile(path.join(data, '.migration-ready.json'), JSON.stringify({...manifest, installedAt:new Date().toISOString()}), {flag:'wx',mode:0o600});

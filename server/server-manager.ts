@@ -80,7 +80,7 @@ export class MinecraftServerManager extends EventEmitter {
     // detection, but size the warning threshold for the server's real fanout.
     this.setMaxListeners(Math.max(32, options.maxPlayers * 4));
     this.minecraftDir = path.join(options.dataDir, options.minecraftVersion === "26.2" ? "runtime" : "minecraft");
-    this.settingsStore = new ServerSettingsStore(this.minecraftDir, options.seedDir, options.maxPlayers);
+    this.settingsStore = new ServerSettingsStore(this.minecraftDir, options.seedDir, options.maxPlayers, options.minecraftVersion === "26.2");
     this.playerDataStore = new PlayerDataStore(this.minecraftDir, this.settingsStore, options.minecraftVersion === "26.2");
     this.state = {
       phase: "off",

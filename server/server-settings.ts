@@ -94,6 +94,7 @@ export class ServerSettingsStore {
     minecraftDir: string,
     seedDir: string,
     private readonly fallbackMaxPlayers: number,
+    private readonly modern = false,
   ) {
     this.propertiesPath = path.join(minecraftDir, "server.properties");
     this.seedPropertiesPath = path.join(seedDir, "server.properties");
@@ -141,8 +142,8 @@ export class ServerSettingsStore {
     const updates = new Map<string, string>([
       ["motd", settings.motd],
       ["max-players", String(settings.maxPlayers)],
-      ["difficulty", String(DIFFICULTIES.indexOf(settings.difficulty))],
-      ["gamemode", String(GAME_MODES.indexOf(settings.defaultGameMode))],
+      ["difficulty", this.modern ? settings.difficulty : String(DIFFICULTIES.indexOf(settings.difficulty))],
+      ["gamemode", this.modern ? settings.defaultGameMode : String(GAME_MODES.indexOf(settings.defaultGameMode))],
       ["force-gamemode", String(settings.forceGameMode)],
       ["view-distance", String(settings.viewDistance)],
       ["player-idle-timeout", String(settings.playerIdleTimeout)],
