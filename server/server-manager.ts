@@ -99,11 +99,6 @@ export class MinecraftServerManager extends EventEmitter {
     return { ...this.state, players: [...this.state.players] };
   }
 
-  getRecentLogs(limit = 200): string[] {
-    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
-    return this.recentOutput.slice(-safeLimit);
-  }
-
   getServerSettings(): Promise<ServerSettings> {
     return this.settingsStore.read();
   }

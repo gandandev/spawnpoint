@@ -9,6 +9,7 @@ work/
 server-runtime/live/
 server-plugin/build/
 build/
+output/
 outputs/
 public/game/stable.html
 public/game/experimental.html

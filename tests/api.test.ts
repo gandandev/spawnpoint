@@ -125,7 +125,6 @@ function fakeServerManager(
     setStoredPlayerOperator: async (account: PlayerAccountReference, operator: boolean) => fakePlayer(account, { operator }),
     setStoredPlayerBanned: async (account: PlayerAccountReference, banned: boolean) => fakePlayer(account, { banned }),
     isPlayerOnline: (username: string) => status.players.some((player) => player.toLowerCase() === username.toLowerCase()),
-    getRecentLogs: () => [],
     getLogHistory: async (options) => {
       logRequests.push(options);
       return logHistory;
@@ -1040,28 +1039,28 @@ describe("administrator TPA settings", () => {
     expect(timeoutSpy).toHaveBeenNthCalledWith(2, 2_000);
     timeoutSpy.mockClear();
 
-    const missingCsrfResponse = await fetch(`${harness.origin}/api/admin/settings/tpa`, {
+    const missingCsrfResponse = await fetch(`${harness.origin}/api/admin/settings/server`, {
       method: "PUT",
       headers: { Cookie: harness.adminHeaders.Cookie, "Content-Type": "application/json", Origin: harness.origin },
-      body: JSON.stringify({ enabled: false }),
+      body: JSON.stringify({ ...serverSettings, tpaEnabled: false }),
     });
     expect(missingCsrfResponse.status).toBe(403);
 
-    const updateResponse = await fetch(`${harness.origin}/api/admin/settings/tpa`, {
+    const updateResponse = await fetch(`${harness.origin}/api/admin/settings/server`, {
       method: "PUT",
       headers: { ...harness.adminHeaders, "Content-Type": "application/json", Origin: harness.origin },
-      body: JSON.stringify({ enabled: false }),
+      body: JSON.stringify({ ...serverSettings, tpaEnabled: false }),
     });
     expect(updateResponse.status).toBe(200);
-    await expect(updateResponse.json()).resolves.toEqual({ tpaEnabled: false, keepInventory: true });
+    await expect(updateResponse.json()).resolves.toMatchObject({ settings: { tpaEnabled: false, keepInventory: true }, liveApplied: true });
     expect(JSON.parse(updateBody)).toEqual({ enabled: false });
     expect(timeoutSpy).toHaveBeenCalledOnce();
     expect(timeoutSpy).toHaveBeenCalledWith(4_000);
 
-    const invalidResponse = await fetch(`${harness.origin}/api/admin/settings/tpa`, {
+    const invalidResponse = await fetch(`${harness.origin}/api/admin/settings/server`, {
       method: "PUT",
       headers: { ...harness.adminHeaders, "Content-Type": "application/json", Origin: harness.origin },
-      body: JSON.stringify({ enabled: "false" }),
+      body: JSON.stringify({ ...serverSettings, tpaEnabled: "false" }),
     });
     expect(invalidResponse.status).toBe(400);
   });
@@ -1083,12 +1082,13 @@ describe("administrator TPA settings", () => {
     expect(overviewResponse.status).toBe(200);
     expect(overview).toMatchObject({ bridgeAvailable: true, tpaEnabled: true });
 
-    const updateResponse = await fetch(`${harness.origin}/api/admin/settings/tpa`, {
+    const updateResponse = await fetch(`${harness.origin}/api/admin/settings/server`, {
       method: "PUT",
       headers: { ...harness.adminHeaders, "Content-Type": "application/json", Origin: harness.origin },
-      body: JSON.stringify({ enabled: true }),
+      body: JSON.stringify({ ...serverSettings, tpaEnabled: false }),
     });
-    expect(updateResponse.status).toBe(503);
+    expect(updateResponse.status).toBe(200);
+    await expect(updateResponse.json()).resolves.toMatchObject({ settings: { tpaEnabled: false }, liveApplied: false, restartRequired: true });
   });
 });
 

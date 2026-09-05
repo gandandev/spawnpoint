@@ -32,7 +32,6 @@ describe("administrator overview polling", () => {
       players: [],
       bridgeAvailable: false,
       tpaEnabled: null,
-      logs: [],
       server: { phase: "off", players: [] },
     });
     const host = document.createElement("div");

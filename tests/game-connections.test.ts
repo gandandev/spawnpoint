@@ -7,27 +7,45 @@ describe("game connection tracker", () => {
   it("allows retrying after a connection closes during login", () => {
     const tracker = new GameConnectionTracker();
     tracker.create(launchId, "user-1");
-    expect(tracker.begin(launchId, "user-1")).not.toBeNull();
+    const close = tracker.begin(launchId, "user-1");
+    expect(close).not.toBeNull();
     expect(tracker.begin(launchId, "user-1")).toBeNull();
 
-    tracker.closed(launchId, "user-1");
+    close?.();
 
-    expect(tracker.status(launchId, "user-1")).toBe("waiting");
+    expect(tracker.isActive(launchId, "user-1")).toBe(false);
     expect(tracker.begin(launchId, "user-1")).not.toBeNull();
   });
 
   it("allows re-entering after an established connection closes", () => {
     vi.useFakeTimers();
     try {
-      const tracker = new GameConnectionTracker(1_000);
+      const tracker = new GameConnectionTracker();
       tracker.create(launchId, "user-1");
       const close = tracker.begin(launchId, "user-1");
-      vi.advanceTimersByTime(1_000);
+      expect(tracker.isActive(launchId, "user-1")).toBe(true);
+      vi.advanceTimersByTime(11 * 60_000);
+      // An active socket must outlive the unused-launch expiry window.
+      expect(tracker.begin(launchId, "user-1")).toBeNull();
+      expect(tracker.isActive(launchId, "user-1")).toBe(true);
 
       close?.();
 
-      expect(tracker.status(launchId, "user-1")).toBe("waiting");
+      expect(tracker.isActive(launchId, "user-1")).toBe(false);
       expect(tracker.begin(launchId, "user-1")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("expires an unused launch before accepting a socket", () => {
+    vi.useFakeTimers();
+    try {
+      const tracker = new GameConnectionTracker(1_000);
+      tracker.create(launchId, "user-1");
+      vi.advanceTimersByTime(1_000);
+      expect(tracker.begin(launchId, "user-1")).toBeNull();
+      expect(tracker.isActive(launchId, "user-1")).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -35,7 +53,7 @@ describe("game connection tracker", () => {
 
   it("limits one launch id within a sliding window without reset by ticket replay", () => {
     vi.useFakeTimers();
-    const tracker = new GameConnectionTracker(20_000, 10 * 60_000, 3, 60_000);
+    const tracker = new GameConnectionTracker(10 * 60_000, 3, 60_000);
     tracker.create(launchId, "user-1");
 
     try {
@@ -46,12 +64,12 @@ describe("game connection tracker", () => {
         close?.();
       }
 
-      expect(tracker.status(launchId, "user-1")).toBe("failed");
+      expect(tracker.isActive(launchId, "user-1")).toBe(false);
       tracker.create(launchId, "user-1");
       expect(tracker.begin(launchId, "user-1")).toBeNull();
 
       vi.advanceTimersByTime(60_001);
-      expect(tracker.status(launchId, "user-1")).toBe("waiting");
+      expect(tracker.isActive(launchId, "user-1")).toBe(false);
       expect(tracker.begin(launchId, "user-1")).not.toBeNull();
     } finally {
       vi.useRealTimers();
@@ -59,7 +77,7 @@ describe("game connection tracker", () => {
   });
 
   it("counts UUID case variants as the same bounded launch", () => {
-    const tracker = new GameConnectionTracker(20_000, 10 * 60_000, 3, 60_000);
+    const tracker = new GameConnectionTracker(10 * 60_000, 3, 60_000);
     const variants = [launchId, launchId.toUpperCase(), launchId.replace("f", "F")];
     tracker.create(variants[0], "user-1");
 
@@ -70,7 +88,7 @@ describe("game connection tracker", () => {
       close?.();
     }
 
-    expect(tracker.status(launchId, "user-1")).toBe("failed");
+    expect(tracker.isActive(launchId, "user-1")).toBe(false);
     expect(tracker.begin(launchId.toUpperCase(), "user-1")).toBeNull();
   });
 
@@ -84,7 +102,7 @@ describe("game connection tracker", () => {
       close?.();
     }
 
-    expect(tracker.status(launchId, "user-1")).toBe("failed");
+    expect(tracker.isActive(launchId, "user-1")).toBe(false);
     expect(tracker.begin(launchId, "user-1")).toBeNull();
   });
 
@@ -93,7 +111,7 @@ describe("game connection tracker", () => {
     tracker.create(launchId, "user-1");
 
     expect(tracker.begin(launchId, "user-2")).toBeNull();
-    expect(tracker.status(launchId, "user-2")).toBeNull();
+    expect(tracker.isActive(launchId, "user-2")).toBe(false);
     expect(isLaunchId(launchId)).toBe(true);
     expect(isLaunchId("launch-123")).toBe(false);
   });
@@ -108,15 +126,15 @@ describe("game connection tracker", () => {
 
     expect(tracker.disconnectUser("user-1")).toBe(2);
     expect(disconnect).toHaveBeenCalledOnce();
-    expect(tracker.status(launchId, "user-1")).toBeNull();
-    expect(tracker.status(secondLaunchId, "user-1")).toBeNull();
+    expect(tracker.isActive(launchId, "user-1")).toBe(false);
+    expect(tracker.isActive(secondLaunchId, "user-1")).toBe(false);
     expect(tracker.begin(secondLaunchId, "user-1")).toBeNull();
   });
 
   it("disconnects a replaced socket without letting its stale close reset the new launch", () => {
     vi.useFakeTimers();
     try {
-      const tracker = new GameConnectionTracker(1_000);
+      const tracker = new GameConnectionTracker();
       const disconnectOld = vi.fn();
       tracker.create(launchId, "user-1");
       const closeOld = tracker.begin(launchId, "user-1", disconnectOld);
@@ -127,9 +145,9 @@ describe("game connection tracker", () => {
       closeOld?.();
 
       expect(disconnectOld).toHaveBeenCalledOnce();
-      expect(tracker.status(launchId, "user-1")).toBe("connected");
+      expect(tracker.isActive(launchId, "user-1")).toBe(true);
       closeCurrent?.();
-      expect(tracker.status(launchId, "user-1")).toBe("waiting");
+      expect(tracker.isActive(launchId, "user-1")).toBe(false);
     } finally {
       vi.useRealTimers();
     }

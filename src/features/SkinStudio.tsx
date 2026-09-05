@@ -53,9 +53,6 @@ export function SkinStudio({ data, onUser, onChanged, notice }: SkinStudioProps)
       });
       onUser(result.user);
       onChanged();
-      if (path === "/skin/catalog") {
-        void loadCatalog().then((catalog) => setCategories(catalog.categories)).catch(() => undefined);
-      }
     } catch (error) {
       notice(error instanceof Error ? error.message : "스킨을 변경하지 못했어요");
     } finally {

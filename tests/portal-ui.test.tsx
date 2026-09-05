@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { ServerCard } from "../src/components/portal";
 import { AccountDialog } from "../src/features/AccountDialog";
-import { AdminPanel, TpaSettingRow } from "../src/features/AdminPanel";
+import { AdminPanel } from "../src/features/AdminPanel";
 import { SkinStudio } from "../src/features/SkinStudio";
 import { ApiError } from "../src/lib/api";
 import { AuthScreen } from "../src/screens/AuthScreen";
@@ -98,7 +98,6 @@ function adminOverview(tpaEnabled: boolean, players: PlayerDetails[] = []): Admi
       keepInventory: true,
       tpaEnabled,
     },
-    logs: [],
     server: onlineStatus,
   };
 }
@@ -119,7 +118,6 @@ const adminData: BootstrapData = {
   csrf: "test-csrf",
   adminExpiresAt: null,
   server: onlineStatus,
-  clients: [],
   setup: { eulaAccepted: true },
 };
 
@@ -277,7 +275,7 @@ async function renderCard(status: ServerStatus) {
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(<ServerCard status={status} setupReady compact showPlayerDropdown />);
+    root.render(<ServerCard status={status} showPlayerDropdown />);
   });
   return { container, root };
 }
@@ -881,6 +879,35 @@ describe("account settings copy and spacing", () => {
   });
 });
 
+describe("game launch", () => {
+  it("launches the supported client without a client catalog", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onPlay = vi.fn(async () => {});
+    const onStart = vi.fn(async () => {});
+    const notice = vi.fn();
+    await act(async () => root.render(<Dashboard
+      data={adminData}
+      onData={vi.fn()}
+      onSession={vi.fn()}
+      onStart={onStart}
+      onLogout={vi.fn()}
+      notice={notice}
+      onPlay={onPlay}
+      onOpenAdmin={vi.fn()}
+      initialSkinDialogOpen={false}
+      onInitialSkinDialogHandled={vi.fn()}
+    />));
+    const play = [...container.querySelectorAll("button")].find((button) => button.textContent === "실행")!;
+    await act(async () => play.click());
+    expect(onPlay).toHaveBeenCalledExactlyOnceWith();
+    expect(onStart).not.toHaveBeenCalled();
+    expect(notice).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+});
+
 describe("mobile portal controls", () => {
   it("keeps the dashboard action row shrinkable on narrow screens", async () => {
     const container = document.createElement("div");
@@ -923,7 +950,7 @@ describe("mobile portal controls", () => {
     document.body.append(container);
     const root = createRoot(container);
     await act(async () => {
-      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={vi.fn()} />);
+      root.render(<GameScreen game={{ username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={vi.fn()} />);
     });
 
     expect(container.querySelector('[aria-label="게임 종료"]')).toBeNull();
@@ -937,7 +964,7 @@ describe("mobile portal controls", () => {
     const root = createRoot(container);
     const onExit = vi.fn();
     await act(async () => {
-      root.render(<GameScreen game={{ client: "stable", username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={onExit} />);
+      root.render(<GameScreen game={{ username: "mobileqa", launchId: "launch-123" }} gameUrl="/game/stable.html" onExit={onExit} />);
     });
     const gameFrame = container.querySelector("iframe")!;
 
@@ -1156,48 +1183,6 @@ describe("administrator TPA setting", () => {
     await act(async () => root.unmount());
   });
 
-  it("requests a server mutation without changing the controlled value optimistically", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    const onChange = vi.fn();
-    await act(async () => {
-      root.render(<TpaSettingRow enabled serverOnline busy={false} onChange={onChange} />);
-    });
-    const control = container.querySelector('[role="switch"]') as HTMLButtonElement;
-
-    await act(async () => control.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-
-    expect(onChange).toHaveBeenCalledWith(false);
-    expect(control.getAttribute("aria-checked")).toBe("true");
-    await act(async () => root.unmount());
-  });
-
-  it("disables the setting when bridge state is unavailable", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    await act(async () => {
-      root.render(<TpaSettingRow enabled={null} serverOnline busy={false} onChange={vi.fn()} />);
-    });
-
-    expect((container.querySelector('[role="switch"]') as HTMLButtonElement).disabled).toBe(true);
-    expect(container.textContent).toContain("서버 설정을 불러올 수 없어요.");
-    await act(async () => root.unmount());
-  });
-
-  it("allows the stored setting to change while the server is offline", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    await act(async () => {
-      root.render(<TpaSettingRow enabled serverOnline={false} busy={false} onChange={vi.fn()} />);
-    });
-
-    expect((container.querySelector('[role="switch"]') as HTMLButtonElement).disabled).toBe(false);
-    expect(container.textContent).toContain("서버가 꺼져 있어도 저장됩니다.");
-    await act(async () => root.unmount());
-  });
 });
 
 describe("administrator console and account actions", () => {

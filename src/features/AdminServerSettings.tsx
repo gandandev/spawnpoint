@@ -41,25 +41,6 @@ function SettingField({ label, description, children }: { label: string; descrip
   </label>;
 }
 
-export interface TpaSettingRowProps {
-  enabled: boolean | null;
-  serverOnline: boolean;
-  busy: boolean;
-  onChange: (enabled: boolean) => void;
-}
-
-export function TpaSettingRow({ enabled, busy, onChange }: TpaSettingRowProps) {
-  return <div className="admin-setting-row">
-    <div className="min-w-0 flex-1">
-      <div className="text-sm font-medium">TPA 요청</div>
-      <div className="text-xs leading-relaxed text-muted-foreground">플레이어끼리 순간이동 요청을 보낼 수 있어요. 서버가 꺼져 있어도 저장됩니다.</div>
-      {enabled === null && <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">서버 설정을 불러올 수 없어요.</div>}
-    </div>
-    {busy && <Spinner className="size-3.5" />}
-    <Switch checked={enabled ?? false} disabled={busy || enabled === null} onCheckedChange={onChange} aria-label="TPA 요청 허용" />
-  </div>;
-}
-
 export function AdminServerSettings({ settings, serverOnline, busy, onSave }: {
   settings: ServerSettings;
   serverOnline: boolean;

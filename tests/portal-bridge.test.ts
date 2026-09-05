@@ -489,7 +489,7 @@ function loadBridge(
     options,
     parentMessages,
     storage,
-    triggerMutation: () => mutationObserverCallback?.([{}]),
+    triggerMutation: (records: Array<Record<string, unknown>> = [{}]) => mutationObserverCallback?.(records),
     mutationObserverOptions,
     documentPropertyHandlers,
     windowHandlers,
@@ -1112,6 +1112,76 @@ describe("portal game bridge", () => {
       const label = marker.children[1];
       return `${marker.className}:${label.style.top}:${label.style.bottom}`;
     })).size).toBe(4);
+  });
+
+  it("does not overwrite the current locator head when an old skin loads late", async () => {
+    const snapshot = { active: true, targets: [{ id: "one", displayName: "Player", angle: 0, distance: 10, skinUrl: "/old.png" }] };
+    const client = loadBridge(undefined, true, snapshot);
+    const images: Array<{ onload?: () => void }> = [];
+    client.windowObject.Image = class {
+      naturalWidth = 64;
+      naturalHeight = 64;
+      constructor() { images.push(this); }
+      onload?: () => void;
+    };
+    const hooks = client.options.hooks as { screenChanged: (...args: unknown[]) => void };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    await vi.waitFor(() => expect(images).toHaveLength(1));
+    snapshot.targets[0].skinUrl = "/new.png";
+    client.locatorIntervals[0].callback();
+    await vi.waitFor(() => expect(images).toHaveLength(2));
+    images[1].onload?.();
+    const draw = client.locatorContexts[0].drawImage;
+    expect(draw).toHaveBeenCalledTimes(2);
+    images[0].onload?.();
+    expect(draw).toHaveBeenCalledTimes(2);
+    expect(draw.mock.calls[0][0]).toBe(images[1]);
+  });
+
+  it("does not rewrite mobile display state in response to its own mutation", () => {
+    const client = loadBridge(undefined, true, undefined, { coarsePointer: true, renderDom: true });
+    client.canvas.requestPointerLock();
+    const root = client.locatorElementsById.get("spawnpoint-mobile-controls")!;
+    let display = root.style.display;
+    const writeDisplay = vi.fn((value: string) => { display = value; });
+    Object.defineProperty(root.style, "display", { get: () => display, set: writeDisplay });
+    for (let index = 0; index < 60; index++) client.triggerMutation([{ target: root }]);
+    expect(writeDisplay).not.toHaveBeenCalled();
+  });
+
+  it("preserves locator label placement across polls and ignores HUD-only mutations", async () => {
+    const snapshot = { active: true, targets: [{ id: "one", displayName: "Player", angle: 0, distance: 10, skinUrl: "/skin.png" }] };
+    const client = loadBridge(undefined, true, snapshot);
+    const hooks = client.options.hooks as { screenChanged: (...args: unknown[]) => void };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    await vi.waitFor(() => expect(client.locatorElementsById.get("spawnpoint-player-locator")?.style.display).toBe("block"));
+    const marker = client.locatorElementsById.get("spawnpoint-player-locator")!.children[0].children[0].children[0];
+    const name = marker.children[1].children[0];
+    const queries = vi.spyOn(client.documentObject, "querySelector");
+    client.triggerMutation([{ target: marker }]);
+    expect(queries).not.toHaveBeenCalled();
+    client.triggerMutation([{ target: marker }, { target: client.canvas }]);
+    expect(queries).toHaveBeenCalled();
+
+    snapshot.targets[0].distance = 11;
+    client.locatorIntervals[0].callback();
+    await vi.waitFor(() => expect(marker.children[1].children[1].textContent).toBe("11m"));
+    expect(marker.className).toContain("is-label-above");
+    snapshot.targets[0].displayName = "Renamed";
+    client.locatorIntervals[0].callback();
+    await vi.waitFor(() => expect(name.textContent).toBe("Renamed"));
+    expect(marker.className).toContain("is-label-above");
+    hooks.screenChanged("", 320, 200, 960, 600, 3);
+    expect(marker.className).toContain("is-label-above");
+    const target = snapshot.targets.pop()!;
+    client.locatorIntervals[0].callback();
+    await vi.waitFor(() => expect(marker.parentNode).toBeNull());
+    snapshot.targets.push(target);
+    client.locatorIntervals[0].callback();
+    await vi.waitFor(() => {
+      const returned = client.locatorElementsById.get("spawnpoint-player-locator")!.children[0].children[0].children[0];
+      expect(returned?.children[1].children[0].textContent).toBe("Renamed");
+    });
   });
 
   it("interpolates locator samples in script and settles before the next poll", async () => {

@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import fsSync from "node:fs";
 import path from "node:path";
 import type { ServerDifficulty, ServerGameMode, ServerSettings } from "./types.js";
 
@@ -92,7 +91,7 @@ export class ServerSettingsStore {
   private readonly pluginConfigPath: string;
 
   constructor(
-    private readonly minecraftDir: string,
+    minecraftDir: string,
     seedDir: string,
     private readonly fallbackMaxPlayers: number,
   ) {
@@ -165,9 +164,5 @@ export class ServerSettingsStore {
     plugin = replacePluginBoolean(plugin, "keep-inventory", settings.keepInventory);
     await writeAtomic(this.pluginConfigPath, plugin);
     return this.read();
-  }
-
-  hasRuntimeProperties(): boolean {
-    return fsSync.existsSync(this.propertiesPath);
   }
 }

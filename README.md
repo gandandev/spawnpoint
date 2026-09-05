@@ -115,11 +115,10 @@ the Hobby plan's $5 is usage credit, not a hard resource cap. spawnpoint keeps t
 - `server-plugin/`: signed-ticket EaglerXServer plugin source
 - `server-runtime/seed/`: Paper 1.12.2 and EaglerXServer seed copied into persistent storage
 - `vendor/clients/`: untouched offline client sources
-- `scripts/prepare-clients.mjs`: injects the same-origin gateway configuration into all three clients
+- `scripts/prepare-clients.mjs`: prepares the stable 1.12.2 client with the same-origin gateway configuration
 - `Dockerfile.frontend` and `Caddyfile.frontend`: static frontend and same-origin backend proxy
 - `Dockerfile.backend`: API, gateway, and Minecraft runtime without frontend assets
 - `ATTRIBUTION.md`: client and server provenance with hashes
-- `DESIGN_QA.md`: concept fidelity ledger and real browser verification record
 
 ## production notes
 

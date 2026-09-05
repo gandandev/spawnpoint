@@ -123,6 +123,27 @@ CHUNK_UPDATE_LAZY_LIST_WASM = bytes.fromhex(
     "20 08 d1 04 40 fb 01 a6 15 22 11 23 f0 02 fb 05 a6 15 00 20 11 21 08 0b 20 08"
 )
 CHUNK_UPDATE_SKIP_EMPTY_LIST_WASM = bytes.fromhex("02 40 20 08 d1 0d 00")
+# The inlined isAlreadyQueued loop uses LinkedList.get(i), which walks from an
+# end and creates a ListIterator for each candidate. Traverse existing nodes
+# once instead. Local 7 is unused after the lazy deferred-list patch above;
+# retag it from LinkedList (2726) to its node type (2725). Keep all offsets and
+# the existing Java null/type checks, target identity, and queue order intact.
+CHUNK_QUEUE_SEARCH_RANGE = (
+    0x337E1B,
+    0x337EA4,
+    "56c8c4ec43d78d63cf10e2239ab8a87dc5544a953ca528ad5aa2e33849d7ca62",
+)
+CHUNK_QUEUE_CURSOR_LOCAL = (0x337B2A, bytes.fromhex("01 63 a6 15"), bytes.fromhex("01 63 a5 15"))
+CHUNK_QUEUE_LINEAR_SEARCH_WASM = bytes.fromhex(
+    """
+    41 00 21 05 02 63 a6 15 20 03 fb 02 f6 0e 0a fb 17 a6 15 d6 00
+    10 8d 02 08 00 0b fb 02 a6 15 03 21 07 02 40 02 40 03 40 20 07
+    d1 0d 01 02 63 bc 18 02 63 bc 18 20 07 fb 02 a5 15 02 fb 18 03
+    00 03 bc 18 10 8f 02 08 00 0b d6 00 10 8d 02 08 00 0b fb 02 bc
+    18 02 20 0b d3 04 40 41 01 21 05 0c 03 0b 20 07 fb 02 a5 15 03
+    21 07 0c 00 0b 0b 41 00 21 05 0b
+    """
+)
 # Close Screen stays available to the bridge's marked synthetic Backquote event,
 # which preserves Escape and mobile menu behavior. Real Backquote input is
 # blocked before it reaches the runtime. Keep its row, plus the disabled Save
@@ -1118,6 +1139,16 @@ def patch_main_menu(epw: bytes) -> bytes:
     if len(lazy_chunk_update) != len(chunk_update):
         raise ValueError("Lazy chunk-update queue patch must preserve the WASM byte layout")
     wasm[chunk_start:chunk_end] = lazy_chunk_update
+    search_start, search_end, expected_search_hash = CHUNK_QUEUE_SEARCH_RANGE
+    if hashlib.sha256(wasm[search_start:search_end]).hexdigest() != expected_search_hash:
+        raise ValueError("EPW main program has an unexpected chunk queue search")
+    cursor_offset, expected_cursor, replacement_cursor = CHUNK_QUEUE_CURSOR_LOCAL
+    if wasm[cursor_offset:cursor_offset + len(expected_cursor)] != expected_cursor:
+        raise ValueError("EPW main program has an unexpected chunk queue cursor local")
+    if len(replacement_cursor) != len(expected_cursor) or len(CHUNK_QUEUE_LINEAR_SEARCH_WASM) > search_end - search_start:
+        raise ValueError("Linear chunk queue patch must preserve the WASM byte layout")
+    wasm[cursor_offset:cursor_offset + len(expected_cursor)] = replacement_cursor
+    wasm[search_start:search_end] = CHUNK_QUEUE_LINEAR_SEARCH_WASM.ljust(search_end - search_start, b"\x01")
     for name, offset, expected_keycode, replacement_keycode in CONTROL_KEYCODE_PATCHES:
         if wasm[offset : offset + 2] != bytes((0x41, expected_keycode)):
             raise ValueError(f"EPW main program has an unexpected {name} key mapping")

@@ -1,20 +1,14 @@
 import { useEffect, useState } from "react";
 
-let skin3dModule: Promise<typeof import("skin3d")> | null = null;
 let renderQueue: Promise<void> = Promise.resolve();
 const renderCache = new Map<string, Promise<string>>();
-
-function loadSkin3d() {
-  skin3dModule ??= import("skin3d");
-  return skin3dModule;
-}
 
 function renderSkin(src: string): Promise<string> {
   const cached = renderCache.get(src);
   if (cached) return cached;
 
   const rendered = renderQueue.then(async () => {
-    const { Render } = await loadSkin3d();
+    const { Render } = await import("skin3d");
     const canvas = document.createElement("canvas");
     const viewer = new Render({
       canvas,

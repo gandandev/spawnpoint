@@ -1,10 +1,8 @@
 import { ReactNode, useEffect, useLayoutEffect, useState } from "react";
-import { Check, ChevronDown, Circle, Play, Server, ServerOff } from "lucide-react";
+import { ChevronDown, Server, ServerOff } from "lucide-react";
 import { api } from "@/lib/api";
 import type { OnlinePlayer, ServerStatus } from "@/types";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { currentSiteName } from "@/lib/site-name";
 import {
@@ -55,15 +53,6 @@ export function Logo() {
   </div>;
 }
 
-function statusCopy(status: ServerStatus) {
-  if (status.phase === "online") return { title: "서버 온라인", detail: status.players.length ? `월드에 플레이어 ${status.players.length}명 접속 중` : "첫 플레이어를 기다리고 있어요" };
-  if (status.phase === "preparing") return { title: "월드 준비 중", detail: "저장된 월드를 복사하고 있어요" };
-  if (status.phase === "starting") return { title: "서버 시작 중", detail: "Paper를 준비하고 있어요" };
-  if (status.phase === "stopping") return { title: "서버 절전 중", detail: "먼저 모든 청크를 저장하고 있어요" };
-  if (status.phase === "error") return { title: "서버를 확인해 주세요", detail: status.lastError ?? "시작하지 못했어요" };
-  return { title: "서버 오프라인", detail: "쉬는 동안에는 비용이 들지 않아요" };
-}
-
 function useStatusLabel(status: ServerStatus) {
   const [now, setNow] = useState(() => Date.now());
   const waiting = status.phase === "online" && status.players.length === 0 && status.idleShutdownAt !== null;
@@ -83,26 +72,12 @@ function ServerStatusIcon({ status, className }: { status: ServerStatus; classNa
   return <Icon className={className} />;
 }
 
-function StartButton({ status, setupReady, onStart }: { status: ServerStatus; setupReady: boolean; onStart: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false);
-  const active = ["preparing", "starting", "stopping"].includes(status.phase);
-  const online = status.phase === "online";
-  const label = online ? "서버 준비 완료" : active ? statusCopy(status).title : "서버 시작";
-  return <Button size="sm" className="pr-[7px]" disabled={busy || active || online || !setupReady} onClick={async () => { setBusy(true); try { await onStart(); } finally { setBusy(false); } }}>
-    {busy || active ? <Spinner data-icon="inline-start" /> : online ? <Check data-icon="inline-start" /> : <Play data-icon="inline-start" fill="currentColor" />}{setupReady ? label : "서버 시작"}
-  </Button>;
-}
-
 interface ServerCardProps {
   status: ServerStatus;
-  setupReady: boolean;
-  onStart?: () => Promise<void>;
-  compact?: boolean;
   showPlayerDropdown?: boolean;
 }
 
-export function ServerCard({ status, setupReady, onStart, compact = false, showPlayerDropdown = false }: ServerCardProps) {
-  const copy = statusCopy(status);
+export function ServerCard({ status, showPlayerDropdown = false }: ServerCardProps) {
   const label = useStatusLabel(status);
   const starting = status.phase === "preparing" || status.phase === "starting";
   const playerSignature = status.players.join("\u0000");
@@ -154,10 +129,10 @@ export function ServerCard({ status, setupReady, onStart, compact = false, showP
       <strong className={cn("relative text-sm", status.phase === "online" && "text-[#65952c]")}>{label.text}</strong>
       {canExpand ? <span className="relative ml-auto flex items-center gap-1.5 text-sm font-medium text-[#65952c]">
         <span className="tabular-nums">{status.players.length}명</span><ChevronDown className="t-acc-chevron size-4" />
-      </span> : status.phase === "online" ? label.detail && <span className="relative ml-auto mr-2 text-sm text-[#65952c]">{label.detail}</span> : onStart && <span className="relative ml-auto"><StartButton status={status} setupReady={setupReady} onStart={onStart} /></span>}
+      </span> : status.phase === "online" ? label.detail && <span className="relative ml-auto mr-2 text-sm text-[#65952c]">{label.detail}</span> : null}
     </>;
 
-  if (compact) return <Card size="sm" className={cn("t-acc relative gap-0 overflow-hidden border-0 bg-muted py-0 shadow-none ring-0", status.phase === "online" && "bg-[#96ce4d]/15", canExpand && "cursor-pointer transition-[background-color,transform] duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-[#96ce4d]/25 has-[:active]:scale-[var(--scale-large)] has-[:active]:bg-[#96ce4d]/35 motion-reduce:transition-none motion-reduce:has-[:active]:scale-100")} data-open={expanded}>
+  return <Card size="sm" className={cn("t-acc relative gap-0 overflow-hidden border-0 bg-muted py-0 shadow-none ring-0", status.phase === "online" && "bg-[#96ce4d]/15", canExpand && "cursor-pointer transition-[background-color,transform] duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-[#96ce4d]/25 has-[:active]:scale-[var(--scale-large)] has-[:active]:bg-[#96ce4d]/35 motion-reduce:transition-none motion-reduce:has-[:active]:scale-100")} data-open={expanded}>
     {canExpand && <button
         type="button"
         className="t-acc-toggle absolute inset-0 z-10 touch-manipulation cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#65952c]/30"
@@ -174,5 +149,4 @@ export function ServerCard({ status, setupReady, onStart, compact = false, showP
     </div></div></div>}
   </Card>;
 
-  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><ServerStatusIcon status={status} />{copy.title}</CardTitle><CardDescription>{copy.detail}</CardDescription></CardHeader><CardFooter><Badge variant="secondary"><Circle fill="currentColor" />{label.text}{label.detail && ` · ${label.detail}`}</Badge>{onStart && <span className="ml-auto"><StartButton status={status} setupReady={setupReady} onStart={onStart} /></span>}</CardFooter></Card>;
 }

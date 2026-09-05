@@ -39,7 +39,7 @@ describe("streaming game client bundle", () => {
 
     expect(crypto.createHash("sha256").update(source).digest("hex")).toBe(sourceHash);
     expect(crypto.createHash("sha256").update(mainWasm).digest("hex")).toBe(
-      "f82132af1b3e338ca6c5047e37df1dda83fd1c571ce7afcf12999cd93303291f",
+      "344df41357d6fc5b299e3db5e7a29e1d0f2d52d21be2ecb5d2c9267fad12bd5f",
     );
     expect(mainWasm.length).toBe(sourceMain.rawLength);
     expect(epw.length).toBe(17_587_882);

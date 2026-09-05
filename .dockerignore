@@ -4,6 +4,7 @@ node_modules
 dist
 data
 work
+output
 outputs
 coverage
 design

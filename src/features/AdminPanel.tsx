@@ -14,8 +14,6 @@ import { AdminServerSettings } from "@/features/AdminServerSettings";
 import { AdminHistoryPanel } from "@/features/AdminHistoryPanel";
 import type { AdminLogEntry, BootstrapData, SessionUpdate } from "@/types";
 
-export { TpaSettingRow } from "@/features/AdminServerSettings";
-
 type AdminTab = "players" | "settings" | "history" | "title" | "console";
 type TitleAudience = "all" | "selected";
 type TitleColor = "white" | "gray" | "red" | "gold" | "yellow" | "green" | "aqua" | "blue" | "light_purple";
@@ -146,7 +144,7 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
 
   useLayoutEffect(() => {
     if (tab === "console" && !logs.viewingOlder && logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
-  }, [logs.entries.length, logs.viewingOlder, overview?.logs.length, tab]);
+  }, [logs.entries.length, logs.viewingOlder, tab]);
 
   const titleTargets = useMemo<TitleTarget[]>(() => overview?.players.filter((player) => player.online).map((player) => ({
     id: player.accountId ?? player.uuid,
@@ -162,8 +160,6 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
     });
   }, [titleTargets]);
 
-  const fallbackLogEntries = useMemo<AdminLogEntry[]>(() => overview?.logs.map((line) => ({ source: "현재 실행", line })) ?? [], [overview?.logs]);
-  const visibleLogEntries = logs.entries.length > 0 ? logs.entries : (logs.isLoading && !logQuery ? fallbackLogEntries : []);
   const canSendTitle = overview?.server.phase === "online"
     && (titleText.trim().length > 0 || subtitleText.trim().length > 0)
     && (titleAudience === "all" ? titleTargets.length > 0 : selectedTitleTargets.size > 0);
@@ -260,8 +256,8 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
             </div>
             {logs.viewingOlder && <Button type="button" variant="outline" size="sm" onClick={logs.showLatest}><RefreshCw />최신 로그</Button>}
           </div>
-          <pre ref={logsRef} className="admin-log-view" aria-label="서버 콘솔 출력">{visibleLogEntries.length
-            ? logText(visibleLogEntries)
+          <pre ref={logsRef} className="admin-log-view" aria-label="서버 콘솔 출력">{logs.entries.length
+            ? logText(logs.entries)
             : logs.isLoading
               ? "로그를 불러오는 중..."
               : logQuery

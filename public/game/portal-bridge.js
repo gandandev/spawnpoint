@@ -623,6 +623,7 @@
   }
 
   function drawLocatorHead(canvas, skinUrl) {
+    canvas.spLocatorSkinUrl = skinUrl;
     var context = canvas.getContext && canvas.getContext("2d");
     if (!context) return;
     context.imageSmoothingEnabled = false;
@@ -634,6 +635,7 @@
     if (typeof window.Image !== "function") return;
     var image = new window.Image();
     image.onload = function () {
+      if (canvas.spLocatorSkinUrl !== skinUrl) return;
       var width = image.naturalWidth || image.width || 0;
       var height = image.naturalHeight || image.height || 0;
       if (width < 64 || height < 32) return;
@@ -763,7 +765,6 @@
     }
     marker.rawAngle = target.angle;
     marker.element.style.zIndex = String(count - index);
-    marker.element.className = "sp-locator-marker" + (Math.abs(target.angle) > 90 ? " is-behind" : "");
     var distanceText = String(Math.round(target.distance)) + "m";
     marker.distanceLabel.textContent = distanceText;
     marker.element.title = target.displayName + " " + distanceText;
@@ -1669,7 +1670,8 @@
     var gameplay = available && mobileGameplayIsActive();
     var chatMode = portalChatActive || desktopChatInputActive || /GuiChat$/.test(currentScreenName) || mobileChatComposerIsVisible();
     if (!gameplay && mobileControlEditMode) finishMobileControlEditing();
-    mobileControlsRoot.style.display = available ? "block" : "none";
+    var display = available ? "block" : "none";
+    if (mobileControlsRoot.style.display !== display) mobileControlsRoot.style.display = display;
     mobileControlsRoot.className = (chatMode ? "is-chat" : gameplay ? "is-gameplay" : "is-menu")
       + (mobileControlEditMode ? " is-editing" : "")
       + (mobileControlsHidden ? " are-controls-hidden" : "");
@@ -3889,7 +3891,16 @@
   installMobileTouchSupport();
 
   if (typeof window.MutationObserver === "function" && document.documentElement) {
-    var imeObserver = new window.MutationObserver(function () {
+    var imeObserver = new window.MutationObserver(function (records) {
+      // HUD animation writes cannot change the game canvas or text input.
+      if (records.length && records.every(function (record) {
+        var node = record.target;
+        while (node) {
+          if (node === locatorRoot) return true;
+          node = node.parentNode;
+        }
+        return false;
+      })) return;
       enableClientTextInput(false);
       installLocatorHud();
       installMobileControls();

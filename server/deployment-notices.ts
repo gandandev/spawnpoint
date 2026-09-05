@@ -68,6 +68,12 @@ export class FrontendReleaseMonitor {
 
   async checkNow(): Promise<void> {
     if (!this.versionUrl || this.checking) return;
+    const current = this.target.getStatus();
+    if (current.phase !== "online" || current.players.length === 0) {
+      // The next occupied session establishes its own deployment baseline.
+      this.lastVersion = null;
+      return;
+    }
     this.checking = true;
     try {
       const response = await this.fetchVersion(this.versionUrl, {

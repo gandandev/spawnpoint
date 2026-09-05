@@ -343,7 +343,7 @@ export function AuthScreen({ data, mode, onAuth, onModeChange, onOpenAdmin, noti
         <Logo />
         <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" onClick={onOpenAdmin} aria-label="관리자 패널" title="관리자 패널"><Shield /></Button>
       </header>
-      <ServerCard status={data.server} setupReady={data.setup.eulaAccepted} compact />
+      <ServerCard status={data.server} />
       <AuthModeContainer mode={mode} renderContent={renderAuthForm} />
     </main>
   );

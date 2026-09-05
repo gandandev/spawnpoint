@@ -5,10 +5,9 @@ import type { AdminLogPage, AdminOverview, PublicUser, ServerSettings, SessionUp
 interface UseAdminOverviewOptions {
   open: boolean;
   csrf: string | null;
-  onOverview?: (overview: AdminOverview) => void;
 }
 
-export function useAdminOverview({ open, csrf, onOverview }: UseAdminOverviewOptions) {
+export function useAdminOverview({ open, csrf }: UseAdminOverviewOptions) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const overviewRequestGenerationRef = useRef(0);
@@ -31,9 +30,8 @@ export function useAdminOverview({ open, csrf, onOverview }: UseAdminOverviewOpt
     if (generation !== overviewRequestGenerationRef.current) return null;
     setOverview(result);
     setLoadError(null);
-    onOverview?.(result);
     return result;
-  }, [csrf, onOverview]);
+  }, [csrf]);
 
   useEffect(() => {
     if (!open) return;

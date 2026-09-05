@@ -735,9 +735,6 @@ export function createApiRouter(context: ApiContext): express.Router {
       csrf: authenticated?.csrf ?? null,
       adminExpiresAt: authenticated?.adminExpiresAt ?? null,
       server: context.serverManager.getStatus(),
-      clients: [
-        { id: "stable", version: "1.12.2", label: "안정판", description: "학교 노트북에 가장 균형 잡힌 버전" },
-      ],
       setup: { eulaAccepted: context.eulaAccepted },
     });
   });
@@ -807,7 +804,6 @@ export function createApiRouter(context: ApiContext): express.Router {
       fail(response, 401, "브리지 인증이 올바르지 않아요.", "BRIDGE_AUTH_REQUIRED");
       return;
     }
-    response.setHeader("Cache-Control", "no-store");
     response.json({
       identities: context.database.listUsers().map((user) => ({
         displayName: user.displayName,
@@ -875,7 +871,6 @@ export function createApiRouter(context: ApiContext): express.Router {
   router.get("/game/players", (request, response) => {
     const user = requireUser(request, response, context);
     if (!user) return;
-    response.setHeader("Cache-Control", "no-store");
     const players = context.serverManager.getStatus().players.flatMap((gameUsername) => {
       if (gameUsername === user.gameUsername) return [];
       const playerUser = context.database.getUserByGameUsername(gameUsername);
@@ -893,8 +888,7 @@ export function createApiRouter(context: ApiContext): express.Router {
       fail(response, 400, "클라이언트 실행 ID가 올바르지 않아요.", "BAD_LAUNCH_ID");
       return;
     }
-    const connectionState = context.gameConnections.status(launchId, user.id);
-    if (connectionState !== "connecting" && connectionState !== "connected") {
+    if (!context.gameConnections.isActive(launchId, user.id)) {
       fail(response, 409, "게임에 접속한 뒤 채팅을 보내세요.", "GAME_NOT_CONNECTED");
       return;
     }
@@ -1198,7 +1192,6 @@ export function createApiRouter(context: ApiContext): express.Router {
       users.push({ id: user.id, displayName: user.displayName });
       usersBySkinId.set(skinId, users);
     }
-    response.setHeader("Cache-Control", "no-store");
     response.json({
       categories: SKIN_CATALOG.map((category) => ({
         ...category,
@@ -1284,7 +1277,6 @@ export function createApiRouter(context: ApiContext): express.Router {
   router.get("/game/locator", async (request, response) => {
     const user = requireUser(request, response, context);
     if (!user) return;
-    response.setHeader("Cache-Control", "no-store");
     if (context.serverManager.getStatus().phase !== "online") {
       response.json({ active: false, targets: [] });
       return;
@@ -1360,7 +1352,6 @@ export function createApiRouter(context: ApiContext): express.Router {
         bridgeAvailable: server.phase === "online" && playersResult.status === "fulfilled",
         tpaEnabled: settings.tpaEnabled,
         settings,
-        logs: context.serverManager.getRecentLogs(200),
         server,
       });
     } catch (error) {
@@ -1385,7 +1376,6 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      response.setHeader("Cache-Control", "no-store");
       response.json(await context.serverManager.getLogHistory({ query, offset, limit: 500 }));
     } catch (error) {
       failFromError(response, 500, error, "저장된 로그를 읽지 못했어요.", "LOG_READ_FAILED");
@@ -1408,7 +1398,6 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
     try {
       const page = context.history.listAccessHistory(query);
-      response.setHeader("Cache-Control", "no-store");
       response.json({
         ...page,
         entries: page.entries.map((entry) => {
@@ -1440,7 +1429,6 @@ export function createApiRouter(context: ApiContext): express.Router {
     }
     try {
       const page = context.history.listChatHistory(query);
-      response.setHeader("Cache-Control", "no-store");
       response.json({
         ...page,
         entries: page.entries.map((entry) => {
@@ -1473,31 +1461,9 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      response.setHeader("Cache-Control", "no-store");
       response.json(context.history.listServerLogs(query));
     } catch (error) {
       failFromError(response, 500, error, "서버 로그를 불러오지 못했어요.", "HISTORY_READ_FAILED");
-    }
-  });
-
-  router.put("/admin/settings/tpa", async (request, response) => {
-    if (!requireAdminMutation(request, response, context, adminLimiter)) return;
-    if (typeof request.body?.enabled !== "boolean") {
-      fail(response, 400, "TPA 설정 값이 올바르지 않아요.", "INVALID_TPA_SETTING");
-      return;
-    }
-    try {
-      const current = await context.serverManager.getServerSettings();
-      const settings = await context.serverManager.updateServerSettings({
-        ...current,
-        tpaEnabled: request.body.enabled,
-      });
-      if (context.serverManager.getStatus().phase === "online") {
-        await updateBridgeSetting(context, "tpa", request.body.enabled);
-      }
-      response.json({ tpaEnabled: settings.tpaEnabled, keepInventory: settings.keepInventory });
-    } catch (error) {
-      failFromError(response, 503, error, "TPA 설정을 변경하지 못했어요.", "SETTING_UPDATE_FAILED");
     }
   });
 
@@ -1907,22 +1873,6 @@ export function createApiRouter(context: ApiContext): express.Router {
     } catch (error) {
       failFromError(response, 500, error, "저장된 프로필을 불러오지 못했어요.", "PROFILE_LOAD_FAILED");
     }
-  });
-
-  router.get("/game-connection/:launchId", (request, response) => {
-    const user = requireUser(request, response, context);
-    if (!user) return;
-    const { launchId } = request.params;
-    if (!isLaunchId(launchId)) {
-      fail(response, 400, "클라이언트 실행 ID가 올바르지 않아요.", "BAD_LAUNCH_ID");
-      return;
-    }
-    const state = context.gameConnections.status(launchId, user.id);
-    if (!state) {
-      fail(response, 404, "클라이언트 실행 정보를 찾지 못했어요.", "LAUNCH_NOT_FOUND");
-      return;
-    }
-    response.json({ state });
   });
 
   router.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {

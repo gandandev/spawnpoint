@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -1387,19 +1388,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 sendJson(exchange, 200, root);
                 return;
             }
-            String locatorPrefix = "/v1/locator/";
-            if ("GET".equals(method) && path.startsWith(locatorPrefix)) {
-                String encodedAccountId = path.substring(locatorPrefix.length());
-                if (encodedAccountId.isEmpty() || encodedAccountId.contains("/")) {
-                    sendError(exchange, 400, "invalid_account");
-                    return;
-                }
-                String accountId = URLDecoder.decode(encodedAccountId, StandardCharsets.UTF_8);
-                UUID.fromString(accountId);
-                JsonObject snapshot = locatorSnapshots.get(accountId);
-                sendJson(exchange, 200, snapshot == null ? inactiveLocatorSnapshot() : snapshot);
-                return;
-            }
             if ("GET".equals(method) && "/v1/settings".equals(path)) {
                 sendJson(exchange, 200, onMainThread(this::snapshotSettings));
                 return;
@@ -1703,30 +1691,27 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     }
 
     private void refreshLocatorSnapshots() {
+        // Capture each location once on the main thread, then share it across viewers.
+        Map<Player, Location> locations = new LinkedHashMap<>();
+        for (Player player : getServer().getOnlinePlayers()) locations.put(player, player.getLocation());
         Map<String, JsonObject> snapshots = new HashMap<>();
-        for (Player viewer : getServer().getOnlinePlayers()) {
+        for (Player viewer : locations.keySet()) {
             PlayerIdentity identity = activeIdentities.get(viewer.getUniqueId());
-            if (identity != null) snapshots.put(identity.accountId, snapshotLocator(viewer));
+            if (identity != null) snapshots.put(identity.accountId, snapshotLocator(viewer, locations));
         }
         locatorSnapshots = Map.copyOf(snapshots);
     }
 
-    private static JsonObject inactiveLocatorSnapshot() {
-        JsonObject root = new JsonObject();
-        root.addProperty("active", false);
-        root.add("targets", new JsonArray());
-        return root;
-    }
-
-    private JsonObject snapshotLocator(Player viewer) {
+    private JsonObject snapshotLocator(Player viewer, Map<Player, Location> locations) {
         JsonObject root = new JsonObject();
         JsonArray targets = new JsonArray();
         root.addProperty("active", true);
-        Location viewerLocation = viewer.getLocation();
+        Location viewerLocation = locations.get(viewer);
         List<LocatorTarget> nearby = new ArrayList<>();
-        for (Player other : getServer().getOnlinePlayers()) {
-            if (other == viewer || !other.getWorld().equals(viewer.getWorld()) || !viewer.canSee(other)) continue;
-            Location otherLocation = other.getLocation();
+        for (Map.Entry<Player, Location> entry : locations.entrySet()) {
+            Player other = entry.getKey();
+            Location otherLocation = entry.getValue();
+            if (other == viewer || !otherLocation.getWorld().equals(viewerLocation.getWorld()) || !viewer.canSee(other)) continue;
             double distanceSquared = otherLocation.distanceSquared(viewerLocation);
             if (distanceSquared <= LOCATOR_RANGE_SQUARED) {
                 nearby.add(new LocatorTarget(other, otherLocation, distanceSquared));

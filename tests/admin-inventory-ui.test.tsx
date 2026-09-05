@@ -75,7 +75,6 @@ const overview: AdminOverview = {
     keepInventory: true,
     tpaEnabled: true,
   },
-  logs: [],
   server: {
     phase: "online",
     players: ["qaadmin"],

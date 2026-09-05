@@ -77,7 +77,7 @@ describe("MinecraftServerManager player tracking", () => {
 
     await instance.sendCommand("say 안녕하세요");
 
-    expect(instance.getRecentLogs()).toContain("> say 안녕하세요");
+    expect((await instance.getLogHistory()).entries).toContainEqual({ source: "현재 실행", line: "> say 안녕하세요" });
     expect(onLog).toHaveBeenCalledWith("[Server thread/INFO]: Done (1.234s)! For help, type \"help\"", expect.any(Number));
     expect(onLog).toHaveBeenCalledWith("> say 안녕하세요", expect.any(Number));
   });

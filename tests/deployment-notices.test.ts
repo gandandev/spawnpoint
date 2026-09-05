@@ -71,6 +71,25 @@ describe("deployment notices", () => {
     expect(server.sendCommand).not.toHaveBeenCalled();
   });
 
+  it("skips idle requests and resets the baseline before players return", async () => {
+    const server = target();
+    const fetchVersion = vi.fn(async () => versionResponse("frontend-a"));
+    const monitor = new FrontendReleaseMonitor(server, "https://example.test/frontend-version", 10_000, fetchVersion);
+    await monitor.checkNow();
+    server.getStatus.mockReturnValue(status("online", []));
+    for (let index = 0; index < 60; index++) await monitor.checkNow();
+    server.getStatus.mockReturnValue(status("off", []));
+    await monitor.checkNow();
+    expect(fetchVersion).toHaveBeenCalledOnce();
+    fetchVersion.mockImplementation(async () => versionResponse("frontend-b"));
+    server.getStatus.mockReturnValue(status());
+    await monitor.checkNow();
+    expect(server.sendCommand).not.toHaveBeenCalled();
+    fetchVersion.mockImplementation(async () => versionResponse("frontend-c"));
+    await monitor.checkNow();
+    expect(server.sendCommand).toHaveBeenCalledOnce();
+  });
+
   it("counts down 30, 10, 3, 2, 1 before allowing server shutdown", async () => {
     const server = target();
     const waits: number[] = [];

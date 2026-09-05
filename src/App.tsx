@@ -1,4 +1,4 @@
-import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
@@ -11,7 +11,7 @@ import gameClient from "@/game-client.json";
 import { AuthScreen } from "@/screens/AuthScreen";
 import { Dashboard } from "@/screens/Dashboard";
 import { GameScreen, type GameSession } from "@/screens/GameScreen";
-import type { BootstrapData, ClientChoice, PublicUser, ResourcePackPreference, ServerStatus, SessionUpdate } from "@/types";
+import type { BootstrapData, PublicUser, ResourcePackPreference, ServerStatus, SessionUpdate } from "@/types";
 
 const AdminPanel = lazy(() => import("@/features/AdminPanel").then((module) => ({ default: module.AdminPanel })));
 
@@ -142,7 +142,7 @@ export function App() {
     setData((current) => current ? { ...current, user: null, csrf: null, adminExpiresAt: null } : current);
   };
 
-  const play = async (client: ClientChoice["id"]) => {
+  const play = async () => {
     const launchId = crypto.randomUUID();
     const result = await api<{ username: string; profile: string; resourcePackPreference: ResourcePackPreference }>("/game-ticket", {
       method: "POST",
@@ -155,12 +155,12 @@ export function App() {
       csrf: data!.csrf,
       resourcePackPreference: result.resourcePackPreference,
     }));
-    setGame({ client, username: result.username, launchId });
+    setGame({ username: result.username, launchId });
   };
 
-  const gameUrl = useMemo(() => game
-    ? `/game/${game.client}.html?v=${gameClient.cacheVersion}&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
-    : "", [game]);
+  const gameUrl = game
+    ? `/game/stable.html?v=${gameClient.cacheVersion}&account=${encodeURIComponent(game.username)}&launch=${encodeURIComponent(game.launchId)}`
+    : "";
 
   const standaloneAdminData = standaloneAdmin && standaloneAdmin.adminExpiresAt > Date.now() && data ? {
     ...data,
