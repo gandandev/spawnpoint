@@ -7,6 +7,14 @@ const changelog = [
     dateTime: "2026-09-05",
     label: "2026. 9. 5.",
     changes: [
+      "보관함 항목의 오른쪽 아이콘을 보관함에서 나오는 표시로 바꿨어요.",
+      "기록 화면의 기간 필터를 달력 아이콘으로 바꾸고 새로고침 버튼을 아이콘만 표시하도록 정리했어요.",
+      "콘솔 로그 검색 안내 문구가 좁은 화면에서 잘리지 않게 짧게 정리했어요.",
+      "관리자 설정 버튼의 그림자를 없앴어요.",
+      "변경 내역 모달의 최대 너비와 높이를 넓혀 긴 기록도 편하게 볼 수 있게 했어요.",
+      "스킨 변경 버튼을 조금 더 오른쪽 아래로 옮기고 높이를 줄였어요.",
+      "상단 계정 버튼 사이의 빈 간격을 없앴어요.",
+      "계정 이름 버튼의 왼쪽 여백을 넓히고 오른쪽 여백을 줄였어요.",
       "심플한 디자인을 유지하면서 모바일과 데스크톱의 작은 버튼과 닫기 버튼을 키웠어요.",
       "관리자 플레이어 탭의 아이콘을 다듬었어요.",
       "관리자 패널을 포탈 스타일에 맞춰 간결하게 정리하고, 플레이어의 걷는 3D 스킨을 추가했어요. 상태·아이템·계정 관리 기능은 펼쳐서 사용할 수 있어요.",
@@ -124,7 +132,7 @@ export function ChangelogDialog() {
     <DialogTrigger asChild>
       <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" aria-label="변경 내역" title="변경 내역"><History /></Button>
     </DialogTrigger>
-    <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto ring-0 sm:max-w-md">
+    <DialogContent className="max-h-[min(46rem,calc(100dvh-2rem))] w-[calc(100%-2rem)] overflow-y-auto ring-0 sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>변경 내역</DialogTitle>
         <DialogDescription>spawnpoint 업데이트 기록입니다.</DialogDescription>

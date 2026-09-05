@@ -432,7 +432,7 @@ function PlayerListButton({ user, player, selected, archived, sort, onSelect }: 
       : player?.online ? player.world : formatDate(player?.lastSeenAt ?? user.lastLoginAt);
 
   return <button type="button" data-user-id={user.id} className={cn("admin-list-button", selected && "is-selected", archived && "is-archived")} onClick={onSelect}>
-    <span className="flex min-w-0 items-center gap-2"><span className={cn("size-2 shrink-0 rounded-full bg-muted-foreground/35", player?.online && "bg-[#96ce4d]")} aria-label={player?.online ? "온라인" : "오프라인"} /><span className={cn("truncate font-mark text-sm", player?.online && "text-[#65952c]")}>{user.displayName}</span>{archived ? <Archive className="ml-auto size-3.5 text-muted-foreground" /> : player?.banned && <Ban className="ml-auto size-3.5 text-destructive" />}</span>
+    <span className="flex min-w-0 items-center gap-2"><span className={cn("size-2 shrink-0 rounded-full bg-muted-foreground/35", player?.online && "bg-[#96ce4d]")} aria-label={player?.online ? "온라인" : "오프라인"} /><span className={cn("truncate font-mark text-sm", player?.online && "text-[#65952c]")}>{user.displayName}</span>{archived ? <ArchiveRestore className="ml-auto size-3.5 text-muted-foreground" aria-label="보관함에서 나오기" /> : player?.banned && <Ban className="ml-auto size-3.5 text-destructive" />}</span>
     <span className="flex items-center gap-1 truncate pl-4 text-xs text-muted-foreground"><Clock3 className="size-3" />{detail}</span>
   </button>;
 }

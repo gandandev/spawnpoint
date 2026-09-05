@@ -50,6 +50,7 @@ export const InfoIcon = pixelIcon("InfoIcon");
 export const TriangleAlertIcon = pixelIcon("TriangleAlertIcon");
 export const Loader2Icon = pixelIcon("Loader2Icon");
 export const RefreshCw = pixelIcon("RefreshCw");
+export const Calendar = pixelIcon("Calendar");
 export const History = pixelIcon("History");
 export const AdminBadge = pixelIcon("AdminBadge");
 export const ServerOff = pixelIcon("ServerOff");

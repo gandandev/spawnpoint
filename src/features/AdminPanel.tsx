@@ -252,7 +252,7 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
           <div className="flex items-center gap-2">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input value={logSearchInput} onChange={(event) => setLogSearchInput(event.target.value)} maxLength={100} className="pl-8" placeholder="이전 실행까지 로그 검색" aria-label="콘솔 로그 검색" autoComplete="off" />
+              <Input value={logSearchInput} onChange={(event) => setLogSearchInput(event.target.value)} maxLength={100} className="pl-8" placeholder="로그 검색" aria-label="콘솔 로그 검색" autoComplete="off" />
             </div>
             {logs.viewingOlder && <Button type="button" variant="outline" size="sm" onClick={logs.showLatest}><RefreshCw />최신 로그</Button>}
           </div>

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowRight, Clock3, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "@/components/pixel-icons";
+import { ArrowRight, Calendar, Clock3, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "@/components/pixel-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -200,16 +200,17 @@ export function AdminHistoryPanel({ active, csrf }: { active: boolean; csrf: str
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} className="pl-8" placeholder={placeholder} aria-label="영구 기록 검색" autoComplete="off" />
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={history.refresh}><RefreshCw />새로고침</Button>
+          <details className="relative shrink-0">
+            <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-lg border border-input text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"><Calendar aria-label="기간 필터" /></summary>
+            <form className="absolute top-11 right-0 z-20 grid w-[min(22rem,calc(100vw-2rem))] gap-2 rounded-lg border bg-background p-3 shadow-lg sm:grid-cols-2" onSubmit={applyTimeRange}>
+              <label className="admin-compact-field">시작 시간<Input type="datetime-local" step={1} value={fromInput} onChange={(event) => setFromInput(event.target.value)} /></label>
+              <label className="admin-compact-field">끝 시간<Input type="datetime-local" step={1} value={toInput} onChange={(event) => setToInput(event.target.value)} /></label>
+              <Button type="submit" size="sm"><History />시간 적용</Button>
+              <Button type="button" variant="ghost" size="sm" disabled={!fromInput && !toInput} onClick={clearTimeRange}>시간 초기화</Button>
+            </form>
+          </details>
+          <Button type="button" variant="outline" size="icon-sm" onClick={history.refresh} aria-label="새로고침" title="새로고침"><RefreshCw /></Button>
         </div>
-        <details className="mt-2"><summary className="cursor-pointer text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">기간 필터{(from !== null || to !== null) && " · 적용 중"}</summary>
-        <form className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]" onSubmit={applyTimeRange}>
-          <label className="admin-compact-field">시작 시간<Input type="datetime-local" step={1} value={fromInput} onChange={(event) => setFromInput(event.target.value)} /></label>
-          <label className="admin-compact-field">끝 시간<Input type="datetime-local" step={1} value={toInput} onChange={(event) => setToInput(event.target.value)} /></label>
-          <Button type="submit" size="sm"><History />시간 적용</Button>
-          <Button type="button" variant="ghost" size="sm" disabled={!fromInput && !toInput} onClick={clearTimeRange}>시간 초기화</Button>
-        </form>
-        </details>
         {rangeError && <p className="mt-2 text-xs text-destructive">{rangeError}</p>}
         <p className="mt-2 text-[11px] text-muted-foreground">기록은 서버 데이터 볼륨에 계속 저장되며, 재시작하거나 서버를 꺼도 남습니다.</p>
       </div>

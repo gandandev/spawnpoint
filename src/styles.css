@@ -271,7 +271,7 @@
   }
 
   .dashboard-actions {
-    @apply flex min-w-0 flex-1 items-center justify-end gap-0.5;
+    @apply flex min-w-0 flex-1 items-center justify-end gap-0;
   }
 
   .character-stage {
@@ -283,7 +283,7 @@
   }
 
   .character-change {
-    @apply absolute bottom-5 right-5 z-10;
+    @apply absolute bottom-4 right-4 z-10 h-10;
   }
 
   .admin-dialog {
@@ -295,7 +295,7 @@
   }
 
   .admin-primary-tab[data-state="on"] {
-    @apply bg-background shadow-sm;
+    @apply bg-background shadow-none;
   }
 
   .admin-player-detail {
