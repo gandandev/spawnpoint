@@ -22,6 +22,8 @@ interface TokenEnvelope {
   skinPath?: string;
   skinModel?: SkinModel;
   jti?: string;
+  spectator?: boolean;
+  operatorUsername?: string;
 }
 
 function base64Url(input: Buffer | string): string {
@@ -180,17 +182,24 @@ export function createAdminToken(
   };
 }
 
+export function spectatorUsername(accountId: string): string {
+  return `spv_${crypto.createHash("sha256").update(accountId).digest("hex").slice(0, 12)}`;
+}
+
 export function createGameTicket(
   user: UserRecord,
   skinPath: string,
   secret: string,
   minutes: number,
+  spectator = false,
 ): string {
   const now = Math.floor(Date.now() / 1000);
   return signToken({
     aud: "game",
     sub: user.id,
-    username: user.gameUsername,
+    username: spectator ? spectatorUsername(user.id) : user.gameUsername,
+    spectator,
+    operatorUsername: spectator ? user.gameUsername : undefined,
     displayName: user.displayName,
     skinPath,
     skinModel: user.skinModel,

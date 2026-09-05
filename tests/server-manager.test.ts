@@ -38,6 +38,15 @@ afterEach(async () => {
 });
 
 describe("MinecraftServerManager player tracking", () => {
+  it("does not publish quiet spectator login or logout as player presence", () => {
+    const instance = manager();
+    const before = instance.getStatus();
+    log(instance, "[Server thread/INFO]: spv_123456789abc[/127.0.0.1:56096] logged in with entity id 654 at ([world]0, 64, 0)");
+    expect(instance.getStatus()).toEqual(before);
+    log(instance, "[Server thread/INFO]: spv_123456789abc lost connection: Disconnected");
+    expect(instance.getStatus()).toEqual(before);
+  });
+
   it("allows the expected portal status fanout without hiding real listener leaks", () => {
     expect(manager().getMaxListeners()).toBe(48);
   });

@@ -117,6 +117,7 @@ export interface AdminHistoryPage<T> {
 }
 
 export interface BootstrapData {
+  canSpectate?: boolean;
   user: PublicUser | null;
   csrf: string | null;
   adminExpiresAt: number | null;

@@ -156,6 +156,7 @@ async function createHarness(options: {
   consoleCommands?: string[];
   logHistory?: ConsoleLogPage;
   logRequests?: Array<{ query?: string; offset?: number; limit?: number }>;
+  operator?: boolean;
 } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "spawnpoint-api-"));
   const database = new AppDatabase(dataDir);
@@ -175,7 +176,7 @@ async function createHarness(options: {
   app.use("/api", createApiRouter({
     database,
     skins: new SkinService(database, dataDir, path.join(process.cwd(), "public")),
-    serverManager: fakeServerManager(options.serverStatus, options.consoleCommands, options.logHistory, options.logRequests),
+    serverManager: Object.assign(fakeServerManager(options.serverStatus, options.consoleCommands, options.logHistory, options.logRequests), options.operator === undefined ? {} : { getStoredPlayer: async (account: PlayerAccountReference) => fakePlayer(account, { operator: options.operator }) }),
     sessionSecret: secret,
     serverPassword: sharedServerPassword,
     secureCookies: false,
@@ -654,6 +655,21 @@ describe("skin catalog usage", () => {
 });
 
 describe("game launch", () => {
+  it.each([false, true])("allows quiet launches only with OP, operator=%s", async (operator) => {
+    const harness = await createHarness({ serverStatus: { ...serverStatus, phase: "online" }, operator });
+    const launchId = crypto.randomUUID();
+    const response = await fetch(`${harness.origin}/api/game-ticket`, {
+      method: "POST",
+      headers: { ...harness.adminHeaders, Origin: harness.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ launchId, spectator: true }),
+    });
+    expect(response.status).toBe(operator ? 200 : 403);
+    expect(harness.gameConnections.isSpectator(launchId, harness.admin.id)).toBe(operator);
+    expect(harness.gameConnections.isSpectator(launchId, harness.user.id)).toBe(false);
+    const bootstrap = await fetch(`${harness.origin}/api/bootstrap`, { headers: harness.adminHeaders });
+    expect((await bootstrap.json()).canSpectate).toBe(operator);
+  });
+
   it("creates the client profile without returning a discarded game ticket", async () => {
     const harness = await createHarness({ serverStatus: { ...serverStatus, phase: "online" } });
     const response = await fetch(`${harness.origin}/api/game-ticket`, {

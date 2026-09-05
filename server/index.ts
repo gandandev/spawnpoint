@@ -315,7 +315,7 @@ server.on("upgrade", (request, socket, head) => {
         console.error("Could not close the game connection history:", error);
       }
     });
-    const ticket = createGameTicket(user, skinPathForUser(user), sessionSecret, config.gameTicketMinutes);
+    const ticket = createGameTicket(user, skinPathForUser(user), sessionSecret, config.gameTicketMinutes, gameConnections.isSpectator(validLaunchId!, user.id));
     parsed.searchParams.set("ticket", ticket);
     request.url = `${parsed.pathname}${parsed.search}`;
     delete request.headers.cookie;

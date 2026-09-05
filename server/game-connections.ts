@@ -1,5 +1,6 @@
 interface GameConnection {
   userId: string;
+  spectator: boolean;
   attemptTimestamps: number[];
   expiresAt: number;
   disconnect: (() => void) | null;
@@ -20,7 +21,7 @@ export class GameConnectionTracker {
     private readonly attemptWindowMs = 60_000,
   ) {}
 
-  create(launchId: string, userId: string): void {
+  create(launchId: string, userId: string, spectator = false): void {
     this.cleanup();
     const key = launchId.toLowerCase();
     const existing = this.connections.get(key);
@@ -30,6 +31,7 @@ export class GameConnectionTracker {
     this.remove(key)?.();
     this.connections.set(key, {
       userId,
+      spectator,
       attemptTimestamps,
       expiresAt: Date.now() + this.lifetimeMs,
       disconnect: null,
@@ -56,6 +58,11 @@ export class GameConnectionTracker {
       connection.disconnect = null;
       connection.expiresAt = Date.now() + this.lifetimeMs;
     };
+  }
+
+  isSpectator(launchId: string, userId: string): boolean {
+    const connection = this.connections.get(launchId.toLowerCase());
+    return connection?.userId === userId && connection.spectator;
   }
 
   isActive(launchId: string, userId: string): boolean {

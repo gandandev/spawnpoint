@@ -107,6 +107,10 @@ import org.bukkit.event.player.PlayerBedEnterEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerLoginEvent;
+import org.bukkit.event.player.PlayerGameModeChangeEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
@@ -933,6 +937,17 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        if (isQuietSpectator(event.getPlayer())) { event.setCancelled(true); return; }
+        String command = event.getMessage().trim().split("\\s+", 2)[0].toLowerCase(Locale.ROOT);
+        if (command.equals("/list") || command.equals("/minecraft:list") || command.equals("/bukkit:list")) {
+            event.setCancelled(true);
+            List<String> names = getServer().getOnlinePlayers().stream()
+                .filter(player -> !isQuietSpectator(player) && event.getPlayer().canSee(player))
+                .map(SpawnpointBridgePlugin::playerLabel).sorted().toList();
+            event.getPlayer().sendMessage("접속 중인 플레이어: " + names.size() + "명 / " + getServer().getMaxPlayers() + "명");
+            if (!names.isEmpty()) event.getPlayer().sendMessage(String.join(", ", names));
+            return;
+        }
         Map<String, CommandTargetName> targetsByTechnicalName = new HashMap<>();
         for (CommandTargetName target : commandTargets) {
             targetsByTechnicalName.put(target.technicalName.toLowerCase(Locale.ROOT), target);
@@ -1390,7 +1405,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 JsonObject body = onMainThread(() -> {
                     JsonObject health = new JsonObject();
                     health.addProperty("ok", true);
-                    health.addProperty("onlinePlayers", getServer().getOnlinePlayers().size());
+                    health.addProperty("onlinePlayers", getServer().getOnlinePlayers().stream().filter(player -> !isQuietSpectator(player)).count());
                     return health;
                 });
                 sendJson(exchange, 200, body);
@@ -1703,6 +1718,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         JsonObject root = new JsonObject();
         JsonArray players = new JsonArray();
         getServer().getOnlinePlayers().stream()
+            .filter(player -> !isQuietSpectator(player))
             .sorted(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER))
             .map(this::snapshotPlayer)
             .forEach(players::add);
@@ -2064,13 +2080,14 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onEmptyServerJoin(PlayerJoinEvent event) {
-        if (getServer().getOnlinePlayers().size() != 1) return;
+        if (isQuietSpectator(event.getPlayer()) || getServer().getOnlinePlayers().stream().filter(player -> !isQuietSpectator(player)).count() != 1) return;
         getServer().getWorlds().forEach(world -> world.setTime(0L));
         getLogger().info("Set all loaded worlds to 6 AM after the empty server received a player.");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerBedInteract(PlayerInteractEvent event) {
+        if (isQuietSpectator(event.getPlayer())) return;
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() != EquipmentSlot.HAND) return;
         Block bedBlock = event.getClickedBlock();
         if (bedBlock == null || bedBlock.getType() != Material.BED_BLOCK) return;
@@ -2099,13 +2116,91 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }, 1L);
     }
 
+    private volatile List<String> publicPlayerNames = List.of();
+
+    private void refreshPublicPlayerNames() {
+        publicPlayerNames = getServer().getOnlinePlayers().stream()
+            .filter(player -> !isQuietSpectator(player))
+            .map(SpawnpointBridgePlugin::playerLabel).toList();
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onQuietSpectatorMotd(net.lax1dude.eaglercraft.backend.server.api.bukkit.event.EaglercraftMOTDEvent event) {
+        List<String> names = publicPlayerNames;
+        event.getMOTDConnection().setPlayerTotal(names.size());
+        event.getMOTDConnection().setPlayerList(names);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onQuietSpectatorPing(org.bukkit.event.server.ServerListPingEvent event) {
+        java.util.Iterator<Player> players = event.iterator();
+        while (players.hasNext()) if (isQuietSpectator(players.next())) players.remove();
+    }
+
+    private boolean isQuietSpectator(Player player) {
+        PlayerIdentity identity = activeIdentities.get(player.getUniqueId());
+        if (identity == null) identity = pendingIdentities.get(player.getName().toLowerCase(Locale.ROOT));
+        return identity != null && identity.spectator;
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onQuietSpectatorLogin(PlayerLoginEvent event) {
+        PlayerIdentity identity = pendingIdentities.get(event.getPlayer().getName().toLowerCase(Locale.ROOT));
+        if (identity == null || !identity.spectator) return;
+        UUID spectatorUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + event.getPlayer().getName()).getBytes(StandardCharsets.UTF_8));
+        if (!spectatorUuid.equals(event.getPlayer().getUniqueId())) {
+            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, "관전 프로필로 다시 접속하세요.");
+            pendingIdentities.remove(event.getPlayer().getName().toLowerCase(Locale.ROOT));
+            return;
+        }
+        UUID operatorUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + identity.operatorUsername).getBytes(StandardCharsets.UTF_8));
+        if (!getServer().getOfflinePlayer(operatorUuid).isOp()) {
+            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, "관전 접속은 OP 계정만 사용할 수 있어요.");
+            pendingIdentities.remove(event.getPlayer().getName().toLowerCase(Locale.ROOT));
+            return;
+        }
+        event.getPlayer().setGameMode(GameMode.SPECTATOR);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onQuietSpectatorMode(PlayerGameModeChangeEvent event) {
+        if (isQuietSpectator(event.getPlayer()) && event.getNewGameMode() != GameMode.SPECTATOR) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onQuietSpectatorInteract(PlayerInteractEvent event) {
+        if (isQuietSpectator(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onQuietSpectatorInteractEntity(PlayerInteractEntityEvent event) {
+        if (isQuietSpectator(event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onQuietSpectatorDamage(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player player && isQuietSpectator(player)) event.setCancelled(true);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         installDisplayNamePacketHandler(player);
         applyPendingIdentity(player);
-        scheduleObserverSkinCacheInvalidation(player);
         event.setJoinMessage(null);
+        for (Player other : getServer().getOnlinePlayers()) {
+            if (other == player) continue;
+            if (isQuietSpectator(player)) other.hidePlayer(this, player);
+            if (isQuietSpectator(other)) player.hidePlayer(this, other);
+        }
+        if (isQuietSpectator(player)) {
+            player.setGameMode(GameMode.SPECTATOR);
+            player.setSleepingIgnored(true);
+            player.setCollidable(false);
+            return;
+        }
+        refreshPublicPlayerNames();
+        scheduleObserverSkinCacheInvalidation(player);
         announcePlayerJoin(player, IDENTITY_RESOLVE_ATTEMPTS);
     }
 
@@ -2159,6 +2254,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
+        if (isQuietSpectator(event.getPlayer())) { event.setCancelled(true); return; }
         event.setFormat("<" + playerLabel(event.getPlayer()) + "> %2$s");
     }
 
@@ -2169,6 +2265,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
+        if (isQuietSpectator(event.getEntity())) { event.setDeathMessage(null); return; }
         Location location = event.getEntity().getLocation();
         String coordinates = location.getBlockX() + ", " + location.getBlockY() + ", " + location.getBlockZ();
         String showDeathMessages = event.getEntity().getWorld().getGameRuleValue("showDeathMessages");
@@ -2231,6 +2328,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerAdvancement(PlayerAdvancementDoneEvent event) {
+        if (isQuietSpectator(event.getPlayer())) {
+            disableDefaultAdvancementAnnouncement(event.getPlayer().getWorld());
+            return;
+        }
         AdvancementAnnouncement announcement = advancementAnnouncement(event.getAdvancement());
         if (announcement == null || !disableDefaultAdvancementAnnouncement(event.getPlayer().getWorld())) return;
         TranslatableComponent message = new TranslatableComponent(
@@ -2244,17 +2345,21 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerQuit(PlayerQuitEvent event) {
         String displayName = resolvedPlayerName(event.getPlayer());
-        event.setQuitMessage(displayName == null
+        event.setQuitMessage(isQuietSpectator(event.getPlayer()) || displayName == null
             ? null
             : ChatColor.YELLOW + displayName + "님이 게임에서 나갔습니다.");
         removeTeleportRequestsFor(event.getPlayer());
         recordPlayerHistory("quit", event.getPlayer(), null);
+        publicPlayerNames = getServer().getOnlinePlayers().stream()
+            .filter(player -> player != event.getPlayer() && !isQuietSpectator(player))
+            .map(SpawnpointBridgePlugin::playerLabel).toList();
         activeIdentities.remove(event.getPlayer().getUniqueId());
     }
 
     private void announcePlayerJoin(Player player, int attemptsRemaining) {
         if (!player.isOnline()) return;
         applyPendingIdentity(player);
+        if (isQuietSpectator(player)) return;
         String displayName = resolvedPlayerName(player);
         if (displayName == null) {
             if (attemptsRemaining > 0) {
@@ -2389,12 +2494,15 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             Field entriesField = packet.getClass().getDeclaredField("b");
             entriesField.setAccessible(true);
             List<?> entries = (List<?>) entriesField.get(packet);
+            List<Object> visibleEntries = new ArrayList<>();
             for (Object playerInfo : entries) {
                 GameProfile originalProfile = (GameProfile) playerInfo.getClass().getMethod("a").invoke(playerInfo);
                 PlayerIdentity identity = activeIdentities.get(originalProfile.getId());
                 if (identity == null) {
                     identity = pendingIdentities.get(originalProfile.getName().toLowerCase(Locale.ROOT));
                 }
+                if (identity != null && identity.spectator) continue;
+                visibleEntries.add(playerInfo);
                 if (identity == null || originalProfile.getName().equals(identity.displayName)) continue;
                 GameProfile displayProfile = new GameProfile(originalProfile.getId(), identity.displayName);
                 displayProfile.getProperties().putAll(originalProfile.getProperties());
@@ -2402,6 +2510,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 profileField.setAccessible(true);
                 profileField.set(playerInfo, displayProfile);
             }
+            entriesField.set(packet, visibleEntries);
         } catch (ReflectiveOperationException | RuntimeException exception) {
             if (!packetReflectionWarningLogged) {
                 packetReflectionWarningLogged = true;
@@ -2542,7 +2651,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         event.setProfileUsername(ticket.username);
         pendingIdentities.put(
             ticket.username.toLowerCase(Locale.ROOT),
-            new PlayerIdentity(ticket.accountId, ticket.displayName, ticket.skinPath)
+            new PlayerIdentity(ticket.accountId, ticket.displayName, ticket.skinPath, ticket.spectator, ticket.operatorUsername)
         );
         getServer().getScheduler().runTask(this, () -> {
             Player player = getServer().getPlayerExact(ticket.username);
@@ -2620,7 +2729,10 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             if (skinPath.contains("..") || skinPath.contains("\\") || skinPath.contains("#")) return null;
             if (!("steve".equals(skinModel) || "alex".equals(skinModel))) return null;
             if (!isSafeDisplayName(displayName)) displayName = username;
-            return new Ticket(username, subject, displayName, skinPath, skinModel);
+            boolean spectator = json.has("spectator") && json.get("spectator").getAsBoolean();
+            String operatorUsername = string(json, "operatorUsername");
+            if (spectator && (operatorUsername == null || !operatorUsername.matches("[A-Za-z0-9_]{3,16}"))) return null;
+            return new Ticket(username, subject, displayName, skinPath, skinModel, spectator, operatorUsername);
         } catch (GeneralSecurityException | IllegalArgumentException | IllegalStateException exception) {
             return null;
         }
@@ -2655,9 +2767,9 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         return null;
     }
 
-    private record Ticket(String username, String accountId, String displayName, String skinPath, String skinModel) {}
+    private record Ticket(String username, String accountId, String displayName, String skinPath, String skinModel, boolean spectator, String operatorUsername) {}
 
-    private record PlayerIdentity(String accountId, String displayName, String skinPath) {}
+    private record PlayerIdentity(String accountId, String displayName, String skinPath, boolean spectator, String operatorUsername) {}
 
     private record LocatorTarget(Player player, Location location, double distanceSquared) {}
 

@@ -900,9 +900,37 @@ describe("game launch", () => {
       initialSkinDialogOpen={false}
       onInitialSkinDialogHandled={vi.fn()}
     />));
+    expect(container.querySelector('[aria-label="조용히 관전"]')).toBeNull();
     const play = [...container.querySelectorAll("button")].find((button) => button.textContent === "실행")!;
     await act(async () => play.click());
     expect(onPlay).toHaveBeenCalledExactlyOnceWith();
+    expect(onStart).not.toHaveBeenCalled();
+    expect(notice).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+  it("shows quiet spectating only for OP and passes the spectator flag", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onPlay = vi.fn(async () => {});
+    const onStart = vi.fn(async () => {});
+    const notice = vi.fn();
+    await act(async () => root.render(<Dashboard
+      data={{ ...adminData, canSpectate: true }}
+      onData={vi.fn()}
+      onSession={vi.fn()}
+      onStart={onStart}
+      onLogout={vi.fn()}
+      notice={notice}
+      onPlay={onPlay}
+      onOpenAdmin={vi.fn()}
+      initialSkinDialogOpen={false}
+      onInitialSkinDialogHandled={vi.fn()}
+    />));
+    const play = container.querySelector<HTMLButtonElement>('[aria-label="조용히 관전"]')!;
+    expect(play).not.toBeNull();
+    await act(async () => play.click());
+    expect(onPlay).toHaveBeenCalledExactlyOnceWith(true);
     expect(onStart).not.toHaveBeenCalled();
     expect(notice).not.toHaveBeenCalled();
     await act(async () => root.unmount());

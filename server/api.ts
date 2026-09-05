@@ -14,6 +14,7 @@ import {
   createAdminToken,
   createPasswordResetCode,
   createSessionToken,
+  spectatorUsername,
   createTemporaryPassword,
   hashPassword,
   isSameOrigin,
@@ -728,13 +729,14 @@ export function createApiRouter(context: ApiContext): express.Router {
     next();
   });
 
-  router.get("/bootstrap", (request, response) => {
+  router.get("/bootstrap", async (request, response) => {
     const authenticated = userForRequest(request, context);
     response.json({
       user: authenticated ? publicUser(authenticated.user, context, authenticated.adminExpiresAt) : null,
       csrf: authenticated?.csrf ?? null,
       adminExpiresAt: authenticated?.adminExpiresAt ?? null,
       server: context.serverManager.getStatus(),
+      canSpectate: authenticated ? await context.serverManager.getStoredPlayer(authenticated.user).then((player) => player.operator).catch(() => false) : false,
       setup: { eulaAccepted: context.eulaAccepted },
     });
   });
@@ -1866,10 +1868,20 @@ export function createApiRouter(context: ApiContext): express.Router {
       return;
     }
     try {
-      const profile = await context.skins.createClientProfile(user);
-      context.gameConnections.create(launchId, user.id);
+      const spectator = request.body?.spectator === true;
+      if (spectator && !(await context.serverManager.getStoredPlayer(user)).operator) {
+        fail(response, 403, "관전 접속은 OP 계정만 사용할 수 있어요.", "OP_REQUIRED");
+        return;
+      }
+      const username = spectator ? spectatorUsername(user.id) : user.gameUsername;
+      if (spectator && context.database.getUserByGameUsername(username)) {
+        fail(response, 409, "관전 프로필 이름이 기존 계정과 겹쳐 접속할 수 없어요.", "SPECTATOR_PROFILE_CONFLICT");
+        return;
+      }
+      const profile = await context.skins.createClientProfile({ ...user, gameUsername: username });
+      context.gameConnections.create(launchId, user.id, spectator);
       response.json({
-        username: user.gameUsername,
+        username,
         displayName: user.displayName,
         profile,
         resourcePackPreference: user.resourcePackPreference,

@@ -4,6 +4,15 @@ import { GameConnectionTracker, isLaunchId } from "../server/game-connections.js
 const launchId = "24f432da-1f3b-4f10-8d13-53e93a90872d";
 
 describe("game connection tracker", () => {
+  it("binds spectator mode to the account and clears it for a normal relaunch", () => {
+    const tracker = new GameConnectionTracker();
+    tracker.create(launchId, "operator", true);
+    expect(tracker.isSpectator(launchId, "operator")).toBe(true);
+    expect(tracker.isSpectator(launchId, "other")).toBe(false);
+    tracker.create(launchId, "operator");
+    expect(tracker.isSpectator(launchId, "operator")).toBe(false);
+  });
+
   it("allows retrying after a connection closes during login", () => {
     const tracker = new GameConnectionTracker();
     tracker.create(launchId, "user-1");

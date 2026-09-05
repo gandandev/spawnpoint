@@ -390,6 +390,7 @@ export class MinecraftServerManager extends EventEmitter {
   }
 
   private updatePlayerPresence(player: string, connected: boolean): void {
+    if (/^spv_[0-9a-f]{12}$/.test(player)) return;
     const players = new Set(this.state.players);
     if (connected) players.add(player);
     else players.delete(player);

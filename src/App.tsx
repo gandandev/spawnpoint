@@ -91,7 +91,8 @@ export function App() {
     setAuthMode("login");
     setStandaloneAdmin(null);
     setAdminPanelOpen(false);
-    setData((current) => current ? { ...current, user: result.user, csrf: result.csrf } : current);
+    setData((current) => current ? { ...current, user: result.user, csrf: result.csrf, canSpectate: false } : current);
+    await reload();
   };
 
   const openAdmin = useCallback(() => {
@@ -142,12 +143,12 @@ export function App() {
     setData((current) => current ? { ...current, user: null, csrf: null, adminExpiresAt: null } : current);
   };
 
-  const play = async () => {
+  const play = async (spectator = false) => {
     const launchId = crypto.randomUUID();
     const result = await api<{ username: string; profile: string; resourcePackPreference: ResourcePackPreference }>("/game-ticket", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-spawnpoint-csrf": data!.csrf! },
-      body: JSON.stringify({ launchId }),
+      body: JSON.stringify({ launchId, spectator }),
     });
     const storageNamespace = `_spawnpoint_${result.username.toLowerCase()}`;
     window.localStorage.setItem(`${storageNamespace}.p`, result.profile);
