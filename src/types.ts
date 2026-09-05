@@ -36,6 +36,7 @@ export interface SkinCatalogCategory {
 }
 
 export interface AdminUser {
+  skin?: PublicUser["skin"];
   id: string;
   username: string;
   gameUsername: string;

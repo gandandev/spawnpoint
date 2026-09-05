@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminPlayersPanel } from "../src/features/AdminPlayersPanel";
 import type { AdminOverview, PlayerDetails } from "../src/types";
 
+vi.mock("../src/SkinPreview", () => ({ SkinPreview: ({ src, model }: { src: string; model: string }) => <div data-testid="admin-skin-preview" data-src={src} data-model={model} /> }));
+
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const player: PlayerDetails = {
@@ -50,6 +52,7 @@ const overview: AdminOverview = {
     passwordResetExpiresAt: null,
     resetRequired: false,
     isAdmin: true,
+    skin: { type: "preset", model: "alex", label: "Alex", previewUrl: "/assets/skins/alex.png?v=texture-v2" },
   }],
   players: [player],
   bridgeAvailable: true,
@@ -114,6 +117,8 @@ describe("Minecraft inventory editor", () => {
       root.render(<AdminPlayersPanel overview={overview} currentUserId="account-1" isBusy={() => false} mutate={mutate} notice={notice} />);
     });
 
+    expect(document.querySelector("[data-testid=admin-skin-preview]")?.getAttribute("data-src")).toBe("/assets/skins/alex.png?v=texture-v2");
+    expect(document.querySelector("[data-testid=admin-skin-preview]")?.getAttribute("data-model")).toBe("alex");
     expect(container.querySelector('img[alt="플레이어 인벤토리 Minecraft UI"]')).toBeTruthy();
     expect(container.querySelector('img[alt="엔더 상자 Minecraft UI"]')).toBeTruthy();
     expect(container.querySelectorAll(".minecraft-inventory-slot")).toHaveLength(104);

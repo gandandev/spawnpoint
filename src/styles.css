@@ -286,9 +286,55 @@
     @apply absolute bottom-5 right-5 z-10;
   }
 
+  .admin-dialog {
+    height: min(46rem, calc(100dvh - 2rem));
+  }
+
+  .admin-primary-tabs {
+    @apply rounded-lg bg-muted/50;
+  }
+
+  .admin-primary-tab[data-state="on"] {
+    @apply bg-background shadow-sm;
+  }
+
+  .admin-player-detail {
+    @apply flex min-w-0 flex-col gap-3;
+  }
+
+  .admin-player-summary {
+    @apply grid min-w-0 items-center gap-3 rounded-lg bg-muted/25 p-2;
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+
+  .admin-player-preview {
+    @apply h-40 w-full min-w-0;
+  }
+
+  .admin-detail-section {
+    @apply min-w-0 border-t;
+  }
+
+  .admin-detail-section > summary {
+    @apply cursor-pointer py-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .admin-detail-section > section,
+  .admin-detail-section > form {
+    @apply rounded-none border-0 px-0 pt-0;
+  }
+
+  .admin-setting-control {
+    @apply block w-44 max-w-[48%] shrink-0;
+  }
+
+  .admin-history-layout .minecraft-player-head:not(.is-compact) {
+    @apply size-8;
+  }
+
   .admin-split-panel {
     @apply grid min-h-0 gap-3;
-    grid-template-columns: minmax(10rem, 0.7fr) minmax(0, 1.6fr);
+    grid-template-columns: 13rem minmax(0, 1fr);
   }
 
   .admin-primary-tab {
@@ -304,7 +350,7 @@
   }
 
   .admin-list-panel {
-    @apply flex max-h-[32rem] min-h-24 flex-col gap-1 overflow-y-auto rounded-lg border p-1;
+    @apply flex max-h-[min(35rem,68dvh)] min-h-24 flex-col gap-0.5 overflow-y-auto rounded-lg bg-muted/25 p-1;
   }
 
   .admin-player-sort {
@@ -340,7 +386,7 @@
   }
 
   .admin-stat {
-    @apply flex min-w-0 flex-col gap-1 rounded-md bg-muted/55 px-2.5 py-2 text-xs;
+    @apply flex min-w-0 flex-col gap-0.5 border-b border-border/60 px-1 py-2 text-xs;
   }
 
   .admin-stat > span {
@@ -411,11 +457,11 @@
 
   .admin-settings-layout {
     @apply grid min-w-0 gap-4;
-    grid-template-columns: 7.5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-settings-nav {
-    @apply flex flex-col gap-1 rounded-lg border bg-muted/20 p-1;
+    @apply flex flex-row gap-1 rounded-lg bg-muted/40 p-1;
   }
 
   .admin-settings-nav-button {
@@ -431,7 +477,7 @@
   }
 
   .admin-settings-section {
-    @apply flex flex-col gap-3;
+    @apply flex flex-col gap-0;
   }
 
   .admin-settings-section[hidden] {
@@ -440,11 +486,11 @@
 
   .admin-setting-row,
   .admin-setting-field {
-    @apply flex min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5;
+    @apply flex min-w-0 items-center justify-between gap-3 border-b border-border/60 px-1 py-2.5;
   }
 
   .admin-setting-field {
-    @apply flex-col items-stretch;
+    @apply flex-row items-center;
   }
 
   .admin-log-view {
@@ -453,11 +499,11 @@
 
   .admin-history-layout {
     @apply grid min-w-0 gap-4;
-    grid-template-columns: 7.5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-history-nav {
-    @apply flex flex-col gap-1 rounded-lg border bg-muted/20 p-1;
+    @apply flex flex-row gap-1 rounded-lg bg-muted/40 p-1;
   }
 
   .admin-history-nav-button {

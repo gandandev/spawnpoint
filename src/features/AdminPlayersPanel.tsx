@@ -1,3 +1,4 @@
+import { SkinPreview } from "@/SkinPreview";
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ArchiveRestore, Ban, Box, Check, ChevronDown, Clock3, Copy, DoorOpen, HeartPulse, KeyRound, PackagePlus, Shield, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -360,9 +361,10 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
     if (result) notice(message);
   };
 
-  return <div className="flex min-w-0 flex-col gap-3">
-    <div className="flex flex-wrap items-start gap-3 rounded-lg border p-3">
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#96ce4d]/15 font-semibold text-[#65952c]">{user.displayName.slice(0, 1)}</div>
+  return <div className="admin-player-detail">
+    <div className="admin-player-summary">
+    <SkinPreview src={user.skin?.previewUrl ?? "/assets/skins/steve.png?v=texture-v2"} model={user.skin?.model ?? "steve"} className="admin-player-preview" />
+    <div className="flex min-w-0 flex-wrap content-center items-start gap-2">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2"><span className="truncate font-medium">{user.displayName}</span><Badge variant={player?.online ? "secondary" : "outline"}>{player?.online ? "온라인" : "오프라인"}</Badge>{user.archivedAt !== null && <Badge variant="outline">보관됨</Badge>}{player?.banned && <Badge variant="destructive">차단됨</Badge>}</div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground">{user.gameUsername} · {player?.uuid ?? "월드 기록 없음"}</div>
@@ -375,8 +377,8 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
       </div>
       <Input className="basis-full" value={reason} maxLength={160} onChange={(event) => setReason(event.target.value)} placeholder="킥 또는 밴 사유, 비워 두면 기본 문구 사용" aria-label="킥 또는 밴 사유" />
     </div>
-
-    {player && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    </div>
+    {player && <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
       <div className="admin-stat"><span>첫 접속</span><strong>{formatDate(player.firstSeenAt)}</strong></div>
       <div className="admin-stat"><span>마지막 접속</span><strong>{player.online ? "지금 접속 중" : formatDate(player.lastSeenAt)}</strong></div>
       <div className="admin-stat"><span>총 플레이 시간</span><strong>{formatPlayTime(player.playTimeTicks)}</strong></div>
@@ -388,12 +390,17 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
     </div>}
 
     {player?.dataAvailable ? <>
+      <details className="admin-detail-section"><summary>상태와 위치 편집</summary>
       <StateEditor player={player} busy={isBusy(`state:${playerId}`)} onSave={async (body) => {
         await run(`state:${playerId}`, `/admin/players/${playerId}/state`, "PATCH", body, "플레이어 상태를 적용했어요.");
       }} />
+      </details>
+      <details className="admin-detail-section"><summary>아이템 관리</summary>
       <InventoryManager player={player} playerId={playerId} isBusy={isBusy} mutate={mutate} notice={notice} />
-    </> : <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">아직 월드에 접속한 기록이 없어서 상태와 아이템 데이터가 없습니다.</div>}
+      </details>
+    </> : <div className="px-1 py-3 text-xs text-muted-foreground">아직 월드에 접속한 기록이 없어서 상태와 아이템 데이터가 없습니다.</div>}
 
+    <details className="admin-detail-section"><summary>포털 계정 관리</summary>
     <AccountEditor
       user={user}
       currentUserId={currentUserId}
@@ -406,6 +413,7 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
         if (result) notice("로그인 이름을 변경했어요.");
       }}
     />
+    </details>
   </div>;
 }
 

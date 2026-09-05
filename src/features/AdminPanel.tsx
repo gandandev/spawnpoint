@@ -169,19 +169,19 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
     onOpenChange?.(nextOpen);
   }}>
     {showTrigger && <DialogTrigger asChild><Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" aria-label="관리자 패널" title="관리자 패널"><Shield /></Button></DialogTrigger>}
-    <DialogContent className="max-h-[calc(100dvh-1rem)] min-h-[min(44rem,calc(100dvh-1rem))] w-[calc(100%-1rem)] grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden p-4 ring-0 sm:max-w-6xl">
+    <DialogContent className="admin-dialog w-[calc(100%-1rem)] max-h-[calc(100dvh-1rem)] grid-rows-[auto_auto_minmax(0,1fr)] gap-3 overflow-hidden p-4 ring-0 sm:max-w-5xl sm:p-5">
       <DialogHeader>
         <div className="flex items-center gap-2"><DialogTitle>관리자 패널</DialogTitle>{overview && <Badge variant="secondary" className={cn("ml-1", overview.server.phase === "online" && "bg-[#96ce4d]/15 text-[#65952c]")}>{overview.server.phase === "online" ? "서버 온라인" : "서버 오프라인"}</Badge>}</div>
-        <DialogDescription>플레이어, 서버 설정, 영구 기록, 공지와 콘솔을 한곳에서 관리하세요.</DialogDescription>
+        <DialogDescription className="sr-only">플레이어, 서버 설정, 영구 기록, 공지와 콘솔을 한곳에서 관리하세요.</DialogDescription>
       </DialogHeader>
-      <ToggleGroup type="single" value={tab} onValueChange={(value) => { if (value === "players" || value === "settings" || value === "history" || value === "title" || value === "console") setTab(value); }} variant="outline" spacing={0} className="admin-primary-tabs grid w-full grid-cols-5 p-1">
+      <ToggleGroup type="single" value={tab} onValueChange={(value) => { if (value === "players" || value === "settings" || value === "history" || value === "title" || value === "console") setTab(value); }} variant="default" spacing={0} className="admin-primary-tabs grid w-full grid-cols-5 p-1">
         <ToggleGroupItem value="players" className="admin-primary-tab"><Users /><span>플레이어 {overview?.users.filter((user) => user.archivedAt === null).length ?? 0}</span></ToggleGroupItem>
         <ToggleGroupItem value="settings" className="admin-primary-tab"><Settings2 /><span>설정</span></ToggleGroupItem>
         <ToggleGroupItem value="history" className="admin-primary-tab"><History /><span>기록</span></ToggleGroupItem>
         <ToggleGroupItem value="title" className="admin-primary-tab"><Megaphone /><span>타이틀</span></ToggleGroupItem>
         <ToggleGroupItem value="console" className="admin-primary-tab"><Terminal /><span>콘솔</span></ToggleGroupItem>
       </ToggleGroup>
-      <div className="min-h-0 overflow-y-auto overscroll-contain pr-1">
+      <div key={tab} className="min-h-0 overflow-y-auto overscroll-contain pr-1">
         {!overview && !loadError && <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />관리자 정보 불러오는 중</div>}
         {loadError && !overview && <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-sm text-muted-foreground"><span>{loadError}</span><Button variant="outline" onClick={() => void loadOverview()}><RefreshCw />다시 시도</Button></div>}
         {overview && tab === "players" && <AdminPlayersPanel overview={overview} currentUserId={data.user!.id} isBusy={isBusy} mutate={mutate} notice={notice} />}
@@ -205,7 +205,7 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
           }}
         />}
         {overview && tab === "history" && <AdminHistoryPanel active={open && tab === "history"} csrf={data.csrf} />}
-        {overview && tab === "title" && <form className="mx-auto flex w-full max-w-2xl flex-col gap-5 py-1" onSubmit={async (event) => {
+        {overview && tab === "title" && <form className="admin-title-form mx-auto flex w-full max-w-xl flex-col gap-3 py-1" onSubmit={async (event) => {
           event.preventDefault();
           if (!canSendTitle) return;
           const result = await mutate("title", "/admin/title", {
@@ -221,7 +221,7 @@ export function AdminPanel({ data, onSession, notice, open: controlledOpen, onOp
           });
           if (result) notice(`${result.sent ?? 0}명에게 타이틀을 띄웠어요.`);
         }}>
-          <FieldGroup>
+          <FieldGroup className="gap-3">
             <Field>
               <FieldLabel htmlFor="admin-title-text">제목</FieldLabel>
               <Input id="admin-title-text" value={titleText} onChange={(event) => setTitleText(event.target.value)} maxLength={64} placeholder="화면 가운데 크게 표시할 문구" autoComplete="off" />

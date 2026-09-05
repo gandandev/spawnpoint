@@ -35,9 +35,9 @@ function SettingSwitch({ label, description, checked, onChange }: {
 
 function SettingField({ label, description, children }: { label: string; description: string; children: React.ReactNode }) {
   return <label className="admin-setting-field">
-    <span className="text-sm font-medium">{label}</span>
-    <span className="text-xs leading-relaxed text-muted-foreground">{description}</span>
-    <span className="mt-1 block">{children}</span>
+    <span className="min-w-0"><span className="block text-sm font-medium">{label}</span>
+    <span className="block text-xs leading-relaxed text-muted-foreground">{description}</span></span>
+    <span className="admin-setting-control">{children}</span>
   </label>;
 }
 
@@ -79,7 +79,7 @@ export function AdminServerSettings({ settings, serverOnline, busy, onSave }: {
       ><Icon />{label}</button>)}
     </nav>
     <div className="min-w-0">
-      <div className="mb-4 flex flex-wrap items-start gap-3 rounded-lg border bg-muted/25 p-3">
+      <div className="mb-3 flex flex-wrap items-start gap-2 px-1 py-2">
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium">서버 설정</div>
           <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">대부분 다음 서버 시작 때 적용됩니다. TPA와 인벤토리 유지는 온라인 서버에도 바로 적용됩니다.</div>
@@ -89,7 +89,7 @@ export function AdminServerSettings({ settings, serverOnline, busy, onSave }: {
 
       <section className="admin-settings-section" hidden={category !== "general"}>
         <SettingField label="서버 설명" description="멀티플레이 서버 목록에 표시되는 문구입니다."><Input value={draft.motd} maxLength={80} onChange={(event) => update("motd", event.target.value)} /></SettingField>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-0">
           <SettingField label="최대 플레이어" description="동시에 접속할 수 있는 인원입니다."><Input type="number" min={2} max={40} value={draft.maxPlayers} onChange={(event) => update("maxPlayers", Number(event.target.value))} /></SettingField>
           <SettingField label="시야 거리" description="멀리 보이는 청크 수입니다. 높으면 메모리를 더 씁니다."><Input type="number" min={2} max={12} value={draft.viewDistance} onChange={(event) => update("viewDistance", Number(event.target.value))} /></SettingField>
           <SettingField label="잠수 퇴장" description="입력한 분 동안 움직이지 않으면 퇴장시킵니다. 0은 끄기입니다."><Input type="number" min={0} max={120} value={draft.playerIdleTimeout} onChange={(event) => update("playerIdleTimeout", Number(event.target.value))} /></SettingField>
@@ -120,7 +120,7 @@ export function AdminServerSettings({ settings, serverOnline, busy, onSave }: {
         <SettingSwitch label="명령 블록" description="월드 안의 명령 블록을 실행할 수 있게 합니다." checked={draft.commandBlocks} onChange={(value) => update("commandBlocks", value)} />
       </section>
 
-      <div className="mt-4 flex items-center justify-end gap-2 border-t pt-4">
+      <div className="sticky bottom-0 mt-3 flex items-center justify-end gap-2 border-t bg-background py-3">
         {changed && <span className="mr-auto text-xs text-muted-foreground">저장하지 않은 변경이 있어요.</span>}
         <Button type="button" variant="outline" disabled={busy || !changed} onClick={() => { setDraft(settings); setDirty(false); }}>되돌리기</Button>
         <Button type="submit" disabled={busy || !changed}>{busy ? <Spinner /> : <Save />}설정 저장</Button>
