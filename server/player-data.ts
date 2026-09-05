@@ -158,6 +158,63 @@ function snapshotItems(list: NbtList | null, ender = false): InventoryItem[] {
   }).sort((left, right) => left.slot - right.slot);
 }
 
+
+const EQUIPMENT_SLOTS = ["feet", "legs", "chest", "head"];
+function modernDimensionId(name: string | null): number { return name === "minecraft:the_nether" ? -1 : name === "minecraft:the_end" ? 1 : 0; }
+function componentText(tag: NbtTag | undefined): string {
+  const text = asString(tag); if (text !== null) return text;
+  const object = asCompound(tag);
+  if (object) return (asString(object.get("text")) ?? asString(object.get("translate")) ?? "") + (asList(object.get("extra"))?.items.map(componentText).join("") ?? "");
+  return asList(tag)?.items.map(componentText).join("") ?? "";
+}
+function modernItem(compound: NbtCompound, section: InventoryItem["section"], slot: number): InventoryItem | null {
+  const id = asString(compound.get("id")); const amount = asNumber(compound.get("count"));
+  if (!id || !amount || amount < 0) return null;
+  const components = asCompound(compound.get("components"));
+  const item: InventoryItem = { section, slot, type: id.replace(/^minecraft:/, ""), amount, durability: asNumber(components?.get("minecraft:damage")) ?? 0 };
+  const name = componentText(components?.get("minecraft:custom_name") ?? components?.get("minecraft:item_name"));
+  if (name) item.displayName = name;
+  const lore = asList(components?.get("minecraft:lore")); if (lore) item.lore = lore.items.map(componentText);
+  const enchants = asCompound(components?.get("minecraft:enchantments"));
+  const levels = asCompound(enchants?.get("levels")) ?? enchants;
+  if (levels) item.enchantments = Object.fromEntries([...levels].flatMap(([key, value]) => asNumber(value) === null ? [] : [[key.replace(/^minecraft:/, ""), asNumber(value)!]]));
+  return item;
+}
+function snapshotModernItems(list: NbtList | null, ender = false): InventoryItem[] {
+  return (list?.items ?? []).flatMap(entry => {
+    const value = asCompound(entry); if (!value) return [];
+    const slot = asNumber(value.get("Slot")); if (slot === null || slot < 0 || slot > (ender ? 26 : 35)) return [];
+    const item = modernItem(value, ender ? "ender" : "storage", slot); return item ? [item] : [];
+  }).sort((a,b) => a.slot - b.slot);
+}
+function snapshotEquipment(equipment: NbtCompound | null): InventoryItem[] {
+  return [...EQUIPMENT_SLOTS, "offhand"].flatMap((key, index) => {
+    const value = asCompound(equipment?.get(key)); if (!value) return [];
+    const item = modernItem(value, index === 4 ? "extra" : "armor", index === 4 ? 0 : index); return item ? [item] : [];
+  });
+}
+function updateModernInventory(root: NbtCompound, patch: PlayerInventoryPatch, rawSlot: number): void {
+  const equipped = patch.section === "armor" || patch.section === "extra";
+  const equipmentKey = patch.section === "extra" ? "offhand" : EQUIPMENT_SLOTS[patch.slot];
+  let equipment = asCompound(root.get("equipment"));
+  if (equipped && !equipment) { equipment = new Map(); root.set("equipment", compoundTag(equipment)); }
+  const key = patch.section === "ender" ? "EnderItems" : "Inventory";
+  let list = asList(root.get(key), 10);
+  if (!equipped && !list) { root.set(key, listTag(10)); list = asList(root.get(key), 10)!; }
+  const index = equipped ? -1 : list!.items.findIndex(entry => asNumber(asCompound(entry)?.get("Slot")) === rawSlot);
+  if (!patch.item) { if (equipped) equipment!.delete(equipmentKey); else if (index !== -1) list!.items.splice(index, 1); return; }
+  const id = patch.item.type.toLowerCase().replace(/^minecraft:/, "");
+  if (!ITEM_ID.test(id)) throw new Error("아이템 ID가 올바르지 않아요.");
+  const existing = equipped ? asCompound(equipment!.get(equipmentKey)) : index === -1 ? null : asCompound(list!.items[index]);
+  const item = existing ?? new Map<string, NbtTag>();
+  item.set("id", stringTag(`minecraft:${id}`)); item.set("count", numberTag(3, patch.item.amount));
+  let components = asCompound(item.get("components"));
+  if (!components) { components = new Map(); item.set("components", compoundTag(components)); }
+  if (patch.item.durability > 0) components.set("minecraft:damage", numberTag(3, patch.item.durability)); else components.delete("minecraft:damage");
+  if (equipped) equipment!.set(equipmentKey, compoundTag(item));
+  else { item.set("Slot", numberTag(1, rawSlot)); if (index === -1) list!.items.push(compoundTag(item)); else list!.items[index] = compoundTag(item); }
+}
+
 function listNumbers(list: NbtList | null): number[] {
   return list?.items.flatMap((entry) => {
     const value = asNumber(entry);
@@ -196,6 +253,7 @@ export class PlayerDataStore {
   constructor(
     private readonly minecraftDir: string,
     private readonly settings: ServerSettingsStore,
+    private readonly modern = false,
   ) {}
 
   private async accessLists(): Promise<AccessLists> {
@@ -213,8 +271,8 @@ export class PlayerDataStore {
     const levelName = knownLevelName ?? await this.settings.levelName();
     const uuid = offlinePlayerUuid(account.gameUsername);
     return {
-      data: path.join(this.minecraftDir, levelName, "playerdata", `${uuid}.dat`),
-      stats: path.join(this.minecraftDir, levelName, "stats", `${uuid}.json`),
+      data: path.join(this.minecraftDir, levelName, ...(this.modern ? ["players", "data"] : ["playerdata"]), `${uuid}.dat`),
+      stats: path.join(this.minecraftDir, levelName, ...(this.modern ? ["players", "stats"] : ["stats"]), `${uuid}.json`),
       uuid,
       levelName,
     };
@@ -282,7 +340,7 @@ export class PlayerDataStore {
       ...base,
       firstSeenAt: firstSeenAt ?? account.createdAt,
       lastSeenAt: lastSeenAt ?? stored.modifiedAt,
-      world: dimensionName(playerPaths.levelName, asNumber(root.get("Dimension")) ?? 0),
+      world: dimensionName(playerPaths.levelName, this.modern ? modernDimensionId(asString(root.get("Dimension"))) : asNumber(root.get("Dimension")) ?? 0),
       x: position[0] ?? 0,
       y: position[1] ?? 64,
       z: position[2] ?? 0,
@@ -291,8 +349,8 @@ export class PlayerDataStore {
       health: asNumber(root.get("Health")) ?? 20,
       foodLevel: asNumber(root.get("foodLevel")) ?? 20,
       gameMode: gameMode !== null && GAME_MODES[gameMode] ? GAME_MODES[gameMode] : "survival",
-      inventory: snapshotItems(asList(root.get("Inventory"), 10)),
-      enderChest: snapshotItems(asList(root.get("EnderItems"), 10), true),
+      inventory: this.modern ? [...snapshotModernItems(asList(root.get("Inventory"), 10)), ...snapshotEquipment(asCompound(root.get("equipment")))] : snapshotItems(asList(root.get("Inventory"), 10)),
+      enderChest: this.modern ? snapshotModernItems(asList(root.get("EnderItems"), 10), true) : snapshotItems(asList(root.get("EnderItems"), 10), true),
     };
   }
 
@@ -336,7 +394,8 @@ export class PlayerDataStore {
       if (patch.location) {
         const dimension = dimensionId(levelName, patch.location.world);
         if (dimension === null) throw new Error("월드 선택이 올바르지 않아요.");
-        root.set("Dimension", numberTag(3, dimension));
+        root.set("Dimension", this.modern ? stringTag(dimension === -1 ? "minecraft:the_nether" : dimension === 1 ? "minecraft:the_end" : "minecraft:overworld") : numberTag(3, dimension));
+        if (this.modern) { root.delete("WorldUUIDMost"); root.delete("WorldUUIDLeast"); }
         root.set("Pos", listTag(6, [
           numberTag(6, patch.location.x),
           numberTag(6, patch.location.y),
@@ -344,7 +403,7 @@ export class PlayerDataStore {
         ]));
         root.set("Rotation", listTag(5, [numberTag(5, patch.location.yaw), numberTag(5, patch.location.pitch)]));
         root.set("Motion", listTag(6, [numberTag(6, 0), numberTag(6, 0), numberTag(6, 0)]));
-        root.set("FallDistance", numberTag(5, 0));
+        root.set(this.modern ? "fall_distance" : "FallDistance", numberTag(this.modern ? 6 : 5, 0));
       }
     });
     return this.details(account);
@@ -354,6 +413,7 @@ export class PlayerDataStore {
     const rawSlot = rawItemSlot(patch.section, patch.slot);
     if (rawSlot === null) throw new Error("아이템 칸이 올바르지 않아요.");
     await this.mutateDocument(account, (root) => {
+      if (this.modern) { updateModernInventory(root, patch, rawSlot); return; }
       const key = patch.section === "ender" ? "EnderItems" : "Inventory";
       let list = asList(root.get(key), 10);
       if (!list) {

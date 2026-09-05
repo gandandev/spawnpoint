@@ -1,0 +1,47 @@
+{
+  "paper": {
+    "file": "runtime/paper-26.2-121.jar",
+    "url": "https://fill-data.papermc.io/v1/objects/0de30efb024bc8b83c9c7d507d11802897ad8056b6110ec09fe1a91d126ccb54/paper-26.2-121.jar",
+    "sha256": "0de30efb024bc8b83c9c7d507d11802897ad8056b6110ec09fe1a91d126ccb54"
+  },
+  "velocity": {
+    "file": "proxy/velocity.jar",
+    "url": "https://fill-data.papermc.io/v1/objects/b4e3164df5377346854dc6cb9e6a78022b1946ff69e89676313f5f6f1c6f0fb3/velocity-3.5.1-615.jar",
+    "sha256": "b4e3164df5377346854dc6cb9e6a78022b1946ff69e89676313f5f6f1c6f0fb3"
+  },
+  "eagler": {
+    "file": "proxy/plugins/EaglerXServer.jar",
+    "url": "https://github.com/lax1dude/eaglerxserver/releases/download/v1.1.1/EaglerXServer.jar",
+    "sha256": "468cb07eb7ca466b21b439be75156d3d01579327f4c6dae5b67d471137a64208"
+  },
+  "viaVersion": {
+    "file": "proxy/plugins/ViaVersion.jar",
+    "url": "https://github.com/ViaVersion/ViaVersion/releases/download/5.11.0/ViaVersion-5.11.0.jar",
+    "sha256": "18d19e90fc9467d68128c076630ae8700449c901402a3ef421837ce006bc8cae"
+  },
+  "viaBackwards": {
+    "file": "proxy/plugins/ViaBackwards.jar",
+    "url": "https://github.com/ViaVersion/ViaBackwards/releases/download/5.11.0/ViaBackwards-5.11.0.jar",
+    "sha256": "b21983d561e3f92df257683f0133ab6c68ec68175e8acfd82c6231723bf83587"
+  },
+  "client": {
+    "file": "client/classes.js",
+    "url": "https://raw.githubusercontent.com/ghjjhghj/Eaglercraft-26.1.2/main/classes.js",
+    "sha256": "b9c53d84610aebf9894a71037d42bfb85d0791407d378525ab04be46100f10e7"
+  },
+  "assets": {
+    "file": "client/assets.epk",
+    "url": "https://media.githubusercontent.com/media/ghjjhghj/Eaglercraft-26.1.2/main/assets.epk",
+    "sha256": "e38ec72c90b2d9104275450dd67736691acb608dc1bb61c31cd97de88fd54725"
+  },
+  "mojangServer": {
+    "file": "runtime/cache/mojang_26.2.jar",
+    "url": "https://piston-data.mojang.com/v1/objects/823e2250d24b3ddac457a60c92a6a941943fcd6a/server.jar",
+    "sha256": "cdacdfb25898de5e4b4b0e5ddcc2722f77067e46605709c2d886c000ebb63ec5"
+  },
+  "annotations": {
+    "file": "annotations.jar",
+    "url": "https://repo.maven.apache.org/maven2/org/jetbrains/annotations/26.0.2/annotations-26.0.2.jar",
+    "sha256": "2037be378980d3ba9333e97955f3b2cde392aa124d04ca73ce2eee6657199297"
+  }
+}
