@@ -1,5 +1,5 @@
 import { DragEvent, FormEvent, useEffect, useState } from "react";
-import { Check, Upload } from "lucide-react";
+import { Check, Upload } from "@/components/pixel-icons";
 import { AnimatedHeight } from "@/components/portal";
 import { CatalogSkinPreview } from "@/CatalogSkinPreview";
 import { Button } from "@/components/ui/button";

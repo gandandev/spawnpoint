@@ -1,4 +1,4 @@
-import { ScrollText } from "lucide-react";
+import { History } from "@/components/pixel-icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
@@ -7,6 +7,7 @@ const changelog = [
     dateTime: "2026-09-05",
     label: "2026. 9. 5.",
     changes: [
+      "화면 전체의 아이콘을 홀수 격자의 마인크래프트 스타일로 바꾸고, 픽셀을 직접 수정하고 저장하는 로컬 편집기를 추가했어요. 편집기에서 각 아이콘이 쓰이는 화면과 버튼도 확인할 수 있어요. 설정 아이콘은 톱니바퀴로 그렸어요. 변경 내역과 기록 아이콘은 History로 합치고, 킥과 관리자 배지 아이콘의 이름을 용도에 맞췄어요.",
       "관리자 패널을 포탈 스타일에 맞춰 간결하게 정리하고, 플레이어의 걷는 3D 스킨을 추가했어요. 상태·아이템·계정 관리 기능은 펼쳐서 사용할 수 있어요.",
       "추가 다이아를 2~5개짜리 덩어리로 더 자주 찾도록 조정했어요. 기존 청크에도 한 번 적용하며, 이미 있는 광석은 유지해요.",
       "사용하지 않는 화면 구성 요소와 예전 TPA 설정 경로를 정리했어요.",
@@ -117,7 +118,7 @@ const changelog = [
 export function ChangelogDialog() {
   return <Dialog>
     <DialogTrigger asChild>
-      <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" aria-label="변경 내역" title="변경 내역"><ScrollText /></Button>
+      <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" aria-label="변경 내역" title="변경 내역"><History /></Button>
     </DialogTrigger>
     <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto ring-0 sm:max-w-md">
       <DialogHeader>

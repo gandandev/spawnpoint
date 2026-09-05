@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, CornerDownLeft, History, Megaphone, RefreshCw, Search, Settings2, Shield, Terminal, Users } from "lucide-react";
+import { Check, CornerDownLeft, History, Megaphone, RefreshCw, Search, Settings2, Shield, Terminal, Users } from "@/components/pixel-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";

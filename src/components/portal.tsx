@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useLayoutEffect, useState } from "react";
-import { ChevronDown, Server, ServerOff } from "lucide-react";
+import { ChevronDown, Server, ServerOff } from "@/components/pixel-icons";
 import { api } from "@/lib/api";
 import type { OnlinePlayer, ServerStatus } from "@/types";
 import { Card } from "@/components/ui/card";

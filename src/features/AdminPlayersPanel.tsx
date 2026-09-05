@@ -1,6 +1,6 @@
 import { SkinPreview } from "@/SkinPreview";
 import { useEffect, useMemo, useState } from "react";
-import { Archive, ArchiveRestore, Ban, Box, Check, ChevronDown, Clock3, Copy, DoorOpen, HeartPulse, KeyRound, PackagePlus, Shield, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Ban, Box, Check, ChevronDown, Clock3, Copy, Kick, HeartPulse, KeyRound, PackagePlus, Shield, AdminBadge, Trash2, UserRound } from "@/components/pixel-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -321,7 +321,7 @@ function AccountEditor({ user, currentUserId, busy, temporaryPassword, onSave, o
   }, [user.id, user.username]);
 
   return <section className="flex min-w-0 flex-col gap-4 rounded-lg border p-3">
-    <div className="flex items-center gap-2 text-sm font-medium"><UserRound className="size-4" />포털 계정{user.isAdmin && <Badge variant="secondary" className="ml-auto"><ShieldCheck />관리자</Badge>}</div>
+    <div className="flex items-center gap-2 text-sm font-medium"><UserRound className="size-4" />포털 계정{user.isAdmin && <Badge variant="secondary" className="ml-auto"><AdminBadge />관리자</Badge>}</div>
     <div className="grid gap-2 text-xs sm:grid-cols-2">
       <div className="admin-stat"><span>최근 로그인</span><strong>{formatDate(user.lastLoginAt)}</strong></div>
       <div className="admin-stat"><span>비밀번호 변경</span><strong>{formatDate(user.passwordUpdatedAt)}</strong></div>
@@ -371,7 +371,7 @@ function PlayerEditor({ user, player, currentUserId, isBusy, mutate, notice, tem
       </div>
       <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap">
         <Button type="button" className="min-w-0 px-2 sm:px-3" variant={player?.operator ? "destructive" : "outline"} size="sm" disabled={isBusy(`op:${playerId}`)} onClick={() => void run(`op:${playerId}`, `/admin/players/${playerId}/operator`, "PUT", { operator: !player?.operator }, player?.operator ? "OP를 회수했어요." : "OP를 부여했어요.")}>{isBusy(`op:${playerId}`) ? <Spinner /> : <Shield />}{player?.operator ? "OP 회수" : "OP 부여"}</Button>
-        <Button type="button" className="min-w-0 px-2 sm:px-3" variant="outline" size="sm" disabled={!player?.online || isBusy(`kick:${playerId}`)} onClick={() => void run(`kick:${playerId}`, `/admin/players/${playerId}/kick`, "POST", { reason }, "플레이어를 내보냈어요.")}><DoorOpen />킥</Button>
+        <Button type="button" className="min-w-0 px-2 sm:px-3" variant="outline" size="sm" disabled={!player?.online || isBusy(`kick:${playerId}`)} onClick={() => void run(`kick:${playerId}`, `/admin/players/${playerId}/kick`, "POST", { reason }, "플레이어를 내보냈어요.")}><Kick />킥</Button>
         <Button type="button" className="min-w-0 px-2 sm:px-3" variant={player?.banned ? "outline" : "destructive"} size="sm" disabled={isBusy(`ban:${playerId}`)} onClick={() => void run(`ban:${playerId}`, `/admin/players/${playerId}/ban`, "PUT", { banned: !player?.banned, reason }, player?.banned ? "차단을 풀었어요." : "플레이어를 차단했어요.")}><Ban />{player?.banned ? "밴 해제" : "밴"}</Button>
         <Button type="button" className="min-w-0 px-2 sm:px-3" variant="outline" size="sm" title={user.archivedAt === null && user.id === currentUserId ? "내 계정은 보관할 수 없어요." : user.archivedAt === null && player?.online ? "게임에 접속 중인 사용자는 보관할 수 없어요." : undefined} disabled={isBusy(`archive:${playerId}`) || (user.archivedAt === null && (user.id === currentUserId || player?.online))} onClick={() => void onArchive(user.archivedAt === null)}>{isBusy(`archive:${playerId}`) ? <Spinner /> : user.archivedAt !== null ? <ArchiveRestore /> : <Archive />}{user.archivedAt !== null ? "보관 해제" : "보관"}</Button>
       </div>

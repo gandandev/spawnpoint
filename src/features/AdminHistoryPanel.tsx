@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowRight, Clock3, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "lucide-react";
+import { ArrowRight, Clock3, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "@/components/pixel-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

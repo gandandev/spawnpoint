@@ -18,7 +18,8 @@
     "generate:skins": "node scripts/generate-presets.mjs",
     "start": "node --env-file=.env dist/server/index.js",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "dev:icons": "node scripts/icon-editor/server.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",

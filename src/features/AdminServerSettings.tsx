@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Blocks, Earth, Save, Shield, SlidersHorizontal } from "lucide-react";
+import { Blocks, Earth, Save, Shield, SlidersHorizontal } from "@/components/pixel-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";

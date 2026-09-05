@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spawnpoint 아이콘 편집기</title>
+<style>
+:root{color-scheme:dark;font:14px/1.5 system-ui,sans-serif;background:#171916;color:#e6e9df}*{box-sizing:border-box}body{margin:0}button,select,input{font:inherit}button,select{color:inherit;background:#252923;border:1px solid #454b40;border-radius:5px;padding:8px 12px;cursor:pointer}button:hover{background:#333a2d}button:disabled{opacity:.35;cursor:default}button:focus-visible,select:focus-visible{outline:2px solid #b5d983;outline-offset:3px}.primary{background:#b5d983;color:#17210d;border-color:#b5d983}.primary:hover{background:#c4e59a}header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:22px 28px;border-bottom:1px solid #343a30}h1{font-size:18px;margin:0;font-weight:600}.subtitle{color:#a5ae9c;margin:3px 0 0;font-size:12px}.actions{display:flex;gap:8px;flex-wrap:wrap}main{display:grid;grid-template-columns:minmax(250px,340px) minmax(0,1fr);max-width:1250px;margin:auto}.catalog{padding:24px;border-right:1px solid #343a30}.catalog-title{display:flex;justify-content:space-between;margin-bottom:16px;color:#a5ae9c}.icons{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:84px;padding:8px 2px;background:transparent;border:1px solid transparent;position:relative}.tile[aria-pressed=true]{border-color:#b5d983;background:#2b3522}.tile span{font-size:10px;max-width:100%;overflow-wrap:anywhere}.tile[data-dirty=true]:after{content:'';width:5px;height:5px;background:#b5d983;position:absolute;right:6px;top:6px}.workspace{padding:28px 36px;min-width:0}.heading{display:flex;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap}h2{font-size:22px;margin:0;font-weight:500}.dimensions{color:#a5ae9c}.usage{margin:-10px 0 22px;color:#b6bfac;max-width:65ch;line-height:1.7}.editor-wrap{max-width:396px;margin:0 auto}.grid{display:grid;gap:1px;background:#41473c;border:1px solid #41473c;touch-action:none;user-select:none;aspect-ratio:1}.pixel{border:0;border-radius:0;padding:0;background:#20251d;min-width:0;min-height:0;aspect-ratio:1}.pixel:hover{background:#4c5d3b}.pixel.center{background:#2d3824}.pixel[aria-pressed=true]{background:#d9e6c9}.pixel[aria-pressed=true]:hover{background:#effadb}.hint{font-size:12px;color:#a5ae9c;margin-top:12px;text-align:center}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0;align-items:center;justify-content:center}.toolbar label{display:flex;gap:6px;align-items:center}.toolbar select{padding:6px}.previews{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:30px;padding:22px 0;border-top:1px solid #343a30;border-bottom:1px solid #343a30}.preview{display:flex;align-items:center;flex-direction:column;gap:10px;color:#a5ae9c;font-size:12px}.preview svg{color:#e6e9df}.sample{display:flex;gap:8px;align-items:center}.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px;flex-wrap:wrap}#status{color:#b5d983;font-size:13px;min-height:20px}#status[data-error=true]{color:#ffb3a5}svg{display:block;flex-shrink:0}@media(min-width:761px){.sticky{position:sticky;top:24px}}@media(max-width:760px){header{padding:18px;align-items:flex-start;flex-direction:column}main{display:flex;flex-direction:column-reverse}.catalog{border-right:0;border-top:1px solid #343a30;padding:18px}.icons{grid-template-columns:repeat(4,minmax(0,1fr))}.workspace{padding:22px 18px}.previews{gap:20px}h2{font-size:20px}.tile{min-height:82px}}@media(prefers-reduced-motion:no-preference){button{transition:background .1s}}
+</style>
+</head>
+<body>
+<header><div><h1>Spawnpoint / 아이콘 편집기</h1><p class="subtitle">홀수 격자 · 한 칸 두께 · 로컬 원본 저장</p></div><div class="actions"><button id="export">JSON 내보내기</button><button id="save" class="primary" disabled>원본에 저장</button></div></header>
+<main>
+<aside class="catalog"><div class="catalog-title"><span>전체 아이콘</span><span id="count"></span></div><div class="icons" id="icons" aria-label="아이콘 선택"></div></aside>
+<section class="workspace"><div class="sticky">
+<div class="heading"><h2 id="name">불러오는 중</h2><span class="dimensions" id="dimensions"></span></div>
+<p id="usage" class="usage" aria-live="polite"></p>
+<div class="editor-wrap"><div class="grid" id="grid" aria-label="픽셀 편집"></div><p class="hint">클릭하거나 드래그해서 그리기 · 채워진 칸에서 시작하면 지우기</p></div>
+<div class="toolbar"><button id="previous" aria-label="이전 아이콘">이전</button><button id="next" aria-label="다음 아이콘">다음</button><button id="undo" disabled>되돌리기</button><label>가로 <select id="width" aria-label="격자 가로"></select></label><label>세로 <select id="height" aria-label="격자 세로"></select></label></div>
+<div class="previews" id="previews" aria-label="크기별 미리보기"></div>
+<div class="foot"><div id="status" role="status" aria-live="polite"></div><button id="reset">이 아이콘 복원</button></div>
+</div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const usages={"Check": ["이름 변경", "계정 설정과 관리자 계정에서 이름 변경을 저장할 때 써요. 플레이어 상태 적용, 타이틀 대상 선택, 선택한 스킨 표시에도 써요."], "XIcon": ["닫기", "계정 설정, 스킨 변경, 관리자 패널, 변경 내역 등 대화상자를 닫는 버튼이에요."], "ChevronDown": ["보관함", "서버 카드의 접속자 목록과 관리자 플레이어 보관함을 펼치거나 접을 때 써요."], "ArrowRight": ["귓속말", "로그인·가입 화면의 제출 버튼과 관리자 채팅 기록의 귓속말 표시에 써요."], "Play": ["실행", "대시보드에서 게임을 실행해요. 서버가 꺼져 있으면 “서버 켜고 실행”에 표시해요."], "Shield": ["관리자 패널", "로그인 화면과 대시보드의 관리자 패널 버튼, 서버 설정의 접속 분류, 플레이어 OP 부여·회수 버튼에 써요."], "UserRound": ["포털 계정", "대시보드에서 내 이름을 눌러 계정 설정을 열 때 써요. 관리자 플레이어의 포털 계정 영역에도 표시해요."], "Users": ["플레이어", "관리자 패널에서 플레이어 목록을 여는 탭이에요."], "Server": ["서버 로그", "서버가 꺼진 상태가 아닐 때 서버 카드에 표시해요. 관리자 기록의 서버 로그 분류에도 써요."], "Search": ["검색", "관리자 콘솔의 로그 검색창과 관리자 기록의 검색창에 표시해요."], "Clock3": ["최근 접속", "관리자 플레이어 목록의 시간 정보와 검색 조건에 맞는 채팅·접속·서버 로그가 없을 때 표시해요."], "MessageSquareText": ["채팅", "관리자 기록에서 채팅 내역을 고르는 분류예요."], "Terminal": ["콘솔", "관리자 패널에서 서버 로그를 보고 명령어를 입력하는 콘솔 탭이에요."], "KeyRound": ["비밀번호 변경", "내 계정의 비밀번호 변경에 써요. 관리자 계정 영역의 임시 비밀번호 표시와 발급 버튼에도 써요."], "Upload": ["PNG 스킨을 선택하거나 여기에 놓으세요", "스킨 변경 화면에서 PNG 파일을 선택하거나 끌어 놓는 영역에 표시해요."], "ArrowBigUpDash": ["Caps Lock 켜짐", "로그인·가입 화면에서 비밀번호를 입력할 때 Caps Lock이 켜져 있으면 표시해요."], "LogOut": ["로그아웃", "대시보드에서 포털 계정의 로그아웃 버튼에 써요."], "CornerDownLeft": ["명령 실행", "관리자 콘솔에 입력한 서버 명령어를 실행하는 버튼이에요."], "Copy": ["임시 비밀번호 복사", "관리자가 발급한 임시 비밀번호를 복사할 때 써요."], "Trash2": ["아이템 제거", "관리자 아이템 편집에서 선택한 칸의 아이템을 제거하는 버튼이에요."], "Save": ["설정 저장", "관리자 서버 설정에서 바꾼 설정을 저장하는 버튼이에요."], "Box": ["아이템 관리", "관리자 플레이어의 아이템 관리 제목과 인벤토리 각 영역의 제목에 표시해요."], "Archive": ["보관", "관리자에서 포털 계정을 보관하는 버튼, 보관된 계정 표시, 보관함 펼치기에 써요."], "Kick": ["킥", "관리자가 현재 접속 중인 플레이어를 서버에서 내보내는 버튼이에요."], "HeartPulse": ["상태와 위치", "관리자 플레이어의 체력·상태·위치를 편집하는 영역 제목에 표시해요."], "Wifi": ["접속", "관리자 기록에서 플레이어의 접속 내역을 고르는 분류예요."], "Blocks": ["게임", "관리자 서버 설정에서 게임 관련 설정을 고르는 분류예요."], "Earth": ["월드", "관리자 서버 설정에서 월드 관련 설정을 고르는 분류예요."], "SlidersHorizontal": ["일반", "관리자 서버 설정에서 일반 설정을 고르는 분류예요."], "Settings2": ["설정", "관리자 패널에서 서버 설정 화면을 여는 상위 탭이에요."], "Megaphone": ["타이틀 띄우기", "관리자 패널의 타이틀 탭과 게임 화면에 타이틀을 띄우는 전송 버튼에 써요."], "InfoIcon": ["정보 알림", "공통 알림의 정보 유형 아이콘으로 등록돼 있어요. 개별 화면의 버튼으로 쓰지는 않아요."], "TriangleAlertIcon": ["경고 알림", "공통 알림의 경고 유형 아이콘으로 등록돼 있어요. 개별 화면의 버튼으로 쓰지는 않아요."], "Loader2Icon": ["처리 중", "로그인, 게임 실행, 저장, 목록 불러오기 등 작업 중인 버튼과 영역에서 회전해요. 공통 알림의 로딩 유형에도 등록돼 있어요."], "RefreshCw": ["새로고침", "관리자 기록 새로고침, 관리자 패널 로딩 실패 후 다시 시도, 콘솔의 최신 로그와 이전 기록 더 보기에 써요."], "History": ["변경 내역", "포털의 변경 내역 버튼과 관리자 패널의 기록 탭에 써요. 기록 검색의 시간 적용과 이전 기록 더 보기에도 같은 아이콘을 써요."], "AdminBadge": ["관리자", "관리자 계정 배지에 표시해요. 대시보드에서 서버 소유자의 마인크래프트 EULA 동의가 필요할 때도 써요."], "ServerOff": ["오프라인", "서버가 꺼져 있을 때 서버 카드에 표시해요."], "Ban": ["밴", "관리자에서 플레이어 밴·밴 해제 버튼과 차단된 플레이어 표시에 써요."], "ArchiveRestore": ["보관 해제", "관리자가 보관된 포털 계정을 다시 꺼내는 버튼이에요."], "PackagePlus": ["저장", "관리자 아이템 편집에서 선택한 칸에 아이템과 수량을 저장할 때 써요. 서버 설정 저장의 Save와 다른 용도예요."], "CircleCheckIcon": ["성공 알림", "공통 알림의 성공 유형 아이콘으로 등록돼 있어요. 선택 상태에 쓰는 Check와 별개예요."], "OctagonXIcon": ["오류 알림", "공통 알림의 오류 유형 아이콘으로 등록돼 있어요. 대화상자를 닫는 XIcon과 별개예요."]};
+let icons={},saved={},names=[],selected='',revision='',drag=null,saving=false;
+const histories={};
+const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const clone=value=>JSON.parse(JSON.stringify(value));
+const dirtyNames=()=>names.filter(name=>!equal(icons[name],saved[name]));
+function status(text,error=false){$('status').textContent=text;$('status').dataset.error=String(error)}
+function svg(rows,scale){const height=rows.length,width=rows[0].length;return `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="${width*scale}" height="${height*scale}" viewBox="0 0 ${width} ${height}" fill="currentColor" shape-rendering="crispEdges">${rows.flatMap((row,y)=>Array.from(row,(c,x)=>c==='#'?`<rect x="${x}" y="${y}" width="1" height="1"/>`:'')).join('')}</svg>`}
+function remember(){histories[selected]??=[];histories[selected].push([...icons[selected]]);if(histories[selected].length>100)histories[selected].shift()}
+function update(){
+ const rows=icons[selected];if(!rows)return;
+ $('previews').innerHTML=[1,2,4].map(scale=>`<div class="preview">${svg(rows,scale)}<span>${rows[0].length*scale} × ${rows.length*scale}</span></div>`).join('')+`<div class="preview"><div class="sample">${svg(rows,2)}<span>${usages[selected][0]}</span></div><span>사용 문구 예시</span></div>`;
+ for(const tile of $('icons').children){tile.dataset.dirty=String(!equal(icons[tile.dataset.name],saved[tile.dataset.name]));if(tile.dataset.name===selected)tile.querySelector('svg').outerHTML=svg(rows,2)}
+ $('undo').disabled=saving||!histories[selected]?.length;
+ $('reset').disabled=saving||equal(rows,saved[selected]);
+ const dirty=dirtyNames().length;$('save').disabled=saving||!dirty;$('save').textContent=saving?'저장 중…':dirty?`원본에 저장 (${dirty})`:'원본에 저장';
+}
+function renderGrid(){
+ const rows=icons[selected],w=rows[0].length,h=rows.length;
+ $('grid').style.gridTemplateColumns=`repeat(${w},1fr)`;$('grid').style.aspectRatio=`${w}/${h}`;
+ $('grid').replaceChildren();
+ rows.forEach((row,y)=>Array.from(row).forEach((cell,x)=>{const b=document.createElement('button');b.className='pixel'+(x===Math.floor(w/2)||y===Math.floor(h/2)?' center':'');b.type='button';b.dataset.x=x;b.dataset.y=y;b.setAttribute('aria-label',`${y+1}행 ${x+1}열`);b.setAttribute('aria-pressed',String(cell==='#'));b.addEventListener('click',e=>{if(e.detail!==0||saving)return;remember();paint(b,icons[selected][y][x]==='#'?'.':'#')});$('grid').append(b)}));
+ $('width').value=w;$('height').value=h;$('dimensions').textContent=`${w} × ${h}`;
+}
+function choose(name){selected=name;drag=null;$('name').textContent=name;$('usage').textContent=usages[name][1];for(const tile of $('icons').children)tile.setAttribute('aria-pressed',String(tile.dataset.name===name));renderGrid();update();status(dirtyNames().length?'저장하지 않은 수정이 있어요.':'픽셀을 눌러 수정해 보세요.')}
+function paint(cell,value){if(!cell||saving)return;const x=Number(cell.dataset.x),y=Number(cell.dataset.y);const row=icons[selected][y];if(row[x]===value)return;icons[selected][y]=row.slice(0,x)+value+row.slice(x+1);cell.setAttribute('aria-pressed',String(value==='#'));update();status('저장하지 않은 수정이 있어요.')}
+$('grid').addEventListener('pointerdown',e=>{const cell=e.target.closest('.pixel');if(!cell||saving||e.button!==0)return;e.preventDefault();cell.focus();remember();drag={id:e.pointerId,value:cell.getAttribute('aria-pressed')==='true'?'.':'#'};$('grid').setPointerCapture(e.pointerId);paint(cell,drag.value)});
+$('grid').addEventListener('pointermove',e=>{if(!drag||e.pointerId!==drag.id)return;const cell=document.elementFromPoint(e.clientX,e.clientY)?.closest('.pixel');if(cell&&$('grid').contains(cell))paint(cell,drag.value)});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])$('grid').addEventListener(event,()=>drag=null);
+$('previous').onclick=()=>choose(names[(names.indexOf(selected)-1+names.length)%names.length]);$('next').onclick=()=>choose(names[(names.indexOf(selected)+1)%names.length]);
+$('undo').onclick=()=>{if(!histories[selected]?.length)return;icons[selected]=histories[selected].pop();renderGrid();update();status('이전 상태로 되돌렸어요.')};
+$('reset').onclick=()=>{remember();icons[selected]=[...saved[selected]];renderGrid();update();status('마지막으로 저장한 모양으로 복원했어요.')};
+for(const id of ['width','height']){
+ for(let n=5;n<=21;n+=2){const option=document.createElement('option');option.value=n;option.textContent=n;$(id).append(option)}
+ $(id).onchange=()=>{
+  const rows=icons[selected],w=Number($('width').value),h=Number($('height').value),dx=(w-rows[0].length)/2,dy=(h-rows.length)/2;
+  const cropped=rows.some((row,y)=>Array.from(row).some((cell,x)=>cell==='#'&&(x+dx<0||x+dx>=w||y+dy<0||y+dy>=h)));
+  if(cropped){$('width').value=rows[0].length;$('height').value=rows.length;status('줄일 영역에 픽셀이 있어요. 먼저 지워 주세요.',true);return}
+  remember();icons[selected]=Array.from({length:h},(_,y)=>Array.from({length:w},(_,x)=>rows[y-dy]?.[x-dx]??'.').join(''));renderGrid();update();status('중심을 유지해서 격자 크기를 바꿨어요.')
+ };
+}
+$('save').onclick=async()=>{
+ const changed=dirtyNames();if(!changed.length)return;const changes=Object.fromEntries(changed.map(name=>[name,[...icons[name]]]));saving=true;update();$('width').disabled=$('height').disabled=true;
+ try{const response=await fetch('/icons',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision,changes})});const result=await response.json();if(!response.ok)throw Error(result.error);revision=result.revision;for(const name of changed)saved[name]=[...changes[name]];status(`${changed.length}개 아이콘을 앱 원본에 저장했어요.`)}catch(e){status(e.message,true)}finally{saving=false;$('width').disabled=$('height').disabled=false;update()}
+};
+$('export').onclick=()=>{const blob=new Blob([JSON.stringify(icons,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pixel-icon-data.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+window.addEventListener('beforeunload',e=>{if(dirtyNames().length){e.preventDefault();e.returnValue=''}});
+async function init(){try{const response=await fetch('/icons');if(!response.ok)throw Error('아이콘을 불러오지 못했어요.');const data=await response.json();icons=data.icons;saved=clone(icons);revision=data.revision;names=Object.keys(icons);$('count').textContent=`${names.length}개`;for(const name of names){const tile=document.createElement('button');tile.className='tile';tile.dataset.name=name;tile.setAttribute('aria-label',name);tile.innerHTML=svg(icons[name],2)+`<span>${name}</span>`;tile.onclick=()=>choose(name);$('icons').append(tile)}choose(names[0])}catch(e){status(e.message,true)}}
+init();
+</script>
+</body>
+</html>
