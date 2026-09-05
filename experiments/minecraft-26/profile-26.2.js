@@ -20,6 +20,7 @@
     try { vanilla = JSON.parse(localStorage.getItem('_spawnpoint_' + (params.get('account') || '').toLowerCase() + '.launch') || '{}').resourcePackPreference === 'vanilla'; } catch {}
     opts.assetsURI[0].url = vanilla ? 'assets-spawnpoint-vanilla.epk' : 'assets-spawnpoint.epk';
   }
+  opts.lang = 'ko_kr';
   opts.allowUpdateSvc = false;
   opts.allowUpdateDL = false;
   opts.allowVoiceClient = false;
