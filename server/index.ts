@@ -111,7 +111,7 @@ function preferredEncoding(acceptEncoding: string | undefined): "br" | "gzip" | 
   return null;
 }
 
-if (config.serveClient && config.minecraftVersion === "26.2") {
+if (config.minecraftVersion === "26.2") {
   const modernClientDir = path.resolve("work/minecraft-26/client-26.2");
   app.get("/game/stable.html", (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
@@ -121,7 +121,7 @@ if (config.serveClient && config.minecraftVersion === "26.2") {
     response.setHeader("Cache-Control", "no-store");
     response.sendFile(path.resolve("experiments/minecraft-26/profile-26.2.js"));
   });
-  app.use("/game", express.static(modernClientDir, { index: false, maxAge: "1h" }));
+  app.use("/game", express.static(modernClientDir, { index: false, maxAge: 0 }));
 }
 
 if (config.serveClient) {
@@ -243,7 +243,7 @@ if (config.serveClient) {
 
 const server = http.createServer(app);
 const proxy = httpProxy.createProxyServer({
-  target: config.minecraftVersion === "26.2" ? "ws://127.0.0.1:25576" : "ws://127.0.0.1:25565",
+  target: config.minecraftVersion === "26.2" ? `ws://127.0.0.1:${Number(process.env.MC26_PROXY_PORT || 25576)}` : "ws://127.0.0.1:25565",
   ws: true,
   xfwd: true,
   changeOrigin: false,

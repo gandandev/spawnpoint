@@ -239,14 +239,14 @@ function nbtList(name: string, elementType: number, elements: Buffer[]): Buffer 
   return nbtTag(9, name, Buffer.concat([Buffer.from([elementType]), length, ...elements]));
 }
 
-export function encodeClientProfile(username: string, model: SkinModel, rgbaSkin: Buffer): string {
+export function encodeClientProfile(username: string, model: SkinModel, rgbaSkin: Buffer, modern = false): string {
   if (rgbaSkin.length !== 64 * 64 * 4) throw new Error("Client skin must be a 64x64 RGBA image.");
   const argbSkin = Buffer.allocUnsafe(rgbaSkin.length);
   for (let offset = 0; offset < rgbaSkin.length; offset += 4) {
     argbSkin[offset] = rgbaSkin[offset + 3];
-    argbSkin[offset + 1] = rgbaSkin[offset];
+    argbSkin[offset + 1] = rgbaSkin[offset + (modern ? 2 : 0)];
     argbSkin[offset + 2] = rgbaSkin[offset + 1];
-    argbSkin[offset + 3] = rgbaSkin[offset + 2];
+    argbSkin[offset + 3] = rgbaSkin[offset + (modern ? 0 : 2)];
   }
   const skin = Buffer.concat([
     nbtString("name", "spawnpoint"),
@@ -260,12 +260,13 @@ export function encodeClientProfile(username: string, model: SkinModel, rgbaSkin
     nbtInt("customSkin", 0),
     nbtInt("presetCape", 0),
     nbtInt("customCape", -1),
+    ...(modern ? [nbtByte("hideDefaultUsernameWarning26", 1)] : []),
     nbtString("username", username),
     nbtList("skins", 10, [skin]),
     nbtList("capes", 10, []),
     Buffer.from([0]),
   ]);
-  return gzipSync(profile, { level: 9 }).toString("base64");
+  return (modern ? profile : gzipSync(profile, { level: 9 })).toString("base64");
 }
 
 export class SkinService {
@@ -406,12 +407,12 @@ export class SkinService {
     return this.database.updateSkin(user.id, skinType, skinRef, resolvedModel, label);
   }
 
-  createClientProfile(user: UserRecord): Promise<string> {
-    const cacheKey = `${user.id}:${user.gameUsername}:${user.skinType}:${user.skinRef}:${user.skinModel}:${user.skinUpdatedAt}`;
-    return cachedPromise(this.profileCache, cacheKey, () => this.buildClientProfile(user), 256);
+  createClientProfile(user: UserRecord, modern = false): Promise<string> {
+    const cacheKey = `${modern}:${user.id}:${user.gameUsername}:${user.skinType}:${user.skinRef}:${user.skinModel}:${user.skinUpdatedAt}`;
+    return cachedPromise(this.profileCache, cacheKey, () => this.buildClientProfile(user, modern), 256);
   }
 
-  private async buildClientProfile(user: UserRecord): Promise<string> {
+  private async buildClientProfile(user: UserRecord, modern: boolean): Promise<string> {
     const skinFile = user.skinType === "preset"
       ? path.join(this.clientDir, "assets", "skins", `${user.skinRef}.png`)
       : this.skinFile(user.id);
@@ -423,6 +424,6 @@ export class SkinService {
     if (info.width !== 64 || info.height !== 64 || info.channels !== 4) {
       throw new Error("The saved skin is not a 64x64 RGBA image.");
     }
-    return encodeClientProfile(user.gameUsername, user.skinModel, data);
+    return encodeClientProfile(user.gameUsername, user.skinModel, data, modern);
   }
 }

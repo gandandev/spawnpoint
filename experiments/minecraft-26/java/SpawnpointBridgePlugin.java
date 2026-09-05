@@ -324,7 +324,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         for (World world : getServer().getWorlds()) {
             for (Chunk chunk : world.getLoadedChunks()) queueDiamondBonusChunk(chunk);
         }
-        getLogger().info("Diamond bonus profile 3 is enabled: 2-5 ore per vein at Y=10-12, target near "
+        getLogger().info("Diamond bonus profile 3 is enabled: 2-5 ore per vein at Y=-58..-50, target near "
             + Math.round(diamondBonusRate * 100.0D) + "% of new normal-world chunks, " + Math.round(Math.min(diamondBonusRate, existingChunkDiamondBonusRate) * 100.0D)
             + "% of previously processed chunks."
             + (legacyProcessedDiamondChunks.isEmpty() ? "" : " Legacy coverage is preserved without duplicate veins."));
@@ -496,7 +496,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     static List<DiamondBonusBlock> frequentDiamondBonusVein(long worldSeed, int chunkX, int chunkZ, int candidate) {
         // Choose the size once per chunk so failed candidates do not favor small veins.
         int size = 2 + deterministicDiamondBound(mixDiamondSeed(worldSeed, chunkX, chunkZ, 100), 4);
-        return createDiamondVein(worldSeed, chunkX, chunkZ, candidate + 101, size, 10, 12);
+        return createDiamondVein(worldSeed, chunkX, chunkZ, candidate + 101, size, DIAMOND_BONUS_Y_MIN, DIAMOND_BONUS_Y_MAX);
     }
 
     private static List<DiamondBonusBlock> createDiamondVein(long worldSeed, int chunkX, int chunkZ, int salt, int size, int minY, int maxY) {
@@ -1748,6 +1748,13 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         JsonArray targets = new JsonArray();
         root.addProperty("active", true);
         Location viewerLocation = locations.get(viewer);
+        JsonObject clientState = new JsonObject();
+        clientState.addProperty("x", viewerLocation.getX());
+        clientState.addProperty("y", viewerLocation.getY() + viewer.getEyeHeight());
+        clientState.addProperty("z", viewerLocation.getZ());
+        clientState.addProperty("mainHand", viewer.getInventory().getItemInMainHand().getType().getKey().toString());
+        clientState.addProperty("offHand", viewer.getInventory().getItemInOffHand().getType().getKey().toString());
+        root.add("clientState", clientState);
         List<LocatorTarget> nearby = new ArrayList<>();
         for (Map.Entry<Player, Location> entry : locations.entrySet()) {
             Player other = entry.getKey();
@@ -2086,7 +2093,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     @EventHandler(priority = EventPriority.MONITOR)
     public void onEmptyServerJoin(PlayerJoinEvent event) {
         if (isQuietSpectator(event.getPlayer()) || getServer().getOnlinePlayers().stream().filter(player -> !isQuietSpectator(player)).count() != 1) return;
-        getServer().getWorlds().forEach(world -> world.setTime(0L));
+        getServer().getWorlds().stream().filter(world -> world.getEnvironment() == World.Environment.NORMAL).forEach(world -> world.setTime(0L));
         getLogger().info("Set all loaded worlds to 6 AM after the empty server received a player.");
     }
 

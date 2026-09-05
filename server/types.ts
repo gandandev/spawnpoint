@@ -148,6 +148,7 @@ export interface LocatorTargetDetails {
 }
 
 export interface LocatorSnapshot {
+  clientState?: { x: number; y: number; z: number; mainHand: string; offHand: string };
   active: boolean;
   targets: LocatorTargetDetails[];
 }

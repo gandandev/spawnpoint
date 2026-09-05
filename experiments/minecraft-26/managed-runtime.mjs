@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { work, flags } from './common.mjs';
 
 const data = process.env.DATA_DIR;
-if (process.env.PREVIEW_CLOUD !== 'true' || !data || !path.isAbsolute(data)) throw Error('Isolated preview configuration required');
+if ((process.env.PREVIEW_CLOUD !== 'true' && process.env.MC_VERSION !== '26.2') || !data || !path.isAbsolute(data)) throw Error('Isolated preview configuration required');
 const receipt = JSON.parse(await fs.readFile(path.join(data, '.migration-ready.json'), 'utf8'));
 if (receipt.minecraft !== '26.2') throw Error('Verified 26.2 migration required');
 const runtime = path.join(data, 'runtime');

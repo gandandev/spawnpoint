@@ -58,5 +58,10 @@
     "file": "client-26.2/worker-bootstrap.js",
     "url": "https://eymenwsmc.site/262/worker-bootstrap.js",
     "sha256": "2a23114db3759b974fbf54be38f1aa4469b785066815e07a98abb6b0f67d326e"
+  },
+  "ko_kr.json": {
+    "file": "client-26.2/ko_kr.json",
+    "url": "https://resources.download.minecraft.net/1b/1b7961ce1f61eeaf25b52497222f5e6e72372647",
+    "sha256": "e344412dabba687c95a1d7dee6175c128efcef6128630b1c52a5ed4fb170eb5d"
   }
 }

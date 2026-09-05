@@ -15,6 +15,11 @@
   opts.servers = [{ addr: gateway, name: 'Spawnpoint Java 26.2' }];
   opts.joinServer = gateway;
   opts.relays = [];
+  if (managed) {
+    let vanilla = false;
+    try { vanilla = JSON.parse(localStorage.getItem('_spawnpoint_' + (params.get('account') || '').toLowerCase() + '.launch') || '{}').resourcePackPreference === 'vanilla'; } catch {}
+    opts.assetsURI[0].url = vanilla ? 'assets-spawnpoint-vanilla.epk' : 'assets-spawnpoint.epk';
+  }
   opts.allowUpdateSvc = false;
   opts.allowUpdateDL = false;
   opts.allowVoiceClient = false;
@@ -40,6 +45,10 @@
       opts.username = session.username;
       localStorage.setItem(`${opts.localStorageNamespace}.username`, btoa(session.username));
     }
+    if (managed) {
+      const accountProfile = localStorage.getItem('_spawnpoint_' + (params.get('account') || '').toLowerCase() + '.p');
+      if (accountProfile) localStorage.setItem(opts.localStorageNamespace + '.p', accountProfile);
+    }
     const key = `${opts.localStorageNamespace}.g`;
     const stored = localStorage.getItem(key);
     let text = '';
@@ -51,9 +60,9 @@
       const colon = line.indexOf(':');
       return [line.slice(0, colon), line.slice(colon + 1)];
     }));
-    const marker = opts.localStorageNamespace + '.defaults.v1';
+    const marker = opts.localStorageNamespace + '.defaults.v2';
     if (!localStorage.getItem(marker)) {
-      Object.entries({ version: '4903', fov: '0.5', maxFps: '120', renderDistance: profile === 'tablet' ? '4' : '6',
+      Object.entries({ version: '4903', lang: 'ko_kr', tutorialStep: 'none', fov: '0.5', maxFps: '120', renderDistance: profile === 'tablet' ? '4' : '6',
         graphicsPreset: '"fast"', renderClouds: '"off"', ao: 'false', entityShadows: 'false',
         biomeBlendRadius: '0', inactivityFpsLimit: '"minimized"', soundCategory_music: '0.0' })
         .forEach(([key, value]) => settings.set(key, value));

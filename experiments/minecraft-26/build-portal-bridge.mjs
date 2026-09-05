@@ -32,6 +32,7 @@ export async function buildPortalBridge262() {
   if (start < 0 || end < 0) throw Error('Settings preparation anchor changed');
   source = source.slice(0, start) + '  var resourcePackManager = null;\n  window.__spawnpointPrepareClient = window.spawnpoint262SettingsReady;\n\n' + source.slice(end);
   replaceFunction('applySpawnpointGameSettings', '    return encodedGameSettings;');
+  replaceFunction('dispatchRelayedBackquote', '    dispatchMinecraftKey("Escape", "Escape", 27, true);');
   replaceFunction('enableClientTextInput', '    return;');
   replaceFunction('installMobileChatComposer', '    return;');
   replaceFunction('showMobileChatComposer', '    return;');

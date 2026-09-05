@@ -212,6 +212,16 @@ describe("account skin storage", () => {
       .toEqual([68, 17, 34, 51]);
   });
 
+  it("encodes the modern profile as raw NBT with ABGR skin pixels", () => {
+    const rgba = Buffer.alloc(64 * 64 * 4);
+    rgba.set([17, 34, 51, 68]);
+    const profile = Buffer.from(encodeClientProfile("mossrunner", "alex", rgba, true), "base64");
+    expect(profile[0]).toBe(10);
+    const offset = profile.indexOf(Buffer.from([7, 0, 4, 100, 97, 116, 97])) + 11;
+    expect([...profile.subarray(offset, offset + 4)]).toEqual([68, 51, 34, 17]);
+    expect(profile.includes(Buffer.from("hideDefaultUsernameWarning26"))).toBe(true);
+  });
+
   it("disables the unsupported vanilla skin cache", () => {
     const settings = fs.readFileSync(path.join(process.cwd(), "server-runtime/seed/plugins/EaglercraftXServer/settings.yml"), "utf8");
     expect(settings).toMatch(/download_vanilla_skins_to_clients:\s*false/);

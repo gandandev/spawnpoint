@@ -18,7 +18,7 @@ function listEnv(name: string): string[] {
 }
 
 export const config = {
-  minecraftVersion: process.env.PREVIEW_CLOUD === "true" ? "26.2" as const : undefined,
+  minecraftVersion: (process.env.PREVIEW_CLOUD === "true" || process.env.MC_VERSION === "26.2") ? "26.2" as const : undefined,
   port: integerEnv("PORT", 3000, 1, 65_535),
   dataDir: path.resolve(process.env.DATA_DIR ?? path.join(process.cwd(), "data")),
   clientDir: path.resolve(process.cwd(), "dist/client"),

@@ -42,7 +42,7 @@ describe("authenticated Eagler capacity settings", () => {
     expect(manager).toContain('"plugins/EaglercraftXServer/settings.yml"');
   });
 
-  it("uses 16 players and 512 MB for new deployments", () => {
+  it("uses the modern runtime heap while retaining legacy defaults", () => {
     const properties = fs.readFileSync(path.join(seed, "server.properties"), "utf8");
     const config = fs.readFileSync(path.join(process.cwd(), "server", "config.ts"), "utf8");
     const backendDockerfile = fs.readFileSync(path.join(process.cwd(), "Dockerfile.backend"), "utf8");
@@ -52,7 +52,9 @@ describe("authenticated Eagler capacity settings", () => {
     expect(properties).toMatch(/^max-players=16$/m);
     expect(config).toContain('integerEnv("MC_MEMORY_MB", 512, 512, 2_048)');
     expect(config).toContain('integerEnv("MC_MAX_PLAYERS", 16, 2, 40)');
-    for (const dockerfile of [backendDockerfile, combinedDockerfile]) {
+    expect(backendDockerfile).toContain("MC_VERSION=26.2");
+    expect(backendDockerfile).toContain("MC_MEMORY_MB=2048");
+    for (const dockerfile of [combinedDockerfile]) {
       expect(dockerfile).toMatch(/^    MC_MEMORY_MB=512 \\$/m);
       expect(dockerfile).toMatch(/^    MC_MAX_PLAYERS=16 \\$/m);
     }

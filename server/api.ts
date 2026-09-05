@@ -626,7 +626,11 @@ function parseLocatorSnapshot(value: unknown): LocatorSnapshot | null {
   if (typeof snapshot.active !== "boolean" || !Array.isArray(snapshot.targets) || !snapshot.targets.every(isLocatorTarget)) {
     return null;
   }
-  return { active: snapshot.active, targets: snapshot.targets };
+  const state = snapshot.clientState;
+  const clientState = state && [state.x, state.y, state.z].every(Number.isFinite)
+    && typeof state.mainHand === "string" && typeof state.offHand === "string"
+    ? state : undefined;
+  return { active: snapshot.active, targets: snapshot.targets, ...(clientState ? { clientState } : {}) };
 }
 
 async function bridgeLocators(context: ApiContext): Promise<Map<string, LocatorSnapshot>> {
@@ -1295,7 +1299,7 @@ export function createApiRouter(context: ApiContext): express.Router {
           skinUrl: target.skinUrl,
         }];
       });
-      response.json({ active: locator.active, targets });
+      response.json({ active: locator.active, targets, ...(locator.clientState ? { clientState: locator.clientState } : {}) });
     } catch (error) {
       failFromError(response, 503, error, "위치 표시 정보를 불러오지 못했어요.", "BRIDGE_UNAVAILABLE");
     }
@@ -1878,7 +1882,7 @@ export function createApiRouter(context: ApiContext): express.Router {
         fail(response, 409, "관전 프로필 이름이 기존 계정과 겹쳐 접속할 수 없어요.", "SPECTATOR_PROFILE_CONFLICT");
         return;
       }
-      const profile = await context.skins.createClientProfile({ ...user, gameUsername: username });
+      const profile = await context.skins.createClientProfile({ ...user, gameUsername: username }, context.serverManager.getStatus().version === "Paper 26.2");
       context.gameConnections.create(launchId, user.id, spectator);
       response.json({
         username,

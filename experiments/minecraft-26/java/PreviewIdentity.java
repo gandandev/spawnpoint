@@ -23,6 +23,22 @@ import net.lax1dude.eaglercraft.v1_8.socket.protocol.pkt.server.SPacketInvalidat
 
 /** HTTP gateway owns account authentication; no browser profile can choose an inventory. */
 public final class PreviewIdentity {
+    private final java.util.Map<UUID, String> spectators = new java.util.concurrent.ConcurrentHashMap<>();
+    @Subscribe
+    public void disconnected(com.velocitypowered.api.event.connection.DisconnectEvent event) { spectators.remove(event.getPlayer().getUniqueId()); }
+    @Subscribe
+    public void ping(com.velocitypowered.api.event.proxy.ProxyPingEvent event) {
+        var ping = event.getPing();
+        var builder = ping.asBuilder();
+        ping.getPlayers().ifPresent(players -> builder.onlinePlayers(Math.max(0, players.getOnline() - spectators.size())).clearSamplePlayers().samplePlayers(players.getSample().stream().filter(p -> !spectators.containsKey(p.getId())).toList()));
+        event.setPing(builder.build());
+    }
+    @Subscribe
+    public void motd(net.lax1dude.eaglercraft.backend.server.api.velocity.event.EaglercraftMOTDEvent event) {
+        var connection = event.getMOTDConnection();
+        connection.setPlayerTotal(Math.max(0, connection.getPlayerTotal() - spectators.size()));
+        connection.setPlayerList(connection.getPlayerList().stream().filter(name -> !spectators.containsValue(name)).toList());
+    }
     private static boolean managed() { return "true".equals(System.getenv("SPAWNPOINT_PORTAL_MANAGED")); }
     private static String secret() { return System.getenv("SPAWNPOINT_PREVIEW_SECRET"); }
     private static String token(String path) {
@@ -75,6 +91,7 @@ public final class PreviewIdentity {
             event.setKickMessage("접속 정보를 확인하지 못했어요. 포탈에서 다시 접속하세요."); return;
         }
         String name = identity.get("username").getAsString();
+        if (identity.has("spectator") && identity.get("spectator").getAsBoolean()) spectators.put(UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8)), name);
         event.setProfileUsername(name);
         event.setProfileUUID(UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8)));
     }

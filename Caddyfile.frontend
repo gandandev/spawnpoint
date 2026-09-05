@@ -22,7 +22,7 @@
 		respond "{\"version\":\"{$RAILWAY_DEPLOYMENT_ID:local}\"}" 200
 	}
 
-	@backend path /api /api/* /gateway /gateway/* /healthz
+	@backend path /api /api/* /gateway /gateway/* /healthz /game/* /profile-26.2.js
 	handle @backend {
 		reverse_proxy {$BACKEND_ORIGIN:http://server:3000}
 	}
