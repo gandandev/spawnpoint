@@ -19,6 +19,7 @@ export const Check = pixelIcon("Check");
 export const XIcon = pixelIcon("XIcon");
 export const ChevronDown = pixelIcon("ChevronDown");
 export const ArrowRight = pixelIcon("ArrowRight");
+export const Eye = pixelIcon("Eye");
 export const Play = pixelIcon("Play");
 export const Shield = pixelIcon("Shield");
 export const UserRound = pixelIcon("UserRound");

@@ -1,6 +1,5 @@
-import { Eye } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
-import { LogOut, Play, Shield, AdminBadge } from "@/components/pixel-icons";
+import { LogOut, Play, Shield, AdminBadge, Eye } from "@/components/pixel-icons";
 import { AccountDialog } from "@/features/AccountDialog";
 import { ChangelogDialog } from "@/features/ChangelogDialog";
 import { Logo, ServerCard } from "@/components/portal";
