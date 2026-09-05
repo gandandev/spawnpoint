@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prototype:26:prepare": "node experiments/minecraft-26/prepare.mjs",
+    "prototype:26:test-client": "node --test experiments/minecraft-26/client.test.mjs",
+    "prototype:26:client": "node experiments/minecraft-26/build-client.mjs",
+    "prototype:26": "node experiments/minecraft-26/start.mjs",
+    "prototype:26:transfer": "node experiments/minecraft-26/transfer.mjs",
+    "prototype:26:test": "node experiments/minecraft-26/transfer.mjs --test",
     "dev": "tsx watch --env-file=.env server/index.ts",
     "dev:client": "vite",
     "prebuild": "npm run prepare:clients && npm run generate:skins && npm run generate:og",

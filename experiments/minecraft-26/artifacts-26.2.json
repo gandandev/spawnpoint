@@ -1,0 +1,62 @@
+{
+  "assets.epk": {
+    "file": "client-26.2/assets.epk",
+    "url": "https://eymenwsmc.site/262/assets.epk",
+    "sha256": "cba5c83fea8ee5920c1f83e6a2e62705d62d57854bc77ca3208325f59719d1fe"
+  },
+  "brotli-decoder-worker.js": {
+    "file": "client-26.2/brotli-decoder-worker.js",
+    "url": "https://eymenwsmc.site/262/brotli-decoder-worker.js",
+    "sha256": "a9e8fbcfeda99e2c9e3d21f35f28d19b2990b66e1aea7016be014f2d3375c41e"
+  },
+  "brotli-loader.js": {
+    "file": "client-26.2/brotli-loader.js",
+    "url": "https://eymenwsmc.site/262/brotli-loader.js",
+    "sha256": "003d0eac341dc9a5c4bbc9c347ac2f7d59fe9e78ab7c9b72d2caa7fc983f5f38"
+  },
+  "brotli_dec_wasm.js": {
+    "file": "client-26.2/brotli_dec_wasm.js",
+    "url": "https://eymenwsmc.site/262/brotli_dec_wasm.js",
+    "sha256": "19cf5d13fa62df4ebdf3fcefddeefa54b41fd7cca83be2b553dd5a1e9c81b2d0"
+  },
+  "brotli_dec_wasm_bg.wasm": {
+    "file": "client-26.2/brotli_dec_wasm_bg.wasm",
+    "url": "https://eymenwsmc.site/262/brotli_dec_wasm_bg.wasm",
+    "sha256": "79b29cb1790560f0a0f32b4a31d935e2782875e4a367fde23c81d986b327ec3f"
+  },
+  "classes.wasm-runtime.js": {
+    "file": "client-26.2/classes.wasm-runtime.js",
+    "url": "https://eymenwsmc.site/262/classes.wasm-runtime.js",
+    "sha256": "2eb0fc12b57993c31b3627873d6f5ec62d3267eb4a16bb7f762d6585bb564ddf"
+  },
+  "classes.wasm.br": {
+    "file": "client-26.2/classes.wasm.br",
+    "url": "https://eymenwsmc.site/262/classes.wasm.br",
+    "sha256": "de6f718a7ff1c507d587c1f9a836f864ea29d1a89ca837219c9a1930de337248"
+  },
+  "index.html": {
+    "file": "client-26.2/index.html",
+    "url": "https://eymenwsmc.site/262/index.html",
+    "sha256": "e78ffcb5344145e2301df66f5e17b619a125a1417779e2afdbc7633687c05a4d"
+  },
+  "mesh-worker.wasm.br": {
+    "file": "client-26.2/mesh-worker.wasm.br",
+    "url": "https://eymenwsmc.site/262/mesh-worker.wasm.br",
+    "sha256": "956f885989cb3e0184a332dfbf8c72b6eeb83c7844e5d19b50f63a7cd1e56d97"
+  },
+  "server-worker.wasm.br": {
+    "file": "client-26.2/server-worker.wasm.br",
+    "url": "https://eymenwsmc.site/262/server-worker.wasm.br",
+    "sha256": "e416859afa1e9a88f161d8b829bdfbc7e1d50ac39f532892e03a4fbb56f43d05"
+  },
+  "sounds.epk": {
+    "file": "client-26.2/sounds.epk",
+    "url": "https://eymenwsmc.site/262/sounds.epk",
+    "sha256": "94bc8bfcf4132c52c6d5f61f3f92e50532a6fad1f5bc901ee25a462db8ba4fc6"
+  },
+  "worker-bootstrap.js": {
+    "file": "client-26.2/worker-bootstrap.js",
+    "url": "https://eymenwsmc.site/262/worker-bootstrap.js",
+    "sha256": "2a23114db3759b974fbf54be38f1aa4469b785066815e07a98abb6b0f67d326e"
+  }
+}

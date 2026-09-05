@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Spawnpoint 26 browser prototype</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:black}#game{position:absolute;inset:0}#error{color:white;font:16px system-ui;padding:24px}</style>
+<script src="/profile.js"></script><script src="/client-renderer.js"></script><script src="/classes.js?v=performance-5"></script>
+</head><body><div id="game"></div><script src="/controls.js"></script>
+<script>addEventListener('load',async()=>{try{await window.prototypeSettingsReady;main();}catch(error){const node=document.createElement('p');node.id='error';node.textContent=String(error);document.body.append(node);}});</script>
+</body></html>
