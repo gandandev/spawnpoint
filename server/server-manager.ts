@@ -22,6 +22,8 @@ interface ServerManagerOptions {
   maxPlayers: number;
   eulaAccepted: boolean;
   mockServer: boolean;
+  minecraftVersion?: "26.2";
+  sessionSecret?: string;
   onLog?: (line: string, occurredAt: number) => void;
 }
 
@@ -77,9 +79,9 @@ export class MinecraftServerManager extends EventEmitter {
     // Every open portal tab has one live status subscription. Keep leak
     // detection, but size the warning threshold for the server's real fanout.
     this.setMaxListeners(Math.max(32, options.maxPlayers * 4));
-    this.minecraftDir = path.join(options.dataDir, "minecraft");
+    this.minecraftDir = path.join(options.dataDir, options.minecraftVersion === "26.2" ? "runtime" : "minecraft");
     this.settingsStore = new ServerSettingsStore(this.minecraftDir, options.seedDir, options.maxPlayers);
-    this.playerDataStore = new PlayerDataStore(this.minecraftDir, this.settingsStore);
+    this.playerDataStore = new PlayerDataStore(this.minecraftDir, this.settingsStore, options.minecraftVersion === "26.2");
     this.state = {
       phase: "off",
       players: [],
@@ -89,7 +91,7 @@ export class MinecraftServerManager extends EventEmitter {
       lastError: null,
       startAllowedAt: 0,
       maxPlayers: options.maxPlayers,
-      version: "Paper 1.12.2",
+      version: options.minecraftVersion === "26.2" ? "Paper 26.2" : "Paper 1.12.2",
     };
     this.idleTimer = setInterval(() => void this.checkIdleShutdown(), 15_000);
     this.idleTimer.unref();
@@ -237,6 +239,19 @@ export class MinecraftServerManager extends EventEmitter {
   }
 
   private async prepareRuntime(): Promise<void> {
+    if (this.options.minecraftVersion === "26.2") {
+      const receipt = JSON.parse(await fs.readFile(path.join(this.options.dataDir, ".migration-ready.json"), "utf8"));
+      if (receipt.minecraft !== "26.2" || !this.options.eulaAccepted) throw new ServerStartError("MISSING_RUNTIME", "Verified preview migration and EULA acceptance required.");
+      const work = path.resolve("work/minecraft-26");
+      await fs.mkdir(path.join(this.minecraftDir, "plugins"), { recursive: true });
+      for (const file of ["paper-26.2-121.jar", "cache", "libraries", "versions"]) {
+        await fs.cp(path.join(work, "runtime", file), path.join(this.minecraftDir, file), { recursive: true });
+      }
+      await fs.copyFile(path.join(work, "SpawnpointBridge.jar"), path.join(this.minecraftDir, "plugins/SpawnpointBridge.jar"));
+      await fs.writeFile(path.join(this.minecraftDir, "eula.txt"), "eula=true\n");
+      this.state.maxPlayers = (await this.settingsStore.read()).maxPlayers;
+      return;
+    }
     const seedJar = path.join(this.options.seedDir, "paper-1.12.2.jar");
     if (!fsSync.existsSync(seedJar)) {
       throw new ServerStartError("MISSING_RUNTIME", "The bundled Minecraft runtime is missing.");
@@ -316,7 +331,7 @@ export class MinecraftServerManager extends EventEmitter {
       await this.prepareRuntime();
       this.publish({ phase: "starting" });
       this.expectedExit = false;
-      this.child = spawn(this.options.javaBin, [
+      this.child = spawn(this.options.minecraftVersion === "26.2" ? process.execPath : this.options.javaBin, this.options.minecraftVersion === "26.2" ? [path.resolve("experiments/minecraft-26/managed-runtime.mjs")] : [
         "-Xms256M",
         `-Xmx${this.options.memoryMb}M`,
         "-XX:+UseG1GC",
@@ -330,6 +345,9 @@ export class MinecraftServerManager extends EventEmitter {
         env: {
           ...process.env,
           DATA_DIR: this.options.dataDir,
+          MC_JAVA_BIN: this.options.javaBin,
+          MC_MEMORY_MB: String(this.options.memoryMb),
+          ...(this.options.sessionSecret ? { SESSION_SECRET: this.options.sessionSecret } : {}),
           PORTAL_INTERNAL_ORIGIN: `http://127.0.0.1:${this.options.portalPort}`,
           SPAWNPOINT_BRIDGE_PORT: String(this.options.bridgePort),
         },
@@ -368,7 +386,7 @@ export class MinecraftServerManager extends EventEmitter {
   private handleLogLine(line: string): void {
     console.log(`[minecraft] ${line}`);
     this.appendLog(line.replace(/\x1b\[[0-9;]*m/g, ""));
-    if (READY_LOG_PATTERNS.some((pattern) => pattern.test(line))) {
+    if (this.options.minecraftVersion === "26.2" ? line.includes("SPAWNPOINT_RUNTIME_READY") : READY_LOG_PATTERNS.some((pattern) => pattern.test(line))) {
       const readyAt = Date.now();
       this.publish({
         phase: "online",

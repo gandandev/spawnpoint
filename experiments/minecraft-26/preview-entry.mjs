@@ -21,4 +21,5 @@ if (!await fs.stat(marker).catch(() => null)) {
 }
 const receipt = JSON.parse(await fs.readFile(marker, 'utf8'));
 if (receipt.minecraft !== '26.2' || !receipt.players || !receipt.sourceSnapshot) throw Error('Invalid migration receipt');
-await import('./start.mjs');
+process.env.DATA_DIR = directory;
+await import('../../dist/server/index.js');

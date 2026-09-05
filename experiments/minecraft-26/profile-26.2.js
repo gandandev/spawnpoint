@@ -1,13 +1,15 @@
 (() => {
   const opts = window.eaglercraftXOpts;
-  const gateway = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway`;
+  const params = new URLSearchParams(location.search);
+  const managed = params.has('launch');
+  const gateway = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway${managed ? '?launch=' + encodeURIComponent(params.get('launch')) : ''}`;
   const requested = new URLSearchParams(location.search).get('profile');
   const profile = ['native', 'gram', 'tablet'].includes(requested) ? requested : 'gram';
   const nativeRatio = devicePixelRatio;
   const ratio = profile === 'native' ? nativeRatio : Math.min(nativeRatio, 1,
     Math.sqrt((profile === 'tablet' ? 800000 : 1024000) / Math.max(1, innerWidth * innerHeight)));
   if (ratio !== nativeRatio) Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => ratio });
-  opts.localStorageNamespace = '_spawnpoint262';
+  opts.localStorageNamespace = '_spawnpoint262' + (managed ? '_' + (params.get('account') || '').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() : '');
   opts.worldsDB = '_spawnpoint262_worlds';
   opts.resourcePacksDB = '_spawnpoint262_packs';
   opts.servers = [{ addr: gateway, name: 'Spawnpoint Java 26.2' }];
@@ -31,7 +33,7 @@
   window.eaglercraftXIwaBundleURL = '';
   window.__spawnpoint262 = { profile, nativeRatio, ratio };
   window.spawnpoint262SettingsReady = (async () => {
-    if (window.spawnpointPreviewCloud) {
+    if (window.spawnpointPreviewCloud && !managed) {
       const response = await fetch('/preview-session', { cache: 'no-store' });
       if (!response.ok) { location.replace('/'); throw Error('Preview login required'); }
       const session = await response.json();
@@ -49,7 +51,7 @@
       const colon = line.indexOf(':');
       return [line.slice(0, colon), line.slice(colon + 1)];
     }));
-    const marker = '_spawnpoint262.defaults.v1';
+    const marker = opts.localStorageNamespace + '.defaults.v1';
     if (!localStorage.getItem(marker)) {
       Object.entries({ version: '4903', fov: '0.5', maxFps: '120', renderDistance: profile === 'tablet' ? '4' : '6',
         graphicsPreset: '"fast"', renderClouds: '"off"', ao: 'false', entityShadows: 'false',

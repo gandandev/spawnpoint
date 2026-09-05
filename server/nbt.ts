@@ -21,6 +21,42 @@ export interface NbtDocument {
 const MAX_DEPTH = 64;
 const MAX_COLLECTION_ITEMS = 1_000_000;
 
+// Java DataInput/DataOutput encode UTF-16 code units, including surrogate pairs.
+function decodeModifiedUtf8(bytes: Buffer): string {
+  const units: number[] = [];
+  for (let i = 0; i < bytes.length;) {
+    const first = bytes[i++];
+    if (first < 0x80) { units.push(first); continue; }
+    const continuation = () => {
+      const value = bytes[i++];
+      if (value === undefined || (value & 0xc0) !== 0x80) throw new Error("Invalid NBT string encoding.");
+      return value & 0x3f;
+    };
+    if ((first & 0xe0) === 0xc0) units.push(((first & 31) << 6) | continuation());
+    else if ((first & 0xf0) === 0xe0) units.push(((first & 15) << 12) | (continuation() << 6) | continuation());
+    else if ((first & 0xf8) === 0xf0) {
+      // Accept standard UTF-8 written by earlier portal versions too.
+      const point = ((first & 7) << 18) | (continuation() << 12) | (continuation() << 6) | continuation();
+      if (point < 0x10000 || point > 0x10ffff) throw new Error("Invalid NBT string encoding.");
+      units.push(0xd800 + ((point - 0x10000) >> 10), 0xdc00 + ((point - 0x10000) & 1023));
+    } else throw new Error("Invalid NBT string encoding.");
+  }
+  let result = "";
+  for (let i = 0; i < units.length; i += 4096) result += String.fromCharCode(...units.slice(i, i + 4096));
+  return result;
+}
+
+function encodeModifiedUtf8(value: string): Buffer {
+  const bytes: number[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const unit = value.charCodeAt(i);
+    if (unit > 0 && unit < 128) bytes.push(unit);
+    else if (unit < 2048) bytes.push(0xc0 | (unit >> 6), 0x80 | (unit & 63));
+    else bytes.push(0xe0 | (unit >> 12), 0x80 | ((unit >> 6) & 63), 0x80 | (unit & 63));
+  }
+  return Buffer.from(bytes);
+}
+
 class NbtReader {
   private offset = 0;
 
@@ -87,7 +123,7 @@ class NbtReader {
   private string(): string {
     const length = this.unsignedShort();
     this.require(length);
-    const value = this.source.toString("utf8", this.offset, this.offset + length);
+    const value = decodeModifiedUtf8(this.source.subarray(this.offset, this.offset + length));
     this.offset += length;
     return value;
   }
@@ -205,7 +241,7 @@ class NbtWriter {
   }
 
   private string(value: string): void {
-    const encoded = Buffer.from(value, "utf8");
+    const encoded = encodeModifiedUtf8(value);
     if (encoded.length > 65_535) throw new Error("NBT string is too long.");
     this.unsignedShort(encoded.length);
     this.chunks.push(encoded);
