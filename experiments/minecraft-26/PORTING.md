@@ -1,6 +1,6 @@
 # Full portal and gameplay port
 
-The migration-only deployment is not the requested finished product. Preserve the current main portal UI, design and features, and every existing gameplay/client customization. Only the custom chat input/composer is excluded. The original main deployment and volume remain separate.
+The migration-only deployment is not the requested finished product. Preserve the current main portal UI, design and features, and every existing gameplay/client customization. Only the custom chat input/composer is excluded. The user has now requested working in the main checkout and deploying the migration to production. The former 26.2 worktree has been removed after merging its work and preserving its runtime and migration evidence.
 
 ## Acceptance inventory
 
@@ -18,4 +18,4 @@ The migration-only deployment is not the requested finished product. Preserve th
 - [ ] Keep FOV 90, display-size GUI defaults, performance profiles and client-only dynamic held-item lighting.
 - [ ] Verify the complete portal and actual gameplay on the isolated deployment. Do not label health checks as feature validation.
 
-Main promotion requires acceptance and a fresh production inventory snapshot. Do not reset the already migrated preview world or overwrite its player files as part of this UI/function port.
+Production migration is authorized. A fresh 1.12.2 backup was downloaded to `/Users/gandan/Downloads/Spawnpoint-1.12-production-20260905/production-1.12-backup-20260905-2000.tar.gz`. The snapshot time is 2026-09-05 20:00 KST; the archive SHA-256 and all 330 Minecraft files were verified. Use a newer stopped-server snapshot for the final inventory transfer if production play resumes. The migration notice and explicit entry button are implemented in the main portal. Runtime conversion and deployment are still pending.
