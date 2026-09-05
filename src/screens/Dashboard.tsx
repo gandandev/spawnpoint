@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react";
-import { LogOut, Play, Shield, ShieldCheck } from "lucide-react";
+import { LogOut, Play, Shield, AdminBadge } from "@/components/pixel-icons";
 import { AccountDialog } from "@/features/AccountDialog";
 import { ChangelogDialog } from "@/features/ChangelogDialog";
 import { Logo, ServerCard } from "@/components/portal";
@@ -57,7 +57,7 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
       </div>
     </header>
     <ServerCard status={data.server} showPlayerDropdown />
-    {!data.setup.eulaAccepted && <Alert><ShieldCheck /><AlertTitle>서버 설정이 필요해요</AlertTitle><AlertDescription>소유자가 아직 마인크래프트 EULA에 동의하지 않았어요. <code>MC_EULA=true</code>로 설정하세요.</AlertDescription></Alert>}
+    {!data.setup.eulaAccepted && <Alert><AdminBadge /><AlertTitle>서버 설정이 필요해요</AlertTitle><AlertDescription>소유자가 아직 마인크래프트 EULA에 동의하지 않았어요. <code>MC_EULA=true</code>로 설정하세요.</AlertDescription></Alert>}
     <section className="character-stage" aria-label="캐릭터 미리보기">
       <SkinPreview src={data.user!.skin.previewUrl} model={data.user!.skin.model} nameTag={data.user!.displayName} className="character-preview" paused={skinDialogOpen} />
       <Dialog open={skinDialogOpen} onOpenChange={(open) => {

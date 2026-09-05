@@ -1,5 +1,5 @@
 import { type AnimationEvent as ReactAnimationEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { ArrowBigUpDash, ArrowRight, Shield } from "lucide-react";
+import { ArrowBigUpDash, ArrowRight, Shield } from "@/components/pixel-icons";
 import { ApiError, api } from "@/lib/api";
 import type { BootstrapData } from "@/types";
 import { Logo, ServerCard } from "@/components/portal";

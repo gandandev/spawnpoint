@@ -1310,6 +1310,10 @@ export function createApiRouter(context: ApiContext): express.Router {
       const server = context.serverManager.getStatus();
       const users = context.database.listUsers().map((user) => ({
         ...user,
+        skin: (() => {
+          const record = context.database.getUserById(user.id);
+          return record ? publicUser(record, context).skin : undefined;
+        })(),
         resetRequired: user.passwordResetPending
           && user.passwordResetExpiresAt !== null
           && user.passwordResetExpiresAt > Date.now(),

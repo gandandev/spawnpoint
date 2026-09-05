@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowRight, Clock3, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "lucide-react";
+import { ArrowRight, Calendar, Clock3, History, MessageSquareText, RefreshCw, Search, Server, Wifi } from "@/components/pixel-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,8 +63,8 @@ function PlayerHead({ src, name, compact = false }: { src: string; name: string;
 
 function ChatHistory({ entries }: { entries: AdminChatHistoryEntry[] }) {
   if (!entries.length) return <HistoryEmpty message="해당 조건의 채팅이 없어요." />;
-  return <ol className="flex flex-col gap-2" aria-label="영구 채팅 기록">
-    {entries.map((entry) => <li key={entry.id} className="flex gap-3 rounded-lg border bg-background p-3">
+  return <ol className="flex flex-col divide-y" aria-label="영구 채팅 기록">
+    {entries.map((entry) => <li key={entry.id} className="flex gap-2 bg-background px-1 py-2">
       <PlayerHead src={entry.skinUrl} name={entry.displayName} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -86,12 +86,12 @@ function ChatHistory({ entries }: { entries: AdminChatHistoryEntry[] }) {
 function AccessHistory({ entries }: { entries: AdminAccessHistoryEntry[] }) {
   if (!entries.length) return <HistoryEmpty message="해당 조건의 접속 기록이 없어요." />;
   const now = Date.now();
-  return <ol className="flex flex-col gap-2" aria-label="영구 접속 기록">
+  return <ol className="flex flex-col divide-y" aria-label="영구 접속 기록">
     {entries.map((entry) => {
       const sessionStart = entry.joinedAt ?? entry.connectedAt;
       const sessionEnd = entry.leftAt ?? entry.disconnectedAt;
       const displayEnd = sessionEnd ?? entry.lastSeenAt;
-      return <li key={entry.id} className="rounded-lg border bg-background p-3">
+      return <li key={entry.id} className="bg-background px-1 py-2">
         <div className="flex items-start gap-3">
           <PlayerHead src={entry.skinUrl} name={entry.displayName} />
           <div className="min-w-0 flex-1">
@@ -194,20 +194,23 @@ export function AdminHistoryPanel({ active, csrf }: { active: boolean; csrf: str
     </nav>
 
     <section className="flex min-w-0 flex-col gap-3">
-      <div className="rounded-lg border bg-muted/20 p-3">
+      <div className="rounded-lg bg-muted/30 p-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[12rem] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} className="pl-8" placeholder={placeholder} aria-label="영구 기록 검색" autoComplete="off" />
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={history.refresh}><RefreshCw />새로고침</Button>
+          <details className="relative shrink-0">
+            <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-lg border border-input text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"><Calendar aria-label="기간 필터" /></summary>
+            <form className="absolute top-11 right-0 z-20 grid w-[min(22rem,calc(100vw-2rem))] gap-2 rounded-lg border bg-background p-3 shadow-lg sm:grid-cols-2" onSubmit={applyTimeRange}>
+              <label className="admin-compact-field">시작 시간<Input type="datetime-local" step={1} value={fromInput} onChange={(event) => setFromInput(event.target.value)} /></label>
+              <label className="admin-compact-field">끝 시간<Input type="datetime-local" step={1} value={toInput} onChange={(event) => setToInput(event.target.value)} /></label>
+              <Button type="submit" size="sm"><History />시간 적용</Button>
+              <Button type="button" variant="ghost" size="sm" disabled={!fromInput && !toInput} onClick={clearTimeRange}>시간 초기화</Button>
+            </form>
+          </details>
+          <Button type="button" variant="outline" size="icon-sm" onClick={history.refresh} aria-label="새로고침" title="새로고침"><RefreshCw /></Button>
         </div>
-        <form className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]" onSubmit={applyTimeRange}>
-          <label className="admin-compact-field">시작 시간<Input type="datetime-local" step={1} value={fromInput} onChange={(event) => setFromInput(event.target.value)} /></label>
-          <label className="admin-compact-field">끝 시간<Input type="datetime-local" step={1} value={toInput} onChange={(event) => setToInput(event.target.value)} /></label>
-          <Button type="submit" size="sm"><History />시간 적용</Button>
-          <Button type="button" variant="ghost" size="sm" disabled={!fromInput && !toInput} onClick={clearTimeRange}>시간 초기화</Button>
-        </form>
         {rangeError && <p className="mt-2 text-xs text-destructive">{rangeError}</p>}
         <p className="mt-2 text-[11px] text-muted-foreground">기록은 서버 데이터 볼륨에 계속 저장되며, 재시작하거나 서버를 꺼도 남습니다.</p>
       </div>

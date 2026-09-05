@@ -1031,7 +1031,7 @@ describe("administrator TPA settings", () => {
     const overviewResponse = await fetch(`${harness.origin}/api/admin/overview`, { headers: harness.adminHeaders });
     const overview = await overviewResponse.json() as { bridgeAvailable: boolean; players: unknown[]; tpaEnabled: boolean | null };
     expect(overviewResponse.status).toBe(200);
-    expect(overview).toMatchObject({ bridgeAvailable: false, tpaEnabled: true });
+    expect(overview).toMatchObject({ bridgeAvailable: false, tpaEnabled: true, users: expect.arrayContaining([expect.objectContaining({ skin: expect.objectContaining({ model: "steve", previewUrl: expect.stringContaining("/assets/skins/") }) })]) });
     expect(overview.players).toHaveLength(2);
     expect(overview.players).toEqual(expect.arrayContaining([expect.objectContaining({ online: false, dataAvailable: false })]));
     expect(timeoutSpy).toHaveBeenCalledTimes(2);

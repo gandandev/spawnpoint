@@ -1,4 +1,4 @@
-import { ScrollText } from "lucide-react";
+import { History } from "@/components/pixel-icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
@@ -13,11 +13,25 @@ const changelog = [
       "26 버전 실험판에 FOV 90과 기기별 기본 그래픽 설정, 화면 크기에 맞춘 GUI 크기 자동 설정을 추가했어요. 실제 기기의 60·120 FPS 유지는 아직 확인 중이에요.",
       "이전 26.1.2 비교용 실험판의 횃불 조명을 클라이언트 지형 렌더링으로 옮겼어요. 서버 블록 갱신 없이 양손의 횃불로 주변을 밝힐 수 있어요.",
       "별도 개발 환경에 26.2 서버와 26.1.2 브라우저 클라이언트 실험판, 인벤토리와 경험치를 새 월드로 옮기는 도구를 추가했어요. 현재 서비스에는 적용하지 않았어요.",
+      "보관함 항목의 오른쪽 아이콘을 보관함에서 나오는 표시로 바꿨어요.",
+      "기록 화면의 기간 필터를 달력 아이콘으로 바꾸고 새로고침 버튼을 아이콘만 표시하도록 정리했어요.",
+      "콘솔 로그 검색 안내 문구가 좁은 화면에서 잘리지 않게 짧게 정리했어요.",
+      "관리자 설정 버튼의 그림자를 없앴어요.",
+      "변경 내역 모달의 최대 너비와 높이를 넓혀 긴 기록도 편하게 볼 수 있게 했어요.",
+      "스킨 변경 버튼을 조금 더 오른쪽 아래로 옮기고 높이를 줄였어요.",
+      "상단 계정 버튼 사이의 빈 간격을 없앴어요.",
+      "계정 이름 버튼의 왼쪽 여백을 넓히고 오른쪽 여백을 줄였어요.",
+      "심플한 디자인을 유지하면서 모바일과 데스크톱의 작은 버튼과 닫기 버튼을 키웠어요.",
+      "관리자 플레이어 탭의 아이콘을 다듬었어요.",
+      "관리자 패널을 포탈 스타일에 맞춰 간결하게 정리하고, 플레이어의 걷는 3D 스킨을 추가했어요. 상태·아이템·계정 관리 기능은 펼쳐서 사용할 수 있어요.",
+      "화면 전체의 아이콘을 홀수 격자의 마인크래프트 스타일로 바꾸고, 픽셀을 직접 수정하고 저장하는 로컬 편집기를 추가했어요. 편집기에서 각 아이콘이 쓰이는 화면과 버튼도 확인할 수 있어요. 설정 아이콘은 톱니바퀴로 그렸어요. 변경 내역과 기록 아이콘은 History로 합치고, 킥과 관리자 배지 아이콘의 이름을 용도에 맞췄어요.",
+      "ESC로 게임 UI를 닫을 때 마우스를 너무 일찍 고정해 게임 메뉴가 깜박이고 커서가 풀리는 문제를 고쳤어요.",
       "추가 다이아를 2~5개짜리 덩어리로 더 자주 찾도록 조정했어요. 기존 청크에도 한 번 적용하며, 이미 있는 광석은 유지해요.",
       "사용하지 않는 화면 구성 요소와 예전 TPA 설정 경로를 정리했어요.",
       "게임 접속 상태의 불필요한 타이머와 사용하지 않는 위치 조회 경로를 없앴어요.",
       "게임 실행 절차를 단순하게 정리하고 서버와 화면이 같은 데이터 형식을 쓰도록 맞췄어요.",
       "관리자 화면의 중복 로그 전송과 스킨 변경 후 불필요한 요청을 없앴어요.",
+      "포탈의 로고와 서버 상태 글자가 실수로 선택되지 않게 고쳤어요.",
       "개발 중 생성된 결과 파일은 배포 이미지에서 제외하도록 정리했어요.",
       "모바일 컨트롤이 같은 화면 상태를 반복해서 갱신할 수 있는 문제를 고쳤어요.",
       "게임 WASM의 청크 작업 중복 검사를 한 번의 순회로 바꿔 반복 탐색과 임시 객체 생성을 줄였어요.",
@@ -122,9 +136,9 @@ const changelog = [
 export function ChangelogDialog() {
   return <Dialog>
     <DialogTrigger asChild>
-      <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" aria-label="변경 내역" title="변경 내역"><ScrollText /></Button>
+      <Button variant="ghost" size="icon-sm" className="cursor-pointer text-muted-foreground" aria-label="변경 내역" title="변경 내역"><History /></Button>
     </DialogTrigger>
-    <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto ring-0 sm:max-w-md">
+    <DialogContent className="max-h-[min(46rem,calc(100dvh-2rem))] w-[calc(100%-2rem)] overflow-y-auto ring-0 sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>변경 내역</DialogTitle>
         <DialogDescription>spawnpoint 업데이트 기록입니다.</DialogDescription>

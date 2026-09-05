@@ -363,8 +363,9 @@
     var duplicatePauseMenu = uiEscapeSourceScreen && /GuiIngameMenu$/.test(currentScreenName)
       && !/GuiIngameMenu$/.test(uiEscapeSourceScreen) && Date.now() - uiEscapeHandledAt < 1_000;
     syncDesktopGameCursor();
+    if (!currentScreenName && uiEscapeSourceScreen) restoreGameplayForUiEscape();
     if (duplicatePauseMenu) {
-      clearUiEscapeSuppression();
+      markUiEscape(currentScreenName);
       // Queue the corrective close during the same client tick so the pause
       // screen cannot render a visible frame or release a restored pointer lock.
       dispatchRelayedBackquote(null);
@@ -432,6 +433,7 @@
   var desktopChatInputActive = false;
   var currentScreenName = "";
   var gameplaySessionObserved = false;
+  var nativeEscapeHeld = false;
   var uiEscapeSourceScreen = "";
   var uiEscapeHandledAt = 0;
   var uiEscapeClearTimer = null;
@@ -1339,11 +1341,10 @@
   }
 
   function restoreGameplayForUiEscape() {
-    if (!gameplaySessionObserved || !currentScreenName || /GuiGameOver$/.test(currentScreenName)) return;
-    // Pointer lock requests made later from the synthetic Backquote event have
-    // no browser user activation. Arc rejects that request, then the client
-    // retries after 3.1 seconds. Re-lock during the physical Escape instead.
-    setDesktopGameCursorHidden(true);
+    if (mobileTouchCapable || nativeEscapeHeld || !gameplaySessionObserved || currentScreenName) return;
+    // Re-lock only after both the UI transition and the physical Escape release.
+    // Locking on keydown lets the browser's Escape default unlock the canvas
+    // again, which makes the client open its lost-focus pause menu.
     restorePortalGameFocus();
   }
 
@@ -3587,13 +3588,16 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.type === "keyup") {
+      nativeEscapeHeld = false;
+      if (uiEscapeSourceScreen) restoreGameplayForUiEscape();
       scheduleUiEscapeSuppressionClear();
       return;
     }
     if (event.type !== "keydown" || event.repeat) return;
+    nativeEscapeHeld = true;
     if (portalChatActive) {
       markUiEscape("PortalChat");
-      closePortalChat(true);
+      closePortalChat(false);
       return;
     }
     var sourceTarget = event.target;
@@ -3607,7 +3611,7 @@
       restoreGameplayForUiEscape();
       return;
     }
-    if (currentScreenName && !/GuiIngameMenu$/.test(currentScreenName)) markUiEscape(currentScreenName);
+    if (currentScreenName) markUiEscape(currentScreenName);
     else clearUiEscapeSuppression();
     dispatchRelayedBackquote(sourceTarget);
     restoreGameplayForUiEscape();

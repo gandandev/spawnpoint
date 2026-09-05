@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Check, KeyRound, UserRound } from "lucide-react";
+import { Check, KeyRound, UserRound } from "@/components/pixel-icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -78,7 +78,7 @@ export function AccountDialog({ data, onSession, notice }: AccountDialogProps) {
 
   return <Dialog open={open} onOpenChange={setOpen}>
     <DialogTrigger asChild>
-      <Button variant="ghost" size="sm" className="min-w-11 max-w-44 shrink cursor-pointer px-2 text-muted-foreground"><UserRound data-icon="inline-start" /><span className="truncate">{user.displayName}</span></Button>
+      <Button variant="ghost" size="sm" className="min-w-11 max-w-44 shrink cursor-pointer pl-3 pr-1 text-muted-foreground"><UserRound data-icon="inline-start" /><span className="truncate">{user.displayName}</span></Button>
     </DialogTrigger>
     <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto ring-0 sm:max-w-md">
       <DialogHeader>

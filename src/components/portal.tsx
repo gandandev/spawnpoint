@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useLayoutEffect, useState } from "react";
-import { ChevronDown, Server, ServerOff } from "lucide-react";
+import { ChevronDown, Server, ServerOff } from "@/components/pixel-icons";
 import { api } from "@/lib/api";
 import type { OnlinePlayer, ServerStatus } from "@/types";
 import { Card } from "@/components/ui/card";
@@ -37,7 +37,7 @@ export function AnimatedHeight({ children }: { children: ReactNode }) {
 
 export function Logo() {
   const siteName = currentSiteName();
-  return <div className="flex shrink-0 items-center gap-3" aria-label={siteName}>
+  return <div className="flex shrink-0 select-none items-center gap-3" aria-label={siteName}>
     <svg aria-hidden="true" className="size-[18px]" viewBox="0 0 18 18" fill="none">
       <path fill="#96ce4d" fillRule="evenodd" d="M0 0h18v13H13v5H0zM4 4v7h7V4z" />
     </svg>
@@ -141,7 +141,7 @@ export function ServerCard({ status, showPlayerDropdown = false }: ServerCardPro
         aria-label={`온라인 ${status.players.length}명, 접속자 목록 ${expanded ? "접기" : "펼치기"}`}
         onClick={() => setExpanded((current) => !current)}
       />}
-    <div className={cn("relative flex min-h-11 items-center gap-3 px-2 pl-3.5", canExpand && "pr-3.5")}>{compactStatusContent}</div>
+    <div className={cn("relative flex min-h-11 select-none items-center gap-3 px-2 pl-3.5", canExpand && "pr-3.5")}>{compactStatusContent}</div>
     {canExpand && <div id="online-player-list" className="t-acc-panel" aria-hidden={!expanded}><div className="t-acc-panel-inner"><div className="px-3.5 pb-3 pt-0">
       {loadingPlayers && players.length === 0 ? <span className="flex items-center gap-2 text-xs text-[#65952c]"><Spinner />접속자 확인 중</span> : <ul className="block" aria-label="현재 플레이 중인 사람">
         {players.map((player, index) => <li key={player.gameUsername} className="inline font-mark text-sm text-[#4f7622]" title={player.gameUsername}>{player.displayName}{index < players.length - 1 && <span aria-hidden="true">, </span>}</li>)}
