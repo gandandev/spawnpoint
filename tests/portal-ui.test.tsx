@@ -301,6 +301,7 @@ describe("online player dropdown", () => {
     expect(card?.className).toContain("hover:bg-[#96ce4d]/25");
     expect(card?.className).toContain("has-[:active]:scale-[var(--scale-large)]");
     expect(card?.className).toContain("has-[:active]:bg-[#96ce4d]/35");
+    expect(card?.querySelector(".select-none")).toBeTruthy();
     expect(card?.className).not.toContain("focus-within:bg-[#96ce4d]/25");
 
     await act(async () => {
@@ -706,7 +707,7 @@ describe("skin change flow", () => {
     expect(document.body.textContent).not.toContain("유명 스킨을 고르거나");
     const skinButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "스킨 변경");
     const serverButton = [...container.querySelectorAll("button")].find((button) => button.textContent === "서버 시작");
-    expect(skinButton?.className).toContain("h-9");
+    expect(skinButton?.className).toContain("h-11");
     expect(skinButton?.className).toContain("border-0");
     expect(skinButton?.className).toContain("text-base");
     expect(serverButton).toBeUndefined();
@@ -937,7 +938,7 @@ describe("mobile portal controls", () => {
     expect(accountTrigger?.className).toContain("active:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_10%)]");
     expect(accountTrigger?.querySelector("span")?.className).toContain("truncate");
     const logout = container.querySelector('[aria-label="로그아웃"]');
-    expect(logout?.className).toContain("size-7");
+    expect(logout?.className).toContain("size-9");
     expect(logout?.className).not.toContain("max-sm:min-");
     expect(logout?.className).not.toContain("[@media(pointer:coarse)]:min-");
     expect(logout?.className).toContain("active:scale-[var(--scale-large)]");

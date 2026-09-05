@@ -2944,7 +2944,7 @@ describe("portal game bridge", () => {
     expect(canvas.style.cursor).toBe("");
   });
 
-  it("reclaims pointer lock inside the physical Escape that closes an inventory UI", () => {
+  it("waits for Escape release before locking after an inventory UI closes", () => {
     const { canvas, documentObject, options, windowHandlers } = loadBridge(
       undefined,
       true,
@@ -2969,13 +2969,41 @@ describe("portal game bridge", () => {
       stopImmediatePropagation: vi.fn(),
     });
 
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    windowHandlers.get("keyup")?.[1]({
+      target: canvas, type: "keyup", key: "Escape", code: "Escape",
+      preventDefault: vi.fn(), stopImmediatePropagation: vi.fn(),
+    });
     expect(canvas.requestPointerLock).toHaveBeenCalledOnce();
     expect(documentObject.pointerLockElement).toBe(canvas);
-    hooks.screenChanged("", 480, 300, 960, 600, 2);
     expect(canvas.style.cursor).toBe("none");
   });
 
-  it("reclaims pointer lock when Escape closes a nested in-game UI", () => {
+  it("restores pointer lock when the client closes the UI after Escape keyup", () => {
+    const { canvas, documentObject, options, windowHandlers } = loadBridge(
+      undefined, true, undefined, { nativePointerLock: true },
+    );
+    const hooks = options.hooks as {
+      screenChanged: (name: string, ...metrics: number[]) => void;
+    };
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    hooks.screenChanged("net.minecraft.client.gui.inventory.GuiInventory", 480, 300, 960, 600, 2);
+    for (const type of ["keydown", "keyup"]) {
+      windowHandlers.get(type)?.[1]({
+        target: canvas, type, key: "Escape", code: "Escape",
+        preventDefault: vi.fn(), stopImmediatePropagation: vi.fn(),
+      });
+    }
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    hooks.screenChanged("", 480, 300, 960, 600, 2);
+    expect(canvas.requestPointerLock).toHaveBeenCalledOnce();
+    expect(documentObject.pointerLockElement).toBe(canvas);
+    expect(canvas.style.cursor).toBe("none");
+  });
+
+  it("keeps the pointer free while Escape returns to a parent game UI", () => {
     const { canvas, documentObject, options, windowHandlers } = loadBridge(
       undefined,
       true,
@@ -2999,8 +3027,13 @@ describe("portal game bridge", () => {
       stopImmediatePropagation: vi.fn(),
     });
 
-    expect(canvas.requestPointerLock).toHaveBeenCalledOnce();
-    expect(documentObject.pointerLockElement).toBe(canvas);
+    hooks.screenChanged("net.minecraft.client.gui.GuiOptions", 480, 300, 960, 600, 2);
+    windowHandlers.get("keyup")?.[1]({
+      target: canvas, type: "keyup", key: "Escape", code: "Escape",
+      preventDefault: vi.fn(), stopImmediatePropagation: vi.fn(),
+    });
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    expect(documentObject.pointerLockElement).not.toBe(canvas);
   });
 
   it("maps physical Escape to marked back action on gameplay and menu targets", () => {
