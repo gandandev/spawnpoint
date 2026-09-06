@@ -60,6 +60,13 @@ function PortalApp() {
   }, [reload]);
 
   useEffect(() => {
+    if (!data) return;
+    // Begin after the portal's own bootstrap, without starting a game or server.
+    const assets = (window as Window & { spawnpointGameAssets?: { warm(): Promise<void> } }).spawnpointGameAssets;
+    void assets?.warm().catch(() => { /* A game launch retries failed preloads. */ });
+  }, [Boolean(data)]);
+
+  useEffect(() => {
     const syncAuthMode = () => setAuthMode(window.location.pathname === "/signup" ? "register" : "login");
     window.addEventListener("popstate", syncAuthMode);
     return () => window.removeEventListener("popstate", syncAuthMode);

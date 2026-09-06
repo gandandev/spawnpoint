@@ -14,6 +14,7 @@ COPY experiments/minecraft-26 ./experiments/minecraft-26
 COPY vendor/clients/stable-galmuri.epw ./vendor/clients/stable-galmuri.epw
 COPY vendor/fonts/galmuri ./vendor/fonts/galmuri
 COPY public/game/portal-bridge.js ./public/game/portal-bridge.js
+COPY public/game-asset-loader.js ./public/game-asset-loader.js
 COPY experiments/minecraft-26/cache/ ./work/minecraft-26/runtime/cache/
 RUN npm run build:server && PREVIEW_BUILD=true PREVIEW_CLOUD=true node experiments/minecraft-26/prepare.mjs \
     && node experiments/minecraft-26/build-preview-plugin.mjs \
@@ -31,5 +32,6 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/experiments ./experiments
 COPY --from=build /app/work ./work
 COPY public/assets/skins ./public/assets/skins
+COPY public/game-asset-loader.js ./public/game-asset-loader.js
 EXPOSE 3000
 CMD ["node", "dist/server/index.js"]

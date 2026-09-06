@@ -42,6 +42,7 @@ const frontendReleaseMonitor = new FrontendReleaseMonitor(serverManager, config.
 
 const app = express();
 const gameDir = path.join(config.clientDir, "game");
+const gameAssetOrigin = "https://*.spawnpoint-game-assets.pages.dev";
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
@@ -58,12 +59,12 @@ app.use((request, response, next) => {
     response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data:; style-src 'self' 'unsafe-inline' data:; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: blob: data:; worker-src 'self' blob:; media-src 'self' blob: data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
+      `default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data:; style-src 'self' 'unsafe-inline' data:; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ${gameAssetOrigin} ws: wss: blob: data:; worker-src 'self' blob:; media-src 'self' blob: data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'`,
     );
   } else {
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws: wss:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+      `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${gameAssetOrigin} ws: wss:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
     );
   }
   next();
@@ -113,6 +114,14 @@ function preferredEncoding(acceptEncoding: string | undefined): "br" | "gzip" | 
 
 if (config.minecraftVersion === "26.2") {
   const modernClientDir = path.resolve("work/minecraft-26/client-26.2");
+  app.get("/game-asset-loader.js", (_request, response) => {
+    response.setHeader("Cache-Control", "no-cache");
+    response.sendFile(path.resolve("public/game-asset-loader.js"));
+  });
+  app.get("/game/client-assets.json", (_request, response) => {
+    response.setHeader("Cache-Control", "no-cache");
+    response.sendFile(path.join(modernClientDir, "client-assets.json"));
+  });
   app.get("/game/stable.html", (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
     response.sendFile(path.join(modernClientDir, "launch.html"));

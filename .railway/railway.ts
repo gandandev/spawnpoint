@@ -50,6 +50,8 @@ export default defineRailway(() => {
         "/server/**",
         "/server-plugin/**",
         "/server-runtime/**",
+        "/experiments/minecraft-26/**",
+        "/public/game-asset-loader.js",
         "/public/assets/skins/**",
         "/Dockerfile.backend",
         "/tsconfig.server.json",

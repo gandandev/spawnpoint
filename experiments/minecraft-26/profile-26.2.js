@@ -16,7 +16,7 @@
   opts.joinServer = gateway;
   opts.relays = [];
   if (managed) {
-    opts.assetsURI[0].url = 'assets-spawnpoint-vanilla.epk';
+    opts.assetsURI[0].url = window.spawnpointAssetManifest?.assets['assets-spawnpoint-vanilla.epk'].url || 'assets-spawnpoint-vanilla.epk';
     opts.assetsURI.push({ url: '/api/game/heads.epk', path: '' });
   }
   opts.lang = 'ko_kr';

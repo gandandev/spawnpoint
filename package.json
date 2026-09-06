@@ -20,6 +20,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "build:plugin": "node scripts/build-plugin.mjs",
     "generate:og": "node scripts/generate-og-images.mjs",
+    "deploy:game-assets": "node scripts/deploy-game-assets.mjs",
     "prepare:clients": "node scripts/prepare-clients.mjs",
     "generate:skins": "node scripts/generate-presets.mjs",
     "start": "node --env-file=.env dist/server/index.js",

@@ -51,6 +51,14 @@ the repository never ships `eula.txt` and never accepts it for you. first startu
 
 production uses two Railway services from this repository. the frontend owns every public domain. it serves static files and proxies authenticated traffic over Railway's private network, so cookies, CSRF checks, server-sent events, and the WebSocket gateway stay on one browser origin.
 
+### game assets on Cloudflare Pages
+
+The 26.2 client downloads its patched WASM and EPK resources from `spawnpoint-game-assets.pages.dev` release branches. The launcher, account APIs, WebSocket gateway, and Paper world stay on Railway. Each release has its own content-derived branch URL, so publishing a new release does not remove files used by an open portal or an older deployment.
+
+After downloading the pinned 26.2 inputs into `work/minecraft-26` with the existing preparation workflow, run `npm run deploy:game-assets` before deploying a changed client. This command rebuilds the patched client, compresses its main WASM at Brotli quality 11, uploads only the public game assets, and checks the decoded hashes and CORS/MIME headers. Commit the resulting `experiments/minecraft-26/cdn-release.json` with the matching source. Railway builds reject assets that do not match this published manifest. On a fresh checkout, use `GAME_ASSETS_PUBLISH=true PREVIEW_BUILD=true node experiments/minecraft-26/prepare.mjs` to prepare changed inputs without checking the previous release manifest.
+
+Pages serves the compressed WASM with `Content-Encoding: br` and `Content-Type: application/wasm`; the browser decodes and compiles it without downloading a separate Brotli decoder. Every uploaded file must fit Pages' 25 MiB limit. The portal warms the main/mesh modules and multiplayer EPK files after bootstrap. The game frame shares those in-memory promises even with the browser HTTP cache disabled. This does not start Paper, connect a player, or run a hidden game. Failed warmup requests are retried on entry; account-specific assets never enter this cache.
+
 ### backend service
 
 use `Dockerfile.backend`, keep the `/data` volume, and set `/healthz` as the health check. keep the existing secrets and Minecraft variables on this service. `SERVE_CLIENT=false` is already set in the image.
@@ -61,6 +69,8 @@ recommended watch paths:
 /server/**
 /server-plugin/**
 /server-runtime/**
+/experiments/minecraft-26/**
+/public/game-asset-loader.js
 /public/assets/skins/**
 /Dockerfile.backend
 /tsconfig.server.json

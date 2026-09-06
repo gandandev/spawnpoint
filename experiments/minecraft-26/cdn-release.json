@@ -1,0 +1,47 @@
+{
+  "branch": "r-1bd2dfa11e93d942",
+  "assets": {
+    "classes-spawnpoint.wasm.br": {
+      "url": "https://r-1bd2dfa11e93d942.spawnpoint-game-assets.pages.dev/classes-spawnpoint-59ebdab5646579e0.wasm",
+      "type": "application/wasm",
+      "sha256": "59ebdab5646579e05d15c7fde19dc7a3c205e3254a4fe69e2f1897c4fda651c2",
+      "decodedSha256": "32711710dd543dd2f0ad2ed13946aa48b86323a12adce09cf2dbbfc328b2594a"
+    },
+    "mesh-worker.wasm.br": {
+      "url": "https://r-1bd2dfa11e93d942.spawnpoint-game-assets.pages.dev/mesh-worker-956f885989cb3e01.wasm",
+      "type": "application/wasm",
+      "sha256": "956f885989cb3e0184a332dfbf8c72b6eeb83c7844e5d19b50f63a7cd1e56d97",
+      "decodedSha256": "0e5d07e623a8c7edf61c48959302b9633f2f984b6bb344c9fabf337abfcae3a3"
+    },
+    "server-worker.wasm.br": {
+      "url": "https://r-1bd2dfa11e93d942.spawnpoint-game-assets.pages.dev/server-worker-e416859afa1e9a88.wasm",
+      "type": "application/wasm",
+      "sha256": "e416859afa1e9a88f161d8b829bdfbc7e1d50ac39f532892e03a4fbb56f43d05",
+      "decodedSha256": "fe9f470d754699e5cc17f2a4b21f14bb7755ea4dfb2cca6e60e46fc91284a16b"
+    },
+    "assets-spawnpoint-vanilla.epk": {
+      "url": "https://r-1bd2dfa11e93d942.spawnpoint-game-assets.pages.dev/assets-spawnpoint-vanilla-c6982a99a1d1207e.epk",
+      "type": "application/octet-stream",
+      "sha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827",
+      "decodedSha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827"
+    },
+    "assets-spawnpoint.epk": {
+      "url": "https://r-1bd2dfa11e93d942.spawnpoint-game-assets.pages.dev/assets-spawnpoint-c6982a99a1d1207e.epk",
+      "type": "application/octet-stream",
+      "sha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827",
+      "decodedSha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827"
+    },
+    "sounds.epk": {
+      "url": "https://r-1bd2dfa11e93d942.spawnpoint-game-assets.pages.dev/sounds-94bc8bfcf4132c52.epk",
+      "type": "application/octet-stream",
+      "sha256": "94bc8bfcf4132c52c6d5f61f3f92e50532a6fad1f5bc901ee25a462db8ba4fc6",
+      "decodedSha256": "94bc8bfcf4132c52c6d5f61f3f92e50532a6fad1f5bc901ee25a462db8ba4fc6"
+    }
+  },
+  "preload": [
+    "classes-spawnpoint.wasm.br",
+    "mesh-worker.wasm.br",
+    "assets-spawnpoint-vanilla.epk",
+    "sounds.epk"
+  ]
+}
