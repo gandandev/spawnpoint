@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { brotliDecompressSync, brotliCompressSync, constants } from 'node:zlib';
 import { source, work, root, run } from './common.mjs';
 import { buildPortalBridge262 } from './build-portal-bridge.mjs';
+import { localizeLauncher } from './localize-client.mjs';
 
 export async function build262() {
   const artifacts = JSON.parse(await fs.readFile(path.join(source, 'artifacts-26.2.json'), 'utf8'));
@@ -14,6 +15,7 @@ export async function build262() {
     }
   }
   let html = await fs.readFile(path.join(work, 'client-26.2/index.html'), 'utf8');
+  html = localizeLauncher(html);
   html = html.replace('</head>', '<style>@font-face{font-family:Galmuri11;src:url("Galmuri11.woff2") format("woff2");font-display:swap}body,body *{font-family:Galmuri11,sans-serif!important}</style></head>');
   await fs.copyFile(path.join(root, 'vendor/fonts/galmuri/Galmuri11.woff2'), path.join(work, 'client-26.2/Galmuri11.woff2'));
   const anchor = '<script type="text/javascript" src="classes.wasm-runtime.js';

@@ -53,6 +53,30 @@ assets['assets/minecraft/lang/ko_kr.json'] = (WORK/'ko_kr.json').read_bytes()
 metadata = json.loads(assets['pack.mcmeta'])
 metadata.setdefault('language', {})['ko_kr'] = {'name':'한국어','region':'대한민국','bidirectional':False}
 assets['pack.mcmeta'] = json.dumps(metadata,ensure_ascii=False).encode()
+eagler_english = json.loads(assets['assets/eagler/lang/en_us.json'])
+eagler_korean = json.loads((ROOT/'experiments/minecraft-26/eagler-ko_kr.json').read_text())
+if set(eagler_korean) != set(eagler_english):
+    missing = sorted(set(eagler_english) - set(eagler_korean))
+    extra = sorted(set(eagler_korean) - set(eagler_english))
+    raise ValueError(f'Eaglercraft Korean locale mismatch: missing={missing}, extra={extra}')
+assets['assets/eagler/lang/ko_kr.json'] = json.dumps(eagler_korean, ensure_ascii=False).encode()
+
+minecraft_english = json.loads(assets['assets/minecraft/lang/en_us.json'])
+minecraft_korean = json.loads(assets['assets/minecraft/lang/ko_kr.json'])
+minecraft_overrides = json.loads((ROOT/'experiments/minecraft-26/minecraft-ko_kr-overrides.json').read_text())
+unknown_overrides = sorted(set(minecraft_overrides) - set(minecraft_english))
+if unknown_overrides:
+    raise ValueError(f'Unknown Minecraft Korean locale overrides: {unknown_overrides}')
+missing_visible = sorted(
+    key for key, value in minecraft_english.items()
+    if key not in minecraft_korean and value
+)
+untranslated = sorted(set(missing_visible) - set(minecraft_overrides))
+if untranslated:
+    raise ValueError(f'Minecraft Korean locale is missing visible text: {untranslated}')
+minecraft_korean.update(minecraft_overrides)
+assets['assets/minecraft/lang/ko_kr.json'] = json.dumps(minecraft_korean, ensure_ascii=False).encode()
+
 for language in ('en_us', 'ko_kr'):
     key = f'assets/minecraft/lang/{language}.json'
     translations = json.loads(assets[key])

@@ -477,7 +477,7 @@
   }
 
   .admin-settings-section {
-    @apply flex flex-col gap-0;
+    @apply flex flex-col gap-0 border-0;
   }
 
   .admin-settings-section[hidden] {
@@ -486,7 +486,7 @@
 
   .admin-setting-row,
   .admin-setting-field {
-    @apply flex min-w-0 items-center justify-between gap-3 border-b border-border/60 px-1 py-2.5;
+    @apply flex min-w-0 items-center justify-between gap-3 px-1 py-2.5;
   }
 
   .admin-setting-field {

@@ -16,7 +16,7 @@ const CATEGORIES: Array<{ id: SettingsCategory; label: string; icon: typeof Slid
   { id: "access", label: "접속", icon: Shield },
 ];
 
-const selectClassName = "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+const selectClassName = "h-8 w-full min-w-0 rounded-lg border border-input bg-background py-1 pl-2.5 pr-4 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring max-sm:min-h-11 md:text-sm";
 
 function SettingSwitch({ label, description, checked, onChange }: {
   label: string;
@@ -120,7 +120,7 @@ export function AdminServerSettings({ settings, serverOnline, busy, onSave }: {
         <SettingSwitch label="명령 블록" description="월드 안의 명령 블록을 실행할 수 있게 합니다." checked={draft.commandBlocks} onChange={(value) => update("commandBlocks", value)} />
       </section>
 
-      <div className="sticky bottom-0 mt-3 flex items-center justify-end gap-2 border-t bg-background py-3">
+      <div className="sticky bottom-0 z-10 mt-3 flex w-full items-center justify-end gap-2 bg-background py-3">
         {changed && <span className="mr-auto text-xs text-muted-foreground">저장하지 않은 변경이 있어요.</span>}
         <Button type="button" variant="outline" disabled={busy || !changed} onClick={() => { setDraft(settings); setDirty(false); }}>되돌리기</Button>
         <Button type="submit" disabled={busy || !changed}>{busy ? <Spinner /> : <Save />}설정 저장</Button>

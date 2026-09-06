@@ -3,8 +3,30 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import { launcherTranslations, localizeLauncher } from './localize-client.mjs';
 
 const code = await fs.readFile(new URL('./profile-26.2.js', import.meta.url), 'utf8');
+
+test('26.2 launcher translates every visible Eaglercraft shell message', () => {
+  const english = launcherTranslations.map(([source]) => source).join('\n');
+  const localized = localizeLauncher(english);
+
+  for (const [source, korean] of launcherTranslations) {
+    assert.equal(localized.includes(source), false);
+    assert.equal(localized.includes(korean), true);
+  }
+});
+
+test('26.2 Korean locale covers the full Eaglercraft language layer', async () => {
+  const eagler = JSON.parse(await fs.readFile(new URL('./eagler-ko_kr.json', import.meta.url), 'utf8'));
+  const minecraft = JSON.parse(await fs.readFile(new URL('./minecraft-ko_kr-overrides.json', import.meta.url), 'utf8'));
+
+  assert.equal(Object.keys(eagler).length, 146);
+  assert.equal(eagler['attribute.name.name_tag_distance'], '이름표 표시 거리');
+  assert.equal(eagler['gamerule.minecraft.locator_bar'], '플레이어 위치 표시줄 사용');
+  assert.equal(minecraft['options.eaglerTouchControls'], '터치 조작');
+  assert.equal(minecraft['key.keyboard.escape'], '나가기');
+});
 async function launch({ profile = 'gram', width = 1200, height = 714, saved = new Map() } = {}) {
   const context = { URL, URLSearchParams, Blob, Response, CompressionStream, DecompressionStream, TextEncoder, Uint8Array,
     atob, btoa, console, devicePixelRatio: 2, innerWidth: width, innerHeight: height,
