@@ -162,13 +162,6 @@ describe("administrator access", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(container.textContent).toContain("26.2로 옮기는중!!");
-    expect(container.querySelector("#username")).toBeNull();
-    await act(async () => {
-      ([...container.querySelectorAll("button")].find(button => button.textContent === "그래도 들어가기") as HTMLButtonElement).click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
     expect(container.textContent).toContain("spawnpoint에 연결할 수 없어요");
     const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "다시 시도")!;
     await act(async () => {
@@ -197,13 +190,6 @@ describe("administrator access", () => {
 
     await act(async () => {
       root.render(<App />);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("26.2로 옮기는중!!");
-    expect(container.querySelector("#username")).toBeNull();
-    await act(async () => {
-      ([...container.querySelectorAll("button")].find(button => button.textContent === "그래도 들어가기") as HTMLButtonElement).click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -249,13 +235,6 @@ describe("administrator access", () => {
 
     await act(async () => {
       root.render(<App />);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(container.textContent).toContain("26.2로 옮기는중!!");
-    expect(container.querySelector("#username")).toBeNull();
-    await act(async () => {
-      ([...container.querySelectorAll("button")].find(button => button.textContent === "그래도 들어가기") as HTMLButtonElement).click();
       await Promise.resolve();
       await Promise.resolve();
     });
