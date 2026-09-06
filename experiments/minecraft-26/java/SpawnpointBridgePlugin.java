@@ -1705,6 +1705,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         JsonObject clientState = new JsonObject();
         clientState.addProperty("x", viewerLocation.getX());
         clientState.addProperty("y", viewerLocation.getY() + viewer.getEyeHeight());
+        clientState.addProperty("feetY", viewerLocation.getY());
         clientState.addProperty("z", viewerLocation.getZ());
         clientState.addProperty("mainHand", viewer.getInventory().getItemInMainHand().getType().getKey().toString());
         clientState.addProperty("offHand", viewer.getInventory().getItemInOffHand().getType().getKey().toString());

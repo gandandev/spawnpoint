@@ -41,14 +41,14 @@ async function launch({ profile = 'gram', width = 1200, height = 714, saved = ne
 test('26.2 settings survive gzip storage and preserve later user choices', async () => {
   const first = await launch();
   assert.match(first.options, /^fov:0.5$/m);
-  assert.match(first.options, /^guiScale:2$/m);
+  assert.match(first.options, /^guiScale:3$/m);
   assert.match(first.options, /^soundCategory_music:0.0$/m);
   first.saved.set('_spawnpoint262.g', gzipSync(first.options.replace('fov:0.5', 'fov:0.75') + 'mouseSensitivity:0.3\n').toString('base64'));
   const next = await launch({ profile: 'native', saved: first.saved });
   assert.match(next.options, /^fov:0.75$/m);
   assert.match(next.options, /^mouseSensitivity:0.3$/m);
-  assert.match(next.options, /^guiScale:4$/m);
-  assert.match((await launch({ width: 480, height: 800 })).options, /^guiScale:1$/m);
+  assert.match(next.options, /^guiScale:5$/m);
+  assert.match((await launch({ width: 480, height: 800 })).options, /^guiScale:2$/m);
 });
 test('only the exact local HTTP gateway uses an insecure WebSocket', async () => {
   const { context } = await launch();

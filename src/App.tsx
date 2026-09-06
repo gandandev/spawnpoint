@@ -27,6 +27,17 @@ export function App() {
   const [data, setData] = useState<BootstrapData | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [game, setGame] = useState<GameSession | null>(null);
+  const [gameVisible, setGameVisible] = useState(false);
+
+  useEffect(() => {
+    if (!game) return;
+    const confirmClose = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", confirmClose);
+    return () => window.removeEventListener("beforeunload", confirmClose);
+  }, [game]);
   const [showSkinAfterSignup, setShowSkinAfterSignup] = useState(false);
   const [adminPasswordOpen, setAdminPasswordOpen] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -144,6 +155,8 @@ export function App() {
 
   const logout = async () => {
     await api<void>("/auth/logout", { method: "POST", headers: { "x-spawnpoint-csrf": data!.csrf! } });
+    setGame(null);
+    setGameVisible(false);
     setShowSkinAfterSignup(false);
     setAdminPanelOpen(false);
     setStandaloneAdmin(null);
@@ -151,7 +164,8 @@ export function App() {
   };
 
   const play = async (spectator = false) => {
-    const launchId = crypto.randomUUID();
+    const retained = game && game.spectator === spectator ? game : null;
+    const launchId = retained?.launchId ?? crypto.randomUUID();
     const result = await api<{ username: string; profile: string; resourcePackPreference: ResourcePackPreference }>("/game-ticket", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-spawnpoint-csrf": data!.csrf! },
@@ -163,7 +177,8 @@ export function App() {
       csrf: data!.csrf,
       resourcePackPreference: result.resourcePackPreference,
     }));
-    setGame({ username: result.username, launchId });
+    if (!retained) setGame({ username: result.username, launchId, spectator });
+    setGameVisible(true);
   };
 
   const gameUrl = game
@@ -183,11 +198,10 @@ export function App() {
     {bootstrapError ? <><span>{bootstrapError}</span><Button variant="outline" onClick={() => void reload()}>다시 시도</Button></> : <><Spinner />월드 상태 불러오는 중</>}
   </main>;
   return <>
-    {game
-      ? <GameScreen game={game} gameUrl={gameUrl} onExit={() => setGame(null)} />
-      : data.user
+    {game ? <GameScreen game={game} gameUrl={gameUrl} visible={gameVisible} onExit={() => setGameVisible(false)} /> : null}
+    {!gameVisible && (data.user
         ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={openAdmin} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
-        : <AuthScreen data={data} mode={authMode} onAuth={auth} onModeChange={changeAuthMode} onOpenAdmin={openAdmin} notice={notice} />}
+        : <AuthScreen data={data} mode={authMode} onAuth={auth} onModeChange={changeAuthMode} onOpenAdmin={openAdmin} notice={notice} />)}
     <Dialog open={adminPasswordOpen} onOpenChange={(open) => {
       setAdminPasswordOpen(open);
       if (!open) setAdminPassword("");

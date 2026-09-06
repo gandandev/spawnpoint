@@ -160,6 +160,15 @@ await Promise.all(sites.map(async ({ key, name, files, fontSize, fallbackBackgro
   const groupWidth = renderedLogoWidth + gap + textWidth;
   const left = Math.round((width - groupWidth) / 2);
 
+  const lockupHeight = Math.max(renderedLogoHeight, textHeight);
+  await fs.mkdir(path.join(publicDir, "loading"), { recursive: true });
+  await sharp({ create: { width: groupWidth, height: lockupHeight, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([
+      { input: logo, left: 0, top: Math.round((lockupHeight - renderedLogoHeight) / 2) },
+      { input: text, left: renderedLogoWidth + gap, top: Math.round((lockupHeight - textHeight) / 2) },
+    ]).png().toFile(path.join(publicDir, "loading", `${key}-logo.png`));
+  await sharp(backgrounds[fallbackBackgroundIndex]).jpeg({ quality: 90 }).toFile(path.join(publicDir, "loading", `${key}-background.jpg`));
+
   const variants = await Promise.all(backgrounds.map((background) => sharp(background)
       .composite([
         { input: logo, left, top: Math.round((height - renderedLogoHeight) / 2) },

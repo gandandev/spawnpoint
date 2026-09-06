@@ -82,12 +82,24 @@ def patch(data):
                     anchor=b'\x05\x41\x00\x21\x13\x0b\x02\x40'
                     if body.count(anchor)!=1:raise ValueError('Screen resume boundary changed')
                     body=body.replace(anchor,anchor[:-2]+hook+anchor[-2:]);changed=True
+                if index+98 in (96838, 99627):
+                    hashes = {96838: '8936a0d6877f824dd220a09eb059c2f56ea089067cb31f50aafe5e88d707cedd',
+                              99627: 'f3a2b1747267d98bd51d3ac4ca922877f1ac883241a81b30cc721234ca3a6841'}
+                    if hashlib.sha256(body).hexdigest() != hashes[index+98]:
+                        raise ValueError('Relay menu body changed')
+                    label = body.rfind(b'\x23' + u(14068))
+                    if label < 0: raise ValueError('Relay label missing')
+                    for field in (8, 9):
+                        anchor = b'\x20\x01\xfb\x17' + s(19393) + b'\x41\x01\xfb\x05' + u(19393) + u(field)
+                        offset = body.find(anchor, label)
+                        if offset < 0: raise ValueError('Relay flags missing')
+                        body = body[:offset] + anchor.replace(b'\x41\x01', b'\x41\x00') + body[offset+len(anchor):]
                 if index+98==57541:
                     # The upstream relay link is an absolute-positioned widget, not a menu row.
                     for field in (8,9):
                         anchor=b'\x20\x01\xfb\x17'+s(19393)+b'\x41\x01\xfb\x05'+u(19393)+u(field)
                         if body.count(anchor)!=2:raise ValueError('Relay widget flags changed')
-                        body=body.replace(anchor,anchor.replace(b'\x41\x01',b'\x41\x00'),1)
+                        body=body.replace(anchor,anchor.replace(b'\x41\x01',b'\x41\x00'))
                 code+=u(len(body))+body
             payload=bytes(code)
         out+=section(tag,payload);p=end

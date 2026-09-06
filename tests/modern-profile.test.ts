@@ -4,7 +4,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 
 const source = readFileSync('experiments/minecraft-26/profile-26.2.js', 'utf8');
-async function launch(profile: string, saved?: string) {
+async function launch(profile: string, saved?: string, hardware = { hardwareConcurrency: 4, deviceMemory: 4, maxTouchPoints: 0 }) {
   const namespace = '_spawnpoint262_test';
   const storage = new Map<string, string>();
   if (saved !== undefined) {
@@ -14,6 +14,7 @@ async function launch(profile: string, saved?: string) {
   const runtime = {
     eaglercraftXOpts: { assetsURI: [{ url: 'assets.epk' }] },
     location: { search: `?launch=qa&account=test&profile=${profile}`, protocol: 'https:', host: 'localhost', href: 'https://localhost/game/' },
+    navigator: hardware,
     devicePixelRatio: 2, innerWidth: 1470, innerHeight: 956,
     WebSocket: class {},
     localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
@@ -43,4 +44,19 @@ describe('modern display frame pacing', () => {
     expect(settings.get('fov')).toBe('0.75');
     expect(settings.get('soundCategory_master')).toBe('0.7');
   });
+});
+
+it('selects view distance from hardware and keeps texture antialiasing enabled', async () => {
+  const low = await launch('auto');
+  const high = await launch('auto', undefined, { hardwareConcurrency: 12, deviceMemory: 8, maxTouchPoints: 0 });
+  expect(low.get('renderDistance')).toBe('4');
+  expect(high.get('renderDistance')).toBe('10');
+  expect(low.get('textureFiltering')).toBe('1');
+  expect(high.get('textureFiltering')).toBe('1');
+});
+it('migrates an unsupported Chinese selection without changing volume or field of view', async () => {
+  const settings = await launch('native', 'lang:zh_cn\nfov:0.75\nsoundCategory_master:0.4\n');
+  expect(settings.get('lang')).toBe('ko_kr');
+  expect(settings.get('fov')).toBe('0.75');
+  expect(settings.get('soundCategory_master')).toBe('0.4');
 });

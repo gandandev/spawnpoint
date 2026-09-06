@@ -149,7 +149,7 @@ export interface LocatorTargetDetails {
 
 export interface LocatorSnapshot {
   clientState?: {
-    x: number; y: number; z: number; mainHand: string; offHand: string;
+    x: number; y: number; z: number; feetY?: number; mainHand: string; offHand: string;
     food?: {
       level: number; saturation: number; exhaustion: number;
       health: number; maxHealth: number; naturalRegeneration: boolean; healthPredictionSafe: boolean;

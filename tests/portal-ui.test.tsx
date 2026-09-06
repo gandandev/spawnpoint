@@ -1001,6 +1001,25 @@ describe("mobile portal controls", () => {
     await act(async () => root.unmount());
   });
 
+  it("keeps the iframe and its instance when hiding and resuming the game", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const game = { username: "mobileqa", launchId: "launch-123" };
+    const render = (visible: boolean) => root.render(<GameScreen game={game} gameUrl="/game/stable.html" visible={visible} onExit={vi.fn()} />);
+    await act(async () => render(true));
+    const frame = container.querySelector("iframe")!;
+    const contentWindow = frame.contentWindow;
+    const message = vi.spyOn(contentWindow!, "postMessage");
+    await act(async () => render(false));
+    expect(container.querySelector("main")?.hidden).toBe(true);
+    expect(container.querySelector("iframe")).toBe(frame);
+    await act(async () => render(true));
+    expect(frame.contentWindow).toBe(contentWindow);
+    expect(message).toHaveBeenLastCalledWith({ type: "spawnpoint:visibility", launchId: "launch-123", visible: true, reconnect: true }, window.location.origin);
+    await act(async () => root.unmount());
+  });
+
   it("returns to the portal only for the active game launch", async () => {
     const container = document.createElement("div");
     document.body.append(container);

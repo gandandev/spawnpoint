@@ -7,7 +7,25 @@
     if (event.target instanceof HTMLCanvasElement) window.focus();
   }, true);
   let enteredWorld = false;
+  window.addEventListener('message', event => {
+    if (event.origin !== location.origin || event.source !== window.parent
+      || event.data?.type !== 'spawnpoint:visibility'
+      || event.data.launchId !== new URLSearchParams(location.search).get('launch')) return;
+    state.portalHidden = !event.data.visible;
+    if (state.portalHidden) document.exitPointerLock?.();
+    else if (event.data.reconnect) state.reconnect?.();
+  });
   window.__spawnpointBind262 = exports => {
+    state.reconnect = () => {
+      const args = Array.from({ length: 6 }, (_, index) => exports['spawnpoint.connectArg' + index]?.value);
+      if (!args[1] || !args[2] || typeof exports['spawnpoint.reconnect'] !== 'function') return;
+      enteredWorld = false;
+      window.__eaglerWorldReady = false;
+      exports['spawnpoint.reconnect'](...args);
+    };
+    if (exports['spawnpoint.experienceRendered'] && window.spawnpointExperienceRendered) {
+      exports['spawnpoint.experienceRendered'].value = window.spawnpointExperienceRendered;
+    }
     if (exports['spawnpoint.foodRendered'] && window.createSpawnpointFoodHud) {
       foodHud = window.createSpawnpointFoodHud(state);
       exports['spawnpoint.foodRendered'].value = foodHud.render;
@@ -21,6 +39,7 @@
       const screen = name || '';
       state.nativeScreens = true;
       state.screen = screen;
+      if (!screen) setTimeout(() => state.restoreAfterEscape?.(), 0);
       if (screen && !/ChatScreen$/.test(screen)) foodHud?.hide();
       if (!screen && window.__eaglerWorldReady) enteredWorld = true;
       if ((enteredWorld || window.__eaglerWorldReady) && /(?:TitleScreen|JoinMultiplayerScreen)$/.test(screen)) {
@@ -74,6 +93,7 @@ void main() {
     const useProgram = proto.useProgram;
     proto.useProgram = function(program) {
       useProgram.call(this, program);
+      state.frameRendered = true;
       let ctx = contexts.get(this);
       if (!ctx) contexts.set(this, ctx = { uniforms: new WeakMap() });
       ctx.program = program;
@@ -104,7 +124,7 @@ void main() {
   document.addEventListener('pointerlockchange', updateScreen);
   setInterval(async () => {
     updateScreen();
-    if (pending || document.hidden || !window.__eaglerWorldReady) return;
+    if (pending || document.hidden || state.portalHidden || !window.__eaglerWorldReady) return;
     pending = true;
     try {
       const response = await fetch('/api/game/locator', { cache: 'no-store' });
@@ -112,6 +132,8 @@ void main() {
       const snapshot = await response.json();
       const player = snapshot.clientState;
       foodHud?.update(snapshot.active ? player?.food : null);
+      state.position = snapshot.active && player && [player.x, player.feetY, player.z].every(Number.isFinite)
+        ? { x: player.x, y: player.feetY, z: player.z, time: performance.now() } : null;
       light[3] = 0;
       if (snapshot.active && player && [player.x,player.y,player.z].every(Number.isFinite)) {
         light[0] = player.x; light[1] = player.y; light[2] = player.z;

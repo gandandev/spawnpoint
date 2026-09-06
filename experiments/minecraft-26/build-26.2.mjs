@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { brotliDecompressSync, brotliCompressSync, constants } from 'node:zlib';
 import { source, work, root, run } from './common.mjs';
 import { buildPortalBridge262 } from './build-portal-bridge.mjs';
+import { brandLoadingScreen } from './loading-screen.mjs';
 import { localizeLauncher } from './localize-client.mjs';
 import { applyGameAssets, assetSourceHash, brotliQuality, launcherArtifacts, releasePath } from './game-assets.mjs';
 
@@ -24,6 +25,8 @@ export async function build262() {
   await fs.copyFile(path.join(root, 'vendor/fonts/galmuri/Galmuri11.woff2'), path.join(work, 'client-26.2/Galmuri11.woff2'));
   await fs.writeFile(path.join(work, 'client-26.2/launch.html'), html);
   await fs.copyFile(path.join(source, "client-26.2.js"), path.join(work, "client-26.2/client-26.2.js"));
+  await fs.copyFile(path.join(source, 'escape-26.2.js'), path.join(work, 'client-26.2/escape-26.2.js'));
+  await fs.copyFile(path.join(source, 'game-hud-26.2.js'), path.join(work, 'client-26.2/game-hud-26.2.js'));
   await fs.copyFile(path.join(source, 'ime-26.2.js'), path.join(work, 'client-26.2/ime-26.2.js'));
   await fs.copyFile(path.join(source, 'food-hud-26.2.js'), path.join(work, 'client-26.2/food-hud-26.2.js'));
   await fs.cp(path.join(root, 'public/game/food-hud'), path.join(work, 'client-26.2/food-hud'), { recursive: true });
@@ -39,6 +42,7 @@ export async function build262() {
     await fs.writeFile(`${meshOutput}.br`, brotliCompressSync(await fs.readFile(meshOutput), { params: { [constants.BROTLI_PARAM_QUALITY]: localAssets ? 4 : brotliQuality } }));
     await run('python3', [path.join(source, 'patch-food-hud.py')]);
     await run('python3', [path.join(source, 'patch-ime.py')]);
+    await run('python3', [path.join(source, 'patch-ui.py')]);
     // Build and publish these bytes once, instead of repeating font rendering and
     // expensive compression on each Railway deployment or a different OS.
     await fs.writeFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm.br'), brotliCompressSync(await fs.readFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm')), { params: { [constants.BROTLI_PARAM_QUALITY]: localAssets ? 4 : brotliQuality } }));
@@ -59,9 +63,9 @@ export function createLauncher262(html) {
     if (html.split(before).length !== 2) throw new Error(`${label} anchor changed`);
     html = html.replace(before, after);
   };
-  html = localizeLauncher(html);
+  html = brandLoadingScreen(localizeLauncher(html));
   html = html.replace('</head>', '<style>@font-face{font-family:Galmuri11;src:url("Galmuri11.woff2") format("woff2");font-display:swap}body,body *{font-family:Galmuri11,sans-serif!important;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}</style></head>');
-  const overlayScripts = '<script src="food-hud-26.2.js"></script><script src="ime-26.2.js"></script>';
+  const overlayScripts = '<script src="escape-26.2.js"></script><script src="game-hud-26.2.js"></script><script src="food-hud-26.2.js"></script><script src="ime-26.2.js"></script>';
   const anchor = '<script type="text/javascript" src="classes.wasm-runtime.js';
   replaceOnce(anchor, `<script>window.spawnpointPreviewCloud=${process.env.PREVIEW_CLOUD === 'true'};</script><script src="/profile-26.2.js"></script><script>if(new URLSearchParams(location.search).has("launch"))document.write('<script src="portal-bridge-26.2.js"><\\/script>');</script><script src="render-state-26.2.js"></script>${overlayScripts}<script src="client-26.2.js"></script>\n` + anchor, '26.2 launcher');
   const mainAnchor = 'const main = tv.exports && tv.exports.main;';

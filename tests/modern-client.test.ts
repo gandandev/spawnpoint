@@ -23,7 +23,7 @@ function fixture() {
     eaglercraftXOpts: { hooks }, parent: { postMessage }, focus: vi.fn(),
     addEventListener: (name: string, listener: (event: unknown) => void) => events.set(name, listener),
     document: { querySelector: () => ({ width: 1200, height: 700 }), addEventListener() {}, hidden: false },
-    innerWidth: 1200, innerHeight: 700, setInterval: vi.fn(), console,
+    innerWidth: 1200, innerHeight: 700, setInterval: vi.fn(), setTimeout: vi.fn(), console,
   };
   const runtime = Object.assign(context, { window: context }) as typeof context & {
     __spawnpointBind262: (exports: Record<string, { value: unknown }>) => void;
@@ -67,4 +67,20 @@ describe('modern client bridge', () => {
     events.get('pointerdown')!({ target: new Canvas() });
     expect(runtime.focus).toHaveBeenCalledOnce();
   });
+});
+
+it('reconnects with retained native arguments only for the owning portal', () => {
+  const { runtime, events } = fixture();
+  const args = [{}, {}, {}, {}, 0, null];
+  const connect = vi.fn();
+  const exports = Object.fromEntries(args.map((value, index) => ['spawnpoint.connectArg' + index, { value }]));
+  Object.assign(exports, { 'spawnpoint.reconnect': connect, 'spawnpoint.screenChanged': { value: null } });
+  runtime.__spawnpointBind262(exports);
+  const resume = { type: 'spawnpoint:visibility', launchId: 'qa', visible: true, reconnect: true };
+  events.get('message')!({ origin: 'http://other', source: runtime.parent, data: resume });
+  events.get('message')!({ origin: 'http://localhost', source: {}, data: resume });
+  expect(connect).not.toHaveBeenCalled();
+  events.get('message')!({ origin: 'http://localhost', source: runtime.parent, data: resume });
+  expect(connect).toHaveBeenCalledWith(...args);
+  expect(runtime.__eaglerWorldReady).toBe(false);
 });

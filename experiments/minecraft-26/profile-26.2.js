@@ -4,10 +4,15 @@
   const managed = params.has('launch');
   const gateway = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/gateway${managed ? '?launch=' + encodeURIComponent(params.get('launch')) : ''}`;
   const requested = new URLSearchParams(location.search).get('profile');
-  const profile = ['native', 'gram', 'tablet'].includes(requested) ? requested : 'gram';
+  const cores = Number(window.navigator?.hardwareConcurrency || 4);
+  const memory = Number(window.navigator?.deviceMemory || 0);
+  const tier = cores <= 4 || (memory > 0 && memory <= 4) ? 'low' : cores >= 8 && (memory === 0 || memory >= 8) ? 'high' : 'balanced';
+  const profile = ['native', 'gram', 'tablet'].includes(requested) ? requested : tier;
+  const budgets = { low: 1000000, balanced: 1800000, high: 3000000, gram: 1024000, tablet: 800000 };
+  const distances = { low: 4, balanced: 7, high: 10, native: 10, gram: 6, tablet: 4 };
   const nativeRatio = devicePixelRatio;
-  const ratio = profile === 'native' ? nativeRatio : Math.min(nativeRatio, 1,
-    Math.sqrt((profile === 'tablet' ? 800000 : 1024000) / Math.max(1, innerWidth * innerHeight)));
+  const ratio = profile === 'native' ? nativeRatio : Math.min(nativeRatio,
+    Math.sqrt(budgets[profile] / Math.max(1, innerWidth * innerHeight)));
   if (ratio !== nativeRatio) Object.defineProperty(window, 'devicePixelRatio', { configurable: true, get: () => ratio });
   opts.localStorageNamespace = '_spawnpoint262' + (managed ? '_' + (params.get('account') || '').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() : '');
   opts.worldsDB = '_spawnpoint262_worlds';
@@ -76,14 +81,25 @@
     }));
     const marker = opts.localStorageNamespace + '.defaults.v2';
     if (!localStorage.getItem(marker)) {
-      Object.entries({ version: '4903', lang: 'ko_kr', tutorialStep: 'none', fov: '0.5', renderDistance: profile === 'tablet' ? '4' : '6',
-        graphicsPreset: '"fast"', renderClouds: '"off"', ao: 'false', entityShadows: 'false',
+      Object.entries({ version: '4903', lang: 'ko_kr', tutorialStep: 'none', fov: '0.5', renderDistance: String(distances[profile]),
+        graphicsPreset: tier === 'high' ? '"fancy"' : '"fast"', renderClouds: '"off"', ao: 'false', entityShadows: 'false',
         biomeBlendRadius: '0', inactivityFpsLimit: '"minimized"', soundCategory_music: '0.0' })
         .forEach(([key, value]) => settings.set(key, value));
     }
-    // Same apparent size as GUI 4 on a DPR-2 MacBook, constrained to fit.
-    const guiScale = Math.max(1, Math.min(Math.round(2 * ratio), Math.floor(innerWidth * ratio / 320), Math.floor(innerHeight * ratio / 240)));
+    const performanceMarker = opts.localStorageNamespace + '.performance.v1';
+    if (!localStorage.getItem(performanceMarker)) {
+      settings.set('renderDistance', String(distances[profile]));
+      settings.set('graphicsPreset', tier === 'high' ? '"fancy"' : '"fast"');
+      settings.set('renderClouds', tier === 'high' ? '"fast"' : '"off"');
+      settings.set('entityShadows', tier === 'high' ? 'true' : 'false');
+    }
+    // Keep menus within 320 x 180 logical pixels, with larger touch targets.
+    const mobile = Number(window.navigator?.maxTouchPoints || 0) > 0;
+    const desiredScale = ratio * (mobile ? 3 : 2.5);
+    const guiScale = Math.max(1, Math.min(Math.round(desiredScale), Math.floor(innerWidth * ratio / 320), Math.floor(innerHeight * ratio / 180)));
     settings.set('guiScale', String(guiScale));
+    settings.set('textureFiltering', '1');
+    if (/^zh_/.test(settings.get('lang') || '')) settings.set('lang', 'ko_kr');
     // 260 is Minecraft 26.2's unlimited sentinel, not a 260 FPS cap.
     // Let browser VSync pace frames, including when the window moves to a faster display.
     settings.set('enableVsync', 'true');
@@ -98,6 +114,7 @@
     const compressed = new Uint8Array(await new Response(new Blob([encoded]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
     localStorage.setItem(key, btoa(String.fromCharCode(...compressed)));
     localStorage.setItem(marker, '1');
+    localStorage.setItem(performanceMarker, '1');
     window.__spawnpoint262.guiScale = guiScale;
   })().catch(error => console.warn('Spawnpoint 26.2 settings could not be saved', error));
 })();

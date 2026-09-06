@@ -51,6 +51,7 @@ _, old_entries = parse(lzma.decompress(epw[offset:offset+length]))
 old = {name:value for kind,name,value in old_entries if kind == b'FILE'}
 assets['assets/minecraft/lang/ko_kr.json'] = (WORK/'ko_kr.json').read_bytes()
 metadata = json.loads(assets['pack.mcmeta'])
+metadata['language'] = {key: value for key, value in metadata.get('language', {}).items() if not key.startswith('zh_')}
 metadata.setdefault('language', {})['ko_kr'] = {'name':'한국어','region':'대한민국','bidirectional':False}
 assets['pack.mcmeta'] = json.dumps(metadata,ensure_ascii=False).encode()
 eagler_english = json.loads(assets['assets/eagler/lang/en_us.json'])
@@ -91,6 +92,7 @@ def font_providers(font_path, stem):
     for page in sorted({code >> 8 for code in cmap if 32 < code <= 65535 and not 0xd800 <= code <= 0xdfff}):
         image = Image.new('RGBA',(256,256),(255,255,255,0))
         draw = ImageDraw.Draw(image)
+        draw.fontmode = "1"  # Pixel glyphs need solid strokes, not half-transparent edges.
         rows = [['\0']*16 for _ in range(16)]
         for slot in range(256):
             code = page*256+slot
