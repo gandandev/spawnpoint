@@ -9,6 +9,7 @@ RUN npm ci --no-audit
 COPY tsconfig*.json vite.config.* index.html ./
 COPY src ./src
 COPY public ./public
+COPY vendor ./vendor
 COPY scripts ./scripts
 COPY server-plugin ./server-plugin
 COPY server ./server
