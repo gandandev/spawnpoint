@@ -22,6 +22,7 @@ export default defineRailway(() => {
         "/scripts/generate-site-metadata.mjs",
         "/scripts/compress-client-assets.mjs",
         "/scripts/build-number.mjs",
+        "/scripts/release-note.mjs",
         "/index.html",
         "/vite.config.ts",
         "/tsconfig.json",

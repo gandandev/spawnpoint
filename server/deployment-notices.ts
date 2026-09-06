@@ -102,7 +102,13 @@ export class FrontendReleaseMonitor {
         this.lastVersion = version;
         return;
       }
-      await broadcast(this.target, FRONTEND_UPDATE_MESSAGE);
+      const note = body as { title?: unknown; description?: unknown };
+      const validLine = (value: unknown): value is string => typeof value === "string"
+        && value.trim().length > 0 && value.length <= 200 && !/[\r\n\x00-\x1f]/.test(value);
+      const message = validLine(note.title) && validLine(note.description)
+        ? `${note.title}\n${note.description}`
+        : FRONTEND_UPDATE_MESSAGE;
+      await broadcast(this.target, message);
       this.lastVersion = version;
     } catch (error) {
       if (!this.warned) {

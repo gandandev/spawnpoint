@@ -19,7 +19,9 @@
 	handle @frontendVersion {
 		header Content-Type application/json
 		header Cache-Control "no-store"
-		respond "{\"version\":\"{$RAILWAY_DEPLOYMENT_ID:local}\"}" 200
+		root * /srv
+		rewrite * /frontend-version.json
+		file_server
 	}
 
 	@backend path /api /api/* /gateway /gateway/* /healthz /game/* /profile-26.2.js

@@ -1,7 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { resolveBuildNumber } from "./build-number.mjs";
+import { validateReleaseNote } from "./release-note.mjs";
+
+const release = JSON.parse(await fs.readFile("src/release-note.json", "utf8"));
+validateReleaseNote(release, process.env.RAILWAY_GIT_COMMIT_SHA ? `v${resolveBuildNumber()}` : undefined);
+
 const clientDir = path.join(process.cwd(), "dist", "client");
+await fs.writeFile(path.join(clientDir, "frontend-version.json"), JSON.stringify(release));
 const source = await fs.readFile(path.join(clientDir, "index.html"), "utf8");
 
 const sites = [

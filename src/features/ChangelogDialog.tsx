@@ -125,9 +125,9 @@ export function ChangelogDialog() {
             <time dateTime={entry.dateTime} className="font-medium text-muted-foreground">{entry.label}</time>
             {index === 0 ? <span className="rounded-full bg-[#96ce4d]/15 px-2 py-0.5 text-[11px] font-medium text-[#65952c]">최신</span> : null}
           </div>
-          <div className="flex flex-col gap-1 text-sm leading-relaxed">
-            {entry.updates.map((update) => <p key={update}>{update}</p>)}
-          </div>
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-sm leading-relaxed">
+            {entry.updates.map((update) => <li key={update}>{update}</li>)}
+          </ul>
         </article>)}
       </section>
     </DialogContent>

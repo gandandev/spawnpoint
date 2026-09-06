@@ -49,6 +49,9 @@ the repository never ships `eula.txt` and never accepts it for you. first startu
 
 ## railway deployment
 
+배포할 때마다 `src/release-note.json`의 `version`, `title`, `description`을 작성한다. `version`은 배포할 커밋의 누적 커밋 수에 `v`를 붙인다. 커밋 하나를 추가한다면 현재 `git rev-list --count HEAD` 값에 1을 더한다. 제목과 설명은 각각 한 줄로 작성한다. 예: `게임 화면 업데이트가 있어요` / `음식을 먹으면 얼마나 회복되는지 미리 볼 수 있어요.` 운영 프론트엔드 빌드는 빈 문구와 버전 불일치를 거부한다. 서버만 바꿀 때도 이 파일을 함께 갱신해 프론트엔드 안내를 배포한다. 같은 커밋을 재배포하면 같은 안내를 반복하지 않는다. 실행 중인 게임 세션은 새 버전을 감지하면 채팅에 두 줄로 표시한다.
+
+
 production uses two Railway services from this repository. the frontend owns every public domain. it serves static files and proxies authenticated traffic over Railway's private network, so cookies, CSRF checks, server-sent events, and the WebSocket gateway stay on one browser origin.
 
 ### game assets on Cloudflare Pages

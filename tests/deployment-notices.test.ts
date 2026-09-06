@@ -55,6 +55,21 @@ describe("deployment notices", () => {
     expect(FRONTEND_UPDATE_MESSAGE).toBe("새 업데이트가 있어요.  새로고침해서 적용하세요");
   });
 
+  it("shows the release title and description on separate chat lines", async () => {
+    const server = target();
+    const fetchVersion = vi.fn()
+      .mockResolvedValueOnce(versionResponse("v141"))
+      .mockResolvedValue(new Response(JSON.stringify({
+        version: "v142", title: "게임 화면 업데이트가 있어요", description: "음식 회복량을 미리 볼 수 있어요.",
+      })));
+    const monitor = new FrontendReleaseMonitor(server, "https://example.test/frontend-version", 10_000, fetchVersion);
+    await monitor.checkNow();
+    await monitor.checkNow();
+    expect(server.sendCommand).toHaveBeenCalledWith(`tellraw @a ${JSON.stringify({
+      text: "게임 화면 업데이트가 있어요\n음식 회복량을 미리 볼 수 있어요.",
+    })}`);
+  });
+
   it("does not announce a frontend deployment when nobody is playing", async () => {
     const server = target(status("online", []));
     const versions = ["frontend-a", "frontend-b"];
@@ -125,7 +140,7 @@ describe("deployment notices", () => {
     ]);
 
     expect(caddyfile).toContain("@frontendVersion path /frontend-version");
-    expect(caddyfile).toContain("{$RAILWAY_DEPLOYMENT_ID:local}");
+    expect(caddyfile).toContain("rewrite * /frontend-version.json");
     expect(caddyfile).toContain('header Cache-Control "no-store"');
     expect(railwayConfig).toContain("deploy: { drainingSeconds: 60 }");
     expect(railwayConfig).toContain("SPAWNPOINT_FRONTEND_VERSION_URL");
