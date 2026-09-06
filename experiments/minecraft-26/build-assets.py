@@ -60,28 +60,33 @@ for language in ('en_us', 'ko_kr'):
     translations['menu.returnToMenu'] = translations['menu.disconnect']
     assets[key] = json.dumps(translations, ensure_ascii=False).encode()
 # Build every supported glyph from Galmuri11, including Latin and digits.
-font_path = ROOT/'vendor/fonts/galmuri/Galmuri11.ttf'
-font = ImageFont.truetype(str(font_path), 12, layout_engine=ImageFont.Layout.BASIC)
-cmap = TTFont(font_path).getBestCmap()
-providers = [{'type':'space','advances':{' ':4,'\u00a0':4}}]
-for page in sorted({code >> 8 for code in cmap if 32 < code <= 65535 and not 0xd800 <= code <= 0xdfff}):
-    image = Image.new('RGBA',(256,256),(255,255,255,0))
-    draw = ImageDraw.Draw(image)
-    rows = [['\0']*16 for _ in range(16)]
-    for slot in range(256):
-        code = page*256+slot
-        if code not in cmap or code <= 32 or code == 160 or 0xd800 <= code <= 0xdfff: continue
-        character = chr(code)
-        left,_,right,_ = font.getbbox(character)
-        if right-left > 16: continue
-        x,y = slot%16*16,slot//16*16
-        draw.text((x-left,y+1),character,font=font,fill=(255,255,255,255))
-        if image.crop((x,y,x+16,y+16)).getchannel('A').getbbox(): rows[slot//16][slot%16]=character
-    if not any(c != '\0' for row in rows for c in row): continue
-    key=f'assets/minecraft/textures/font/galmuri11_{page:02x}.png'
-    output=io.BytesIO();image.save(output,format='PNG',optimize=True)
-    assets[key]=output.getvalue()
-    providers.append({'type':'bitmap','file':f'minecraft:font/galmuri11_{page:02x}.png','height':8,'ascent':7,'chars':[''.join(row) for row in rows]})
+def font_providers(font_path, stem):
+    font = ImageFont.truetype(str(font_path), 12, layout_engine=ImageFont.Layout.BASIC)
+    cmap = TTFont(font_path).getBestCmap()
+    providers = [{'type':'space','advances':{' ':4,'\u00a0':4}}]
+    for page in sorted({code >> 8 for code in cmap if 32 < code <= 65535 and not 0xd800 <= code <= 0xdfff}):
+        image = Image.new('RGBA',(256,256),(255,255,255,0))
+        draw = ImageDraw.Draw(image)
+        rows = [['\0']*16 for _ in range(16)]
+        for slot in range(256):
+            code = page*256+slot
+            if code not in cmap or code <= 32 or code == 160 or 0xd800 <= code <= 0xdfff: continue
+            character = chr(code)
+            left,_,right,_ = font.getbbox(character)
+            if right-left > 16: continue
+            x,y = slot%16*16,slot//16*16
+            draw.text((x-left,y+1),character,font=font,fill=(255,255,255,255))
+            if image.crop((x,y,x+16,y+16)).getchannel('A').getbbox(): rows[slot//16][slot%16]=character
+        if not any(c != '\0' for row in rows for c in row): continue
+        key=f'assets/minecraft/textures/font/{stem}_{page:02x}.png'
+        output=io.BytesIO();image.save(output,format='PNG',optimize=True)
+        assets[key]=output.getvalue()
+        providers.append({'type':'bitmap','file':f'minecraft:font/{stem}_{page:02x}.png','height':8,'ascent':7,'chars':[''.join(row) for row in rows]})
+    return providers
+
+providers = font_providers(ROOT/'vendor/fonts/galmuri/Galmuri11.ttf', 'galmuri11')
+bold_providers = font_providers(ROOT/'vendor/fonts/galmuri/Galmuri11-Bold.ttf', 'galmuri11_bold')
+assets['assets/minecraft/font/galmuri11_bold.json'] = json.dumps({'providers': bold_providers + [{'type':'reference','id':'minecraft:default'}]}, ensure_ascii=True).encode()
 for name in ('default','uniform','alt'):
     assets[f'assets/minecraft/font/{name}.json']=json.dumps({'providers':providers},ensure_ascii=True).encode()
 for key,value in old.items():

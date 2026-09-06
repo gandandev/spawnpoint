@@ -2280,9 +2280,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         var head = net.kyori.adventure.text.Component.text("\ue000")
             .font(net.kyori.adventure.key.Key.key("minecraft", "spawnpoint/head_" + event.getPlayer().getUniqueId()));
         String label = playerLabel(event.getPlayer());
+        var name = net.kyori.adventure.text.Component.text(label)
+            .font(net.kyori.adventure.key.Key.key("minecraft", "galmuri11_bold"));
         event.renderer(io.papermc.paper.chat.ChatRenderer.viewerUnaware((source, displayName, message) ->
             net.kyori.adventure.text.Component.empty().append(head)
-                .append(net.kyori.adventure.text.Component.text(" <" + label + "> ")).append(message)));
+                .append(net.kyori.adventure.text.Component.space()).append(name)
+                .append(net.kyori.adventure.text.Component.space()).append(message)));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
