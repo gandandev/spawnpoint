@@ -5,21 +5,13 @@ for 26.2` instance. We read them without changing Prism settings, mods or worlds
 The Minecraft JAR is unobfuscated bytecode, not the original authored Java source.
 Vineflower recovers readable Java for inspection and porting.
 
-## Recreate local sources
+## Historical source inspection
 
-From the Spawnpoint checkout, with Java 25 available:
-
-```sh
-python3 experiments/minecraft-26/prepare-source.py \
-  --mod sodium --mod entityculling --mod immediatelyfast \
-  --mod betterblockentities --mod ferritecore --mod lithium --mod moreculling
-```
-
-Use `--prism-home` and `--instance` for another installation. Use `--all` to
-recover the whole game instead of just rendering classes. Outputs stay under
-ignored `work/minecraft-26/source-work/`, including the input hash manifest and
-compiler logs. The script does not read account credentials. It pins Vineflower
-1.12.0 with the release asset SHA-256.
+The unused source extraction tool and candidate patch were removed on 2026-09-06.
+This document preserves the findings, not a supported build procedure. The current
+client still uses the hash-pinned upstream WASM through `build-26.2.mjs`.
+The original experiment is available in Git history. Local source inputs and logs
+under ignored `work/minecraft-26/source-work/` are not used by production builds.
 
 Verified local inputs:
 
@@ -49,13 +41,9 @@ https://github.com/diddy62626/eaglercraft-26.1.2 at commit
 platform files. This is a separate source port, not confirmed source for the
 currently deployed 26.2 WASM artifact.
 
-The local checkout is `work/minecraft-26/source-work/eagler-26.1.2`.
-`browser-source-26.2.patch` records our changes against that exact commit:
-Apply it with `git apply --unidiff-zero` in a clean checkout of that commit.
-The patch covers 26.2/protocol 776, the new GameData constructor and OpenGL selection, portable
-JDK lookup, and Wasm-GC class-library override wiring. Prism libraries are linked
-under its ignored `sources/libs/`, with the 26.2 client linked as
-`minecraft-26.2.jar`.
+The experiment adapted the candidate to 26.2/protocol 776, the new GameData
+constructor and OpenGL selection, portable JDK lookup, and Wasm-GC class-library
+overrides. It linked the Prism libraries and the 26.2 client for compilation.
 
 Both the original 26.1.2 and adapted 26.2 `:sources:compileTeavmJava` tasks passed.
 Deeper inspection found that this candidate is not a working renderer: its
@@ -73,19 +61,7 @@ and StackWalker classes, but further platform implementations are still needed.
 Do not use the upstream MissingMethodTransformer as proof of compatibility: it
 adds null/constant-return placeholders for several methods. Those must have real
 browser behavior before a game runtime can be called correct.
-Use the wrapper main directly because the upstream shell wrapper mishandles
-arguments containing spaces:
-
-```sh
-java -cp gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain \
-  :sources:compileTeavmJava --no-daemon --console=plain -Dorg.gradle.jvmargs=-Xmx3g
-java -cp gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain \
-  :sources:generateWasmGC --no-daemon --console=plain -Dorg.gradle.jvmargs=-Xmx3g
-```
-
-Run those commands inside the candidate checkout. The Wasm task uses local
-class overrides; it does not invoke upstream tasks that rewrite global Gradle
-cache JARs. The alternative Pixl-Studios candidate at
+The alternative Pixl-Studios candidate at
 `b7c696aaab3340e76769b236536fa2ff8a676c4d` explicitly leaves browser chunk rendering
 and desktop launch verification unchecked, so it is not a verified replacement.
 

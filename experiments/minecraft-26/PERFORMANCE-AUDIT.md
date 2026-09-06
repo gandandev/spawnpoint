@@ -27,7 +27,7 @@ Primary implementation references: [Sodium](https://github.com/CaffeineMC/sodium
 
 The surface LOD experiment was removed after visible coarse geometry appeared too close to the player. Its worker, client fetch loop, API and server sampling were removed together. Server view distance was not increased. The following describes the rejected experiment, not the current renderer.
 
-Voxy and Distant Horizons simplify distant geometry, not merely textures. Voxy's [capability checks](https://github.com/MCRcortex/voxy/blob/dev/src/main/java/me/cortex/voxy/client/core/gl/Capabilities.java) use desktop OpenGL compute/SSBO/indirect APIs unavailable in this WebGL2 renderer. [Distant Horizons](https://gitlab.com/distant-horizons-team/distant-horizons) also needs its terrain storage, generation, and rendering pipeline. Neither runs as a drop-in browser mod. The browser now has a bounded surface LOD implementation: loaded chunks are sampled at four-block intervals, meshed in a separate Worker, and retained in IndexedDB. It uses the native camera uniform blocks and depth buffer. It stores at most 256 tiles on tablets and 512 on other profiles. It does not generate chunks or model caves and overhangs, and it is not a Voxy/DH binary port. Mipmaps are the existing mechanism for lower-resolution distant textures; they must not be reported as a Voxy/DH port.
+Voxy and Distant Horizons simplify distant geometry, not merely textures. Voxy's [capability checks](https://github.com/MCRcortex/voxy/blob/dev/src/main/java/me/cortex/voxy/client/core/gl/Capabilities.java) use desktop OpenGL compute/SSBO/indirect APIs unavailable in this WebGL2 renderer. [Distant Horizons](https://gitlab.com/distant-horizons-team/distant-horizons) also needs its terrain storage, generation, and rendering pipeline. Neither runs as a drop-in browser mod. The removed browser experiment had a bounded surface LOD implementation: loaded chunks are sampled at four-block intervals, meshed in a separate Worker, and retained in IndexedDB. It uses the native camera uniform blocks and depth buffer. It stores at most 256 tiles on tablets and 512 on other profiles. It does not generate chunks or model caves and overhangs, and it is not a Voxy/DH binary port. Mipmaps are the existing mechanism for lower-resolution distant textures; they must not be reported as a Voxy/DH port.
 
 ## Binary safety and evidence
 
@@ -51,7 +51,7 @@ browser driver call. It caches texture bindings per unit, element buffers per VA
 uniform buffer bindings (including the generic-binding side effect), integer sampler
 uniforms, and blend/depth/raster state. It preserves draw order and all geometry.
 Deletion, program relinking, context restoration and diagnostic toggles invalidate
-cached state. The module must load before the dynamic-light and LOD wrappers so their
+cached state. The module must load before the dynamic-light wrappers so their
 saved method references also pass through the cache.
 
 Four alternating off/on/off/on windows of 240 RAF intervals on this Mac with local
@@ -73,8 +73,8 @@ uniform resets, deletion, context restoration and A/B toggles. A diagnostic togg
 ### Source acquisition update
 
 Prism supplied the actual Java 26.2 JAR and FO 26.2 mod binaries. Readable Java
-has been recovered locally; `prepare-source.py` reproduces the extraction and
-hash inventory. A separate 26.1.2 browser platform candidate now compiles its
+has been recovered locally; the now-removed extraction tool recorded the input
+hashes. The findings remain in SOURCE-BUILD.md. A separate 26.1.2 browser platform candidate now compiles its
 Java adapter against 26.2 after a constructor update. The exact source of the
 pinned production WASM is still unverified, but source acquisition no longer
 requires user input. See SOURCE-BUILD.md for build evidence and remaining

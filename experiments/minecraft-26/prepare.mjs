@@ -3,10 +3,9 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { source, work, java, flags, run } from './common.mjs';
+import { source, work, java, flags, run, compileTools } from './common.mjs';
 import { buildClient } from './build-client.mjs';
 import { build262 } from './build-26.2.mjs';
-import { compileTools } from './common.mjs';
 
 const artifacts = { ...JSON.parse(await fs.readFile(path.join(source, 'artifacts.json'), 'utf8')),
   ...Object.fromEntries(Object.entries(JSON.parse(await fs.readFile(path.join(source, 'artifacts-26.2.json'), 'utf8'))).map(([key, value]) => [`262-${key}`, value])) };
