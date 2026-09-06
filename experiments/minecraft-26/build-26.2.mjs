@@ -16,7 +16,7 @@ export async function build262() {
   }
   let html = await fs.readFile(path.join(work, 'client-26.2/index.html'), 'utf8');
   html = localizeLauncher(html);
-  html = html.replace('</head>', '<style>@font-face{font-family:Galmuri11;src:url("Galmuri11.woff2") format("woff2");font-display:swap}body,body *{font-family:Galmuri11,sans-serif!important}</style></head>');
+  html = html.replace('</head>', '<style>@font-face{font-family:Galmuri11;src:url("Galmuri11.woff2") format("woff2");font-display:swap}body,body *{font-family:Galmuri11,sans-serif!important;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}</style></head>');
   await fs.copyFile(path.join(root, 'vendor/fonts/galmuri/Galmuri11.woff2'), path.join(work, 'client-26.2/Galmuri11.woff2'));
   const anchor = '<script type="text/javascript" src="classes.wasm-runtime.js';
   if (html.split(anchor).length !== 2) throw new Error('26.2 launcher anchor changed');
