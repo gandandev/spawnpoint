@@ -76,7 +76,7 @@
     }));
     const marker = opts.localStorageNamespace + '.defaults.v2';
     if (!localStorage.getItem(marker)) {
-      Object.entries({ version: '4903', lang: 'ko_kr', tutorialStep: 'none', fov: '0.5', maxFps: '120', renderDistance: profile === 'tablet' ? '4' : '6',
+      Object.entries({ version: '4903', lang: 'ko_kr', tutorialStep: 'none', fov: '0.5', renderDistance: profile === 'tablet' ? '4' : '6',
         graphicsPreset: '"fast"', renderClouds: '"off"', ao: 'false', entityShadows: 'false',
         biomeBlendRadius: '0', inactivityFpsLimit: '"minimized"', soundCategory_music: '0.0' })
         .forEach(([key, value]) => settings.set(key, value));
@@ -84,6 +84,10 @@
     // Same apparent size as GUI 4 on a DPR-2 MacBook, constrained to fit.
     const guiScale = Math.max(1, Math.min(Math.round(2 * ratio), Math.floor(innerWidth * ratio / 320), Math.floor(innerHeight * ratio / 240)));
     settings.set('guiScale', String(guiScale));
+    // 260 is Minecraft 26.2's unlimited sentinel, not a 260 FPS cap.
+    // Let browser VSync pace frames, including when the window moves to a faster display.
+    settings.set('enableVsync', 'true');
+    settings.set('maxFps', '260');
     settings.set('resourcePacks', '[]');
     settings.set('incompatibleResourcePacks', '[]');
     settings.set('skipMultiplayerWarning', 'true');
