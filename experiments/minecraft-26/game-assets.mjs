@@ -18,6 +18,7 @@ export async function assetSourceHash() {
   for (const file of [
     'experiments/minecraft-26/artifacts-26.2.json',
     'experiments/minecraft-26/patch-client.py', 'experiments/minecraft-26/build-assets.py',
+    'experiments/minecraft-26/native-math.py', 'experiments/minecraft-26/native-math.json',
     'experiments/minecraft-26/eagler-ko_kr.json', 'experiments/minecraft-26/minecraft-ko_kr-overrides.json',
     'vendor/fonts/galmuri/Galmuri11.ttf', 'vendor/fonts/galmuri/Galmuri11-Bold.ttf',
     'vendor/clients/stable-galmuri.epw',
@@ -32,7 +33,10 @@ export async function packageGameAssets(output = path.join(root, 'dist/game-asse
   const assets = {};
   let headers = '/*\n  Access-Control-Allow-Origin: *\n  Cross-Origin-Resource-Policy: cross-origin\n  Timing-Allow-Origin: *\n  Cache-Control: public, max-age=31536000, immutable, no-transform\n  X-Content-Type-Options: nosniff\n';
   for (const file of files) {
-    const bytes = await fs.readFile(path.join(work, 'client-26.2', file));
+    // Retain the upstream worker as a hash-checked input. The logical loader key
+    // stays stable, but both local and published builds use the patched worker.
+    const input = file === 'mesh-worker.wasm.br' ? 'mesh-worker-spawnpoint.wasm.br' : file;
+    const bytes = await fs.readFile(path.join(work, 'client-26.2', input));
     if (bytes.length > 25 * 1024 * 1024) throw new Error(`Pages asset exceeds 25 MiB: ${file}`);
     const hash = createHash('sha256').update(bytes).digest('hex');
     const wasm = file.endsWith('.wasm.br');

@@ -23,6 +23,109 @@ Older entries: Better Beds/FastChest/Enhanced Block Entities overlap the block-e
 
 Primary implementation references: [Sodium](https://github.com/CaffeineMC/sodium), [ImmediatelyFast](https://github.com/RaphiMC/ImmediatelyFast), [EntityCulling](https://github.com/tr7zw/EntityCulling), [FerriteCore](https://github.com/malte0811/FerriteCore), [Lithium](https://github.com/CaffeineMC/lithium), [Dynamic FPS](https://github.com/juliand665/Dynamic-FPS), [LanguageReload](https://github.com/Jerozgen/LanguageReload), [FastQuit](https://github.com/contariaa/FastQuit), [RRLS](https://github.com/dima-dencep/rrls).
 
+## Native Wasm arithmetic, 2026-09-06
+
+The current change applies the narrower principle of eliminating repeated CPU
+and host-call overhead. It does **not** install or reproduce all FO mods.
+`patch-client.py` now applies `native-math.py` before the existing screen patches.
+The asset build also patches the mesh worker, without overwriting either pinned
+upstream input. The normal CDN loader keeps its logical `mesh-worker.wasm.br` key
+but packages the optimized worker. Local launchers request the optimized worker
+explicitly. The food HUD remains a separate local-only hook.
+
+| Module | Math.floor calls | Math.ceil calls | Math.sqrt calls | Total static sites |
+| --- | ---: | ---: | ---: | ---: |
+| Main client | 1,816 | 615 | 309 | 2,740 |
+| Mesh worker | 47 | 52 | 5 | 104 |
+
+Each decoded `call` to the actual `(f64) -> f64` `teavmMath` import becomes its
+native `f64.floor`, `f64.ceil`, or `f64.sqrt` instruction followed by `nop`.
+The TeaVM runtime supplies JavaScript `Math` for these imports. This eliminates
+those calls without approximating arithmetic or changing draw order, geometry,
+animation, view distance, or server simulation. Static call-site counts are not
+the number of calls executed each frame.
+
+`native-math.json` pins input and output SHA-256 values and instruction offsets.
+The patch fails on a different input or a second application. Function indices,
+body sizes, and metadata remain unchanged by the math pass. To audit the manifest,
+`python3 tools/verify-wasm-native-math.py` independently decodes the pinned inputs
+with `wasm-tools dump`, checks every targeted import and call, verifies that all
+other bytes remain identical, and validates/compiles both results with wasm-tools
+and V8. Do not regenerate offsets with raw byte searches: call-like bytes can
+occur inside constants and data.
+
+`python3 tools/verify-wasm-math.py` tests the actual opcode definitions against
+JavaScript Math imports. It compares 150,111 results, including signed zero,
+infinities, subnormals, adjacent large integers, NaNs, and 50,000 seeded random
+64-bit patterns. Non-NaNs must match with `Object.is`; NaN payload bits are not a
+contract of this check. Its warmed, alternating synthetic arithmetic benchmark
+is a kernel benchmark, not an FPS or world-generation benchmark.
+
+The other FO changes remain scoped as follows:
+
+- Sodium, ImmediatelyFast batching, BBE, Entity Culling and MoreCulling require
+  renderer/mesh/visibility lifecycle changes. A matching, working source build
+  has not been established; deleting render calls in the binary is not a port.
+- Lithium's server simulation changes would have to run on the server, while
+  FerriteCore's object sharing needs confirmed object layouts and ownership.
+  Neither is supplied by this arithmetic patch.
+- Dynamic FPS already has a minimized-window limiter; mouse movement already
+  accumulates deltas. Ixeris's Windows raw-input JNI path does not apply here.
+- FastQuit addresses an integrated server, which managed multiplayer does not
+  run. Language Reload and RRLS do not improve active-play FPS. Partial language
+  reload needs complete cache invalidation before it can safely be adopted.
+- Sodium Extra trades optional visual work for speed. This change preserves the
+  existing visual settings rather than disabling more rendering features.
+
+For an estimate, use the measured fraction of CPU time spent in these operations,
+not the number of static patch sites. If that fraction is `p` and the isolated
+kernel speedup is `s`, the ideal CPU-bound speedup is `1 / (1 - p + p / s)`.
+For `s = 3`, assumed fractions of 1%, 5%, and 10% give roughly 0.7%, 3.4%, and
+7.1% improvements. These are conditional scenarios, not measured workload
+fractions. GPU-limited or display-limited gameplay may show no FPS increase.
+
+The local arithmetic run measured median 27.780 ms for host imports and 8.676 ms
+for native instructions, a 3.20x kernel speedup. All 150,111 comparisons passed.
+The browser joined the local Paper world and rendered with the patched main
+module and mesh worker; inventory open/close also passed after reconnect.
+Thirty-second stationary windows recorded 60.00 FPS
+before, 58.24 FPS after, and 56.16 FPS after returning to the original arithmetic.
+These windows are not a controlled performance comparison: concurrent local
+work changed the food-HUD runtime between reloads, and machine load varied.
+They establish a working browser launch, not a gain or regression. No total FPS
+improvement is claimed. The conditional 0.7–7.1% CPU-bound scenarios above remain
+estimates; the renderer allocation saving has not been timed separately.
+
+The asset release `r-fbb940ad1bb52555` contains the patched main and mesh modules.
+All six CDN objects passed decoded SHA-256, MIME and CORS checks. The published
+main digest also matches the complete production patch output, and the mesh
+digest matches the native-math manifest. The default CDN build, 357 application
+tests, type checks, plugin build and application build passed. This prepared a
+separate immutable asset release; the operating Railway portal was not deployed.
+
+### Reuse render-layer values inside the section loop
+
+The same change also applies Lithium's enum-array reuse principle to the pinned
+terrain renderer. Function 37669 (`LevelRenderer.prepareChunkRenders`) first
+initializes the three render layers, then calls function 37995
+(`ChunkSectionLayer.values()`) inside the visible-section loop. That method
+creates a fresh array wrapper and copies the three enum references each time.
+The loop only reads those references.
+
+At body offset `0x1420`, `call 37995` is replaced by `global.get 14531; nop`.
+The caller's whole-body SHA-256 is checked before applying the four-byte change.
+The earlier initialization, null checks, layer order, and all subsequent draw
+logic remain intact. `values()` itself still returns a fresh array everywhere
+else. This removes one short array copy/allocation per section visited in this
+loop, not per world chunk or server tick. For example, 200 visited sections at
+60 frames/second would avoid 12,000 copies/second; that is a workload example,
+not the measured section count of the browser check.
+
+`python3 tools/verify-wasm-enum-cache.py` checks the actual production patch,
+rejects stale/duplicate bodies, validates/compiles the module, and checks the
+read-only sharing rule with Wasm GC types. This small allocation change does not
+implement Lithium's simulation optimizations or Sodium's terrain renderer.
+
 ## Distant terrain (removed 2026-09-06)
 
 The surface LOD experiment was removed after visible coarse geometry appeared too close to the player. Its worker, client fetch loop, API and server sampling were removed together. Server view distance was not increased. The following describes the rejected experiment, not the current renderer.

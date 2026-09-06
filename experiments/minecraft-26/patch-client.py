@@ -1,8 +1,31 @@
 """Hash-guarded adaptations of the pinned 26.2 TeaVM client."""
 from pathlib import Path
 import hashlib
+import importlib.util
 ROOT=Path(__file__).resolve().parents[2]
 SOURCE=ROOT/'work/minecraft-26/client-26.2/classes.wasm'
+_spec = importlib.util.spec_from_file_location('native_math', Path(__file__).with_name('native-math.py'))
+_math = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_math)
+
+# Only prepareChunkRenders' read-only inner loop shares the backing enum array.
+# Its earlier layer loop already initializes the class. Keep values() itself
+# unchanged so its fresh-array contract remains intact for any other caller.
+SECTION_LAYER_CACHE_FUNCTION = 37669
+SECTION_LAYER_CACHE_BODY_SHA256 = 'd425aa32f9201d4d6f47469e8da996098dcdc78b8e308c01bfd7a6b7df575935'
+SECTION_LAYER_CACHE_OFFSET = 0x1420
+SECTION_LAYER_CACHE_BEFORE = bytes.fromhex('10 eb a8 02')  # call 37995
+SECTION_LAYER_CACHE_AFTER = bytes.fromhex('23 c3 71 01')  # global.get 14531; nop
+
+
+def patch_section_layer_cache(body):
+    if hashlib.sha256(body).hexdigest() != SECTION_LAYER_CACHE_BODY_SHA256:
+        raise ValueError('Section layer cache: renderer body changed')
+    start = SECTION_LAYER_CACHE_OFFSET
+    end = start + len(SECTION_LAYER_CACHE_BEFORE)
+    if body[start:end] != SECTION_LAYER_CACHE_BEFORE:
+        raise ValueError('Section layer cache: values call changed')
+    return body[:start] + SECTION_LAYER_CACHE_AFTER + body[end:]
 
 def uleb(data,p):
     value=shift=0
@@ -27,6 +50,7 @@ def s(value):
 def section(tag,payload):return bytes([tag])+u(len(payload))+payload
 
 def patch(data):
+    data = _math.patch(data, 'client')
     # All indices below belong only to the artifact verified by build-26.2.mjs.
     callback=176951
     get=lambda n:b'\x23'+u(n)
@@ -50,6 +74,8 @@ def patch(data):
             count,q=uleb(payload,0);code=bytearray(u(count))
             for index in range(count):
                 length,q=uleb(payload,q);body=payload[q:q+length];q+=length
+                if index+98==SECTION_LAYER_CACHE_FUNCTION:
+                    body=patch_section_layer_cache(body)
                 if index+98==242:
                     digest=hashlib.sha256(body).hexdigest()
                     if digest!=SCREEN_BODY_SHA256:raise ValueError('Screen function changed: '+digest)

@@ -148,9 +148,24 @@ export interface LocatorTargetDetails {
 }
 
 export interface LocatorSnapshot {
-  clientState?: { x: number; y: number; z: number; mainHand: string; offHand: string };
+  clientState?: {
+    x: number; y: number; z: number; mainHand: string; offHand: string;
+    food?: {
+      level: number; saturation: number; exhaustion: number;
+      health: number; maxHealth: number; naturalRegeneration: boolean; healthPredictionSafe: boolean;
+      mainHand: HeldFood | null; offHand: HeldFood | null;
+    };
+  };
   active: boolean;
   targets: LocatorTargetDetails[];
+}
+
+export interface HeldFood {
+  nutrition: number;
+  saturation: number;
+  canAlwaysEat: boolean;
+  regeneration: number;
+  predictable: boolean;
 }
 
 export type ServerPhase = "off" | "preparing" | "starting" | "online" | "stopping" | "error";

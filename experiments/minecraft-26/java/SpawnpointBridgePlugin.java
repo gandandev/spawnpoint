@@ -1754,6 +1754,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         clientState.addProperty("z", viewerLocation.getZ());
         clientState.addProperty("mainHand", viewer.getInventory().getItemInMainHand().getType().getKey().toString());
         clientState.addProperty("offHand", viewer.getInventory().getItemInOffHand().getType().getKey().toString());
+        clientState.add("food", FoodSnapshot.of(viewer));
         root.add("clientState", clientState);
         List<LocatorTarget> nearby = new ArrayList<>();
         for (Map.Entry<Player, Location> entry : locations.entrySet()) {

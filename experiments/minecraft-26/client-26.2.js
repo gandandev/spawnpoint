@@ -1,16 +1,26 @@
 (() => {
   if (!new URLSearchParams(location.search).has('launch')) return;
   const state = window.__spawnpoint262;
+  let foodHud;
   // Canvas handlers prevent the browser's default focus transfer into an iframe.
   window.addEventListener('pointerdown', event => {
     if (event.target instanceof HTMLCanvasElement) window.focus();
   }, true);
   let enteredWorld = false;
   window.__spawnpointBind262 = exports => {
+    if (exports['spawnpoint.foodRendered'] && window.createSpawnpointFoodHud) {
+      foodHud = window.createSpawnpointFoodHud(state);
+      exports['spawnpoint.foodRendered'].value = foodHud.render;
+      for (const name of ['heartsRendered', 'foodHovered', 'tooltipRendered', 'guiWidth']) {
+        if (exports['spawnpoint.' + name]) exports['spawnpoint.' + name].value = foodHud[name];
+      }
+      state.foodHook = true;
+    }
     exports['spawnpoint.screenChanged'].value = name => {
       const screen = name || '';
       state.nativeScreens = true;
       state.screen = screen;
+      if (screen && !/ChatScreen$/.test(screen)) foodHud?.hide();
       if (!screen && window.__eaglerWorldReady) enteredWorld = true;
       if ((enteredWorld || window.__eaglerWorldReady) && /(?:TitleScreen|JoinMultiplayerScreen)$/.test(screen)) {
         window.parent.postMessage({type:'spawnpoint:return-to-menu',launchId:new URLSearchParams(location.search).get('launch')}, location.origin);
@@ -78,6 +88,7 @@
       if (!response.ok) throw Error('Player state unavailable');
       const snapshot = await response.json();
       const player = snapshot.clientState;
+      foodHud?.update(snapshot.active ? player?.food : null);
       light[3] = 0;
       if (snapshot.active && player && [player.x,player.y,player.z].every(Number.isFinite)) {
         light[0] = player.x; light[1] = player.y; light[2] = player.z;

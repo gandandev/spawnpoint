@@ -144,6 +144,8 @@ const assets = new Map([
   ['/262/', [path.join(work, 'client-26.2/launch.html'), 'text/html; charset=utf-8']],
   ['/profile-26.2.js', [path.join(source, 'profile-26.2.js'), 'text/javascript; charset=utf-8']],
   ['/262/classes.wasm', [path.join(work, 'client-26.2/classes.wasm'), 'application/wasm']],
+  ['/262/classes-spawnpoint.wasm.br', [path.join(work, 'client-26.2/classes-spawnpoint.wasm.br'), 'application/octet-stream']],
+  ['/262/mesh-worker-spawnpoint.wasm.br', [path.join(work, 'client-26.2/mesh-worker-spawnpoint.wasm.br'), 'application/octet-stream']],
   ['/preview-login.js', [path.join(source, 'preview-login.js'), 'text/javascript; charset=utf-8']],
 ]);
 for (const [name, artifact] of Object.entries(artifacts262)) {
