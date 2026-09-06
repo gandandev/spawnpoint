@@ -1624,3 +1624,17 @@ describe("administrator console and account actions", () => {
     await act(async () => root.unmount());
   });
 });
+
+it('shows preparation only while the shared game preload is pending', async () => {
+  const ready = deferred<void>();
+  vi.stubGlobal('spawnpointGameAssets', { warm: vi.fn(() => ready.promise) });
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(adminData)));
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(<App />));
+  expect(container.querySelector('.t-shimmer')?.textContent).toBe('게임 준비 중...');
+  await act(async () => ready.resolve());
+  expect(container.querySelector('.t-shimmer')).toBeNull();
+  await act(async () => root.unmount());
+});

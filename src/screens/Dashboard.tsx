@@ -15,6 +15,7 @@ const SkinStudio = lazy(() => import("@/features/SkinStudio").then((module) => (
 
 interface DashboardProps {
   data: BootstrapData;
+  gamePreparing?: boolean;
   onData: (patch: Partial<BootstrapData>) => void;
   onSession: (user: SessionUpdate["user"], csrf: string, adminExpiresAt: number | null) => void;
   onStart: () => Promise<void>;
@@ -26,7 +27,7 @@ interface DashboardProps {
   onInitialSkinDialogHandled: () => void;
 }
 
-export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, onPlay, onOpenAdmin, initialSkinDialogOpen, onInitialSkinDialogHandled }: DashboardProps) {
+export function Dashboard({ data, gamePreparing = false, onData, onSession, onStart, onLogout, notice, onPlay, onOpenAdmin, initialSkinDialogOpen, onInitialSkinDialogHandled }: DashboardProps) {
   const [launching, setLaunching] = useState(false);
   const [skinDialogOpen, setSkinDialogOpen] = useState(() => initialSkinDialogOpen);
   const serverBusy = ["preparing", "starting", "stopping"].includes(data.server.phase);
@@ -74,11 +75,12 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
         </DialogContent>
       </Dialog>
     </section>
-    <div className="flex w-full items-center gap-2">
+    <div className="relative flex w-full items-center gap-2">
       {data.canSpectate && <Button variant="secondary" size="lg" className="h-11 shrink-0 rounded-full" aria-label="관전" title="조용히 관전" disabled={launching || serverBusy || !data.setup.eulaAccepted} onClick={() => void execute(true)}><Eye className="-translate-y-px" /><span className="translate-y-[0.5px] leading-none">관전</span></Button>}
       <Button size="lg" className="h-11 min-w-0 flex-1 rounded-full px-4" disabled={launching || serverBusy || !data.setup.eulaAccepted} onClick={() => void execute()}>
         {launching || serverBusy ? <Spinner /> : <Play fill="currentColor" />}<span className="translate-y-[0.5px] leading-none">{data.server.phase === "off" ? "서버 켜고 실행" : "실행"}</span>
       </Button>
+      {gamePreparing && <p role="status" className="absolute inset-x-0 top-full mt-2 text-center text-xs"><span className="t-shimmer">게임 준비 중...</span></p>}
     </div>
   </main>;
 }

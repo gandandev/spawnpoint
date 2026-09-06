@@ -28,6 +28,7 @@ export function App() {
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [game, setGame] = useState<GameSession | null>(null);
   const [gameVisible, setGameVisible] = useState(false);
+  const [gamePreparing, setGamePreparing] = useState(false);
 
   useEffect(() => {
     if (!game) return;
@@ -62,7 +63,13 @@ export function App() {
     if (!data) return;
     // Begin after the portal's own bootstrap, without starting a game or server.
     const assets = (window as Window & { spawnpointGameAssets?: { warm(): Promise<void> } }).spawnpointGameAssets;
-    void assets?.warm().catch(() => { /* A game launch retries failed preloads. */ });
+    if (!assets) return;
+    let active = true;
+    setGamePreparing(true);
+    void assets.warm().catch(() => { /* A game launch retries failed preloads. */ }).finally(() => {
+      if (active) setGamePreparing(false);
+    });
+    return () => { active = false; };
   }, [Boolean(data)]);
 
   useEffect(() => {
@@ -200,7 +207,7 @@ export function App() {
   return <>
     {game ? <GameScreen game={game} gameUrl={gameUrl} visible={gameVisible} onExit={() => setGameVisible(false)} /> : null}
     {!gameVisible && (data.user
-        ? <Dashboard data={data} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={openAdmin} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
+        ? <Dashboard data={data} gamePreparing={gamePreparing} onData={(patch) => setData((current) => current ? { ...current, ...patch } : current)} onSession={updateSession} onStart={startServer} onLogout={logout} notice={notice} onPlay={play} onOpenAdmin={openAdmin} initialSkinDialogOpen={showSkinAfterSignup} onInitialSkinDialogHandled={() => setShowSkinAfterSignup(false)} />
         : <AuthScreen data={data} mode={authMode} onAuth={auth} onModeChange={changeAuthMode} onOpenAdmin={openAdmin} notice={notice} />)}
     <Dialog open={adminPasswordOpen} onOpenChange={(open) => {
       setAdminPasswordOpen(open);

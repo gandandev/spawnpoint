@@ -71,7 +71,7 @@ describe('game asset preloading', () => {
     expect(frame.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('serializes mobile compiles and avoids eager portal downloads', async () => {
+  it('preloads mobile resource blobs without compiling, then serializes game compiles', async () => {
     const frame = fixture();
     frame.runtime.spawnpointGameAssets = undefined;
     frame.runtime.navigator = { userAgent: 'Android' };
@@ -82,7 +82,9 @@ describe('game asset preloading', () => {
     vm.runInNewContext(script, frame.runtime);
     const api = frame.runtime.spawnpointGameAssets;
     await api.warm();
-    expect(frame.fetch).not.toHaveBeenCalled();
+    expect(frame.fetch.mock.calls.map(([url]) => url)).toEqual(['/game/client-assets.json', asset.url]);
+    expect(compileStreaming).not.toHaveBeenCalled();
+    frame.fetch.mockClear();
     const main = api.compile(wasm);
     const mesh = api.compile({ ...wasm, url: 'https://cdn.test/mesh.wasm' });
     await vi.waitFor(() => expect(compileStreaming).toHaveBeenCalledTimes(1));

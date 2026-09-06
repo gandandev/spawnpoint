@@ -62,9 +62,10 @@
       });
     },
     async warm() {
-      if (mobile || apple) return;
       const manifest = await api.manifest();
-      await Promise.all(manifest.preload.map(name => {
+      // Preload resource packs on mobile/Safari without compiling outside the game.
+      const preload = manifest.preload.filter(name => !(mobile || apple) || manifest.assets[name].type !== 'application/wasm');
+      await Promise.all(preload.map(name => {
         const asset = manifest.assets[name];
         return asset.type === 'application/wasm' ? api.compile(asset) : api.load(asset);
       }));

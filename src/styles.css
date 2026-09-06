@@ -658,3 +658,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Keep the label in place while a muted highlight passes over its text. */
+.t-shimmer {
+  --shimmer-dur: 2000ms;
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(90deg, var(--muted-foreground) 40%, color-mix(in oklch, var(--muted-foreground), var(--background) 65%) 50%, var(--muted-foreground) 60%);
+  background-size: 400% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: t-shimmer var(--shimmer-dur) var(--ease-linear) infinite;
+}
+@keyframes t-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-shimmer { animation: none; background: none; color: var(--muted-foreground); }
+}
