@@ -16,7 +16,7 @@ const CATEGORIES: Array<{ id: SettingsCategory; label: string; icon: typeof Slid
   { id: "access", label: "접속", icon: Shield },
 ];
 
-const selectClassName = "h-8 w-full min-w-0 rounded-lg border border-input bg-background py-1 pl-2.5 pr-4 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring max-sm:min-h-11 md:text-sm";
+const selectClassName = "h-11 w-full min-w-0 rounded-lg border border-input bg-background py-1 pl-2.5 pr-4 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring";
 
 function SettingSwitch({ label, description, checked, onChange }: {
   label: string;

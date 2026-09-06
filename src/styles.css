@@ -358,7 +358,7 @@
   }
 
   .admin-player-sort select {
-    @apply ml-auto h-7 min-w-0 cursor-pointer rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply ml-auto h-11 min-w-0 cursor-pointer rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
 
   .admin-list-button {
@@ -452,7 +452,7 @@
   }
 
   .admin-native-select {
-    @apply h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50;
+    @apply h-11 w-full rounded-lg border border-input bg-background px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50;
   }
 
   .admin-settings-layout {
@@ -626,18 +626,6 @@
 }
 
 @media (max-width: 640px) {
-  .admin-primary-tabs {
-    @apply gap-0.5 p-0.5;
-  }
-
-  .admin-primary-tab {
-    @apply h-12 flex-col gap-0.5 px-0.5 text-[10px] leading-none;
-  }
-
-  .admin-primary-tab > svg {
-    @apply size-3.5;
-  }
-
   .admin-split-panel {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -662,15 +650,7 @@
     @apply grid grid-cols-3;
   }
 
-  .admin-history-nav-button {
-    @apply justify-center px-1 text-xs;
-  }
-
   .admin-permanent-log > li {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .admin-settings-nav-button {
-    @apply flex-col justify-center gap-1 px-1 text-xs;
   }
 }

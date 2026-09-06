@@ -25,8 +25,8 @@ export function App() {
   const [accepted, setAccepted] = useState(false);
   if (!accepted) return <main className="flex min-h-svh items-center justify-center px-6 py-12">
     <div className="flex max-w-md flex-col items-center gap-5 text-center">
-      <h1 className="text-2xl font-bold sm:text-3xl">26.2로 옮기는중!!</h1>
-      <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">플레이 중 서버가 자주 재시작되거나 게임이 튕길 수 있어요.</p>
+      <h1 className="text-2xl font-bold">26.2로 옮기는중!!</h1>
+      <p className="text-sm leading-relaxed text-muted-foreground">플레이 중 서버가 자주 재시작되거나 게임이 튕길 수 있어요.</p>
       <Button size="lg" onClick={() => setAccepted(true)}>그래도 들어가기</Button>
     </div>
   </main>;
