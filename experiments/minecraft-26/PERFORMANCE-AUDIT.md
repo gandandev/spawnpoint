@@ -41,3 +41,39 @@ Do not claim a universal 60/120 FPS gain from build success. Test keyboard input
 - The measured scene retained 121 tiles and submitted 26,838 LOD vertices. Meshing runs in a Worker; unchanged tiles do not cause repeated geometry uploads.
 - Server terrain sampling shares a nominal 3 ms budget per tick across requests, checks only loaded chunks, and caps each response at 32 tiles. A single block read can overrun the deadline; this is a time budget, not a real-time guarantee.
 - Known scope: height-field surface representation only; no caves/overhang geometry. The renderer shares the native terrain pass. No claim of installing the original Voxy, Distant Horizons, or Fabric mods.
+
+## FO reimplementation: render-state cache (2026-09-06)
+
+`render-state-26.2.js` removes redundant WebGL2 state commands before the native
+browser driver call. It caches texture bindings per unit, element buffers per VAO,
+uniform buffer bindings (including the generic-binding side effect), integer sampler
+uniforms, and blend/depth/raster state. It preserves draw order and all geometry.
+Deletion, program relinking, context restoration and diagnostic toggles invalidate
+cached state. The module must load before the dynamic-light and LOD wrappers so their
+saved method references also pass through the cache.
+
+Four alternating off/on/off/on windows of 240 RAF intervals on this Mac with local
+Paper running produced mean 16.666 ms, p99 <= 16.8 ms, and no >50 ms intervals.
+In the first pair, driver bindBuffer calls fell from 85,077 to 10,923; VAO bindings
+from 50,232 to 4,418; integer uniform updates from 25,788 to 2,202. The cache skipped
+293,106 of 436,910 state commands (67.1%). Native draws remained essentially equal.
+These are instrumented stationary-scene measurements, not proof of higher FPS or
+performance parity with FO. The display was capped at 60 Hz. Screenshots:
+`output/playwright/minecraft-26/fo-state-on.png` and `fo-state-off.png`.
+
+A six-second spectator flight with the cache enabled also measured mean 16.666 ms,
+p99 16.8 ms and zero >50 ms intervals; this is not a long new-world traversal test.
+
+Five transition tests cover aliases, texture units/VAOs, indexed binding side effects,
+uniform resets, deletion, context restoration and A/B toggles. A diagnostic toggle is
+`window.__spawnpoint262.renderState.enabled`; calls/skipped are cumulative counters.
+
+### Remaining source dependency
+
+The pinned 26.2 distribution has no Java sources or function-name custom section.
+The distributor credits o_xer but only links playable/offline binaries. Public
+`slungus57/eaglercraft` is a binary mirror; `NT9712/eaglercraft-262-workspace` is a
+separate scaffold, not the source of this pinned artifact. The examined 26.1.2 trees
+are not verified build inputs for this 26.2 binary. A matching source/build pipeline
+is still needed for a maintainable terrain batching renderer, entity/block-entity
+occlusion and simulation/data-layout ports. None of these is claimed by this cache.
