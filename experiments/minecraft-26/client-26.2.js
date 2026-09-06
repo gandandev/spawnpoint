@@ -40,10 +40,32 @@
     const proto = type.prototype;
     const shaderSource = proto.shaderSource;
     proto.shaderSource = function(shader, source) {
-      const anchor = 'vertexColor = Color * sample_lightmap(Sampler2, UV2);';
-      if (source.includes('ChunkPosition') && source.includes('CameraBlockPos') && source.includes(anchor)) {
-        source = source.replace('void main() {', 'uniform vec4 SpawnpointHeldLight;\nvoid main() {').replace(anchor,
-          'float heldLevel = max(0.0, SpawnpointHeldLight.w - length(Position + vec3(ChunkPosition) - SpawnpointHeldLight.xyz));\n    vertexColor = Color * sample_lightmap(Sampler2, ivec2(max(float(UV2.x), heldLevel * 16.0), UV2.y));');
+      const sample = 'sample_lightmap(Sampler2, UV2)';
+      const terrain = source.includes('ChunkPosition') && source.includes('CameraBlockPos');
+      const model = source.includes('gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);');
+      if ((terrain || model) && source.includes(sample) && source.includes('void main() {')) {
+        // Model vertices already contain the CPU pose transform and are camera
+        // relative, including the inverse view rotation used for first-person hands.
+        // Globals is a built-in UBO: GlProgram discovers and binds it even when
+        // the original pipeline did not declare it. Keep its complete std140 layout.
+        const globals = !terrain && !source.includes('uniform Globals') ? `
+layout(std140) uniform Globals {
+    ivec3 CameraBlockPos;
+    vec3 CameraOffset;
+    vec2 ScreenSize;
+    float GlintAlpha;
+    float GameTime;
+    int MenuBlurRadius;
+    int UseRgss;
+};
+` : '';
+        const position = terrain ? 'Position + vec3(ChunkPosition)' : 'Position + vec3(CameraBlockPos) - CameraOffset';
+        source = source.replace('void main() {', `${globals}uniform vec4 SpawnpointHeldLight;
+void main() {
+    float heldLevel = max(0.0, SpawnpointHeldLight.w - length(${position} - SpawnpointHeldLight.xyz));
+    // Orthographic inventory and GUI previews keep their own lighting.
+    ${terrain ? '' : 'heldLevel *= ProjMat[3][3] == 0.0 ? 1.0 : 0.0;'}
+`).replaceAll(sample, 'sample_lightmap(Sampler2, ivec2(max(float(UV2.x), heldLevel * 16.0), UV2.y))');
         state.lightShaders++;
       }
       return shaderSource.call(this, shader, source);
