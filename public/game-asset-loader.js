@@ -4,6 +4,10 @@
   const downloads = new Map();
   const modules = new Map();
   let manifestPromise;
+  const mobile = /Android|iPhone|iPad|iPod/.test(window.navigator?.userAgent || '')
+    || (window.navigator?.maxTouchPoints > 1 && /Mac/.test(window.navigator?.platform || ''));
+  const apple = /Apple/.test(window.navigator?.vendor || '');
+  let compilationQueue = Promise.resolve();
 
   function remember(map, key, task) {
     if (!map.has(key)) {
@@ -40,24 +44,25 @@
     },
     compile(asset) {
       return remember(modules, asset.url, async () => {
-        const result = await response(asset);
-        const options = { builtins: ['js-string'] };
-        // Keep a fallback stream for browsers without streaming compilation.
-        // Neither the response nor its bytes are retained after compilation.
-        if (typeof WebAssembly.compileStreaming !== 'function') {
-          return WebAssembly.compile(await result.arrayBuffer(), options);
-        }
-        const backup = result.clone();
-        try {
-          const module = await WebAssembly.compileStreaming(result, options);
-          void backup.body.cancel().catch(() => {});
-          return module;
-        } catch {
-          return WebAssembly.compile(await backup.arrayBuffer(), options);
-        }
+        const compile = async () => {
+          const result = await response(asset);
+          const options = { builtins: ['js-string'] };
+          // Older Safari ignores streaming compile options. Byte compilation
+          // supports the string builtins without keeping a cloned response alive.
+          if (apple || typeof WebAssembly.compileStreaming !== 'function'
+              || result.headers.get('content-type')?.split(';')[0].trim() !== 'application/wasm') {
+            return WebAssembly.compile(await result.arrayBuffer(), options);
+          }
+          return WebAssembly.compileStreaming(result, options);
+        };
+        if (!mobile) return compile();
+        const pending = compilationQueue.then(compile);
+        compilationQueue = pending.catch(() => {});
+        return pending;
       });
     },
     async warm() {
+      if (mobile) return;
       const manifest = await api.manifest();
       await Promise.all(manifest.preload.map(name => {
         const asset = manifest.assets[name];

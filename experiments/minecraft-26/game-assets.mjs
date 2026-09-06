@@ -68,12 +68,21 @@ export function applyGameAssets(html, manifest) {
   const end = html.indexOf('\t\t\t\t\t// Finish the two worker images', start);
   if (start < 0 || end < start) throw new Error('26.2 compile block changed');
   html = html.slice(0, start) + `
-          const mainModulePromise = window.spawnpointCompileWasm('classes-spawnpoint.wasm.br');
+          window.__eaglerBoot(2, '실행 환경을 내려받고 준비하는 중');
+          const mainModulePromise = window.spawnpointCompileWasm('classes-spawnpoint.wasm.br').then(module => {
+            window.__eaglerBoot(12, '청크 실행 환경을 준비하는 중');
+            return module;
+          });
           const meshModulePromise = window.spawnpointCompileWasm('mesh-worker.wasm.br');
           const serverModulePromise = new URLSearchParams(location.search).has('launch')
             ? Promise.resolve(null) : window.spawnpointCompileWasm('server-worker.wasm.br');
           const [module] = await Promise.all([mainModulePromise, meshModulePromise, serverModulePromise]);
 ` + html.slice(end);
+  // Retrying the full client through TeaVM duplicates expensive failed work.
+  const fallbackStart = html.indexOf('\t\t\t\t} catch (helperErr) {');
+  const fallbackEnd = html.indexOf('\n\t\t\t\twindow.__loaded = true;', fallbackStart);
+  if (fallbackStart < 0 || fallbackEnd < 0) throw new Error('26.2 fallback block changed');
+  html = html.slice(0, fallbackStart) + '\t\t\t\t} catch (helperErr) { throw helperErr; }' + html.slice(fallbackEnd);
   html = html.replace(/^.*<script type="module" src="brotli-loader\.js[^\n]*\n/gm, '');
   once('<script src="/profile-26.2.js"></script>', `<script src="/game-asset-loader.js"></script><script>
 window.spawnpointAssetManifest=${JSON.stringify(manifest)};

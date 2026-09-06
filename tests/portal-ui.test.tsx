@@ -910,7 +910,7 @@ describe("game launch", () => {
       initialSkinDialogOpen={false}
       onInitialSkinDialogHandled={vi.fn()}
     />));
-    expect(container.querySelector('[aria-label="조용히 관전"]')).toBeNull();
+    expect(container.querySelector('[aria-label="관전"]')).toBeNull();
     const play = [...container.querySelectorAll("button")].find((button) => button.textContent === "실행")!;
     await act(async () => play.click());
     expect(onPlay).toHaveBeenCalledExactlyOnceWith();
@@ -937,7 +937,7 @@ describe("game launch", () => {
       initialSkinDialogOpen={false}
       onInitialSkinDialogHandled={vi.fn()}
     />));
-    const play = container.querySelector<HTMLButtonElement>('[aria-label="조용히 관전"]')!;
+    const play = container.querySelector<HTMLButtonElement>('[aria-label="관전"]')!;
     expect(play).not.toBeNull();
     await act(async () => play.click());
     expect(onPlay).toHaveBeenCalledExactlyOnceWith(true);

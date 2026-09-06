@@ -13,12 +13,14 @@ const source = await fs.readFile(path.join(clientDir, "index.html"), "utf8");
 
 const sites = [
   {
+    key: "yege",
     title: "예게.서버.한국",
     origin: "https://xn--o79a769b.xn--hk3b17f.xn--3e0b707e",
     image: "og-image-yege.jpg",
     output: "index-yege.html",
   },
   {
+    key: "bacon",
     title: "베이컨.서버.한국",
     origin: "https://xn--9k3b21rt2f.xn--hk3b17f.xn--3e0b707e",
     image: "og-image-bacon.jpg",
@@ -37,8 +39,12 @@ function insertAfter(html, marker, value) {
   return html.replace(marker, `${marker}\n    ${value}`);
 }
 
+const manifest = JSON.parse(await fs.readFile(path.join(clientDir, "manifest.webmanifest"), "utf8"));
 for (const site of sites) {
+  await fs.writeFile(path.join(clientDir, `manifest-${site.key}.webmanifest`), JSON.stringify({ ...manifest, name: site.title, short_name: site.title }));
   let html = source.replace(/<title>[^<]*<\/title>/, `<title>${site.title}</title>`);
+  html = html.replace('href="/manifest.webmanifest"', `href="/manifest-${site.key}.webmanifest"`);
+  html = replaceMeta(html, "name", "apple-mobile-web-app-title", site.title);
   const imageAlt = `셰이더가 적용된 블록 풍경 위에 검정 로고와 흰 테두리의 ${site.title} 문구가 놓인 이미지`;
   html = insertAfter(html, '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />', `<link rel="canonical" href="${site.origin}/" />`);
   html = insertAfter(html, '<meta property="og:type" content="website" />', `<meta property="og:url" content="${site.origin}/" />`);

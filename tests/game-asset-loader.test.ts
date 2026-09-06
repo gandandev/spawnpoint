@@ -56,12 +56,51 @@ describe('game asset preloading', () => {
     expect(frame.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('falls back to byte compilation using the same response when streaming fails', async () => {
+  it('uses byte compilation on Safari so string builtin options are honored', async () => {
     const frame = fixture();
+    // Navigator is read when the loader is installed, like a real browser.
+    frame.runtime.spawnpointGameAssets = undefined;
+    frame.runtime.navigator = { userAgent: 'iPhone', vendor: 'Apple Computer, Inc.' };
     const compile = vi.fn(WebAssembly.compile);
-    frame.runtime.WebAssembly = { compileStreaming: vi.fn().mockRejectedValue(new Error('no streaming')), compile };
-    expect(await frame.api.compile(wasm)).toBeInstanceOf(WebAssembly.Module);
+    const compileStreaming = vi.fn().mockRejectedValue(new Error('unsupported options'));
+    frame.runtime.WebAssembly = { compileStreaming, compile };
+    vm.runInNewContext(script, frame.runtime);
+    expect(await frame.runtime.spawnpointGameAssets.compile(wasm)).toBeInstanceOf(WebAssembly.Module);
+    expect(compileStreaming).not.toHaveBeenCalled();
+    expect(compile).toHaveBeenCalledWith(expect.any(ArrayBuffer), { builtins: ['js-string'] });
     expect(frame.fetch).toHaveBeenCalledTimes(1);
-    expect(compile).toHaveBeenCalledOnce();
+  });
+
+  it('serializes mobile compiles and avoids eager portal downloads', async () => {
+    const frame = fixture();
+    frame.runtime.spawnpointGameAssets = undefined;
+    frame.runtime.navigator = { userAgent: 'Android' };
+    let release!: (module: WebAssembly.Module) => void;
+    const first = new Promise<WebAssembly.Module>(resolve => { release = resolve; });
+    const compileStreaming = vi.fn().mockReturnValueOnce(first).mockImplementation(WebAssembly.compileStreaming);
+    frame.runtime.WebAssembly = { compileStreaming };
+    vm.runInNewContext(script, frame.runtime);
+    const api = frame.runtime.spawnpointGameAssets;
+    await api.warm();
+    expect(frame.fetch).not.toHaveBeenCalled();
+    const main = api.compile(wasm);
+    const mesh = api.compile({ ...wasm, url: 'https://cdn.test/mesh.wasm' });
+    await vi.waitFor(() => expect(compileStreaming).toHaveBeenCalledTimes(1));
+    expect(frame.fetch).toHaveBeenCalledTimes(1);
+    release(await WebAssembly.compile(new Uint8Array([0,97,115,109,1,0,0,0])));
+    await Promise.all([main, mesh]);
+    expect(compileStreaming).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not clone or recompile a stream after a compiler failure', async () => {
+    const frame = fixture();
+    const response = new Response(new Uint8Array([0]), { headers: { 'Content-Type': 'application/wasm' } });
+    const clone = vi.spyOn(response, 'clone');
+    frame.fetch.mockResolvedValueOnce(response);
+    const compile = vi.fn();
+    frame.runtime.WebAssembly = { compileStreaming: vi.fn().mockRejectedValue(new Error('bad wasm')), compile };
+    await expect(frame.api.compile(wasm)).rejects.toThrow('bad wasm');
+    expect(clone).not.toHaveBeenCalled();
+    expect(compile).not.toHaveBeenCalled();
   });
 });
