@@ -1,12 +1,21 @@
 FROM node:22-bookworm-slim AS build
 ARG RAILWAY_GIT_COMMIT_SHA
-ENV RAILWAY_GIT_COMMIT_SHA=${RAILWAY_GIT_COMMIT_SHA}
+ENV RAILWAY_GIT_COMMIT_SHA=${RAILWAY_GIT_COMMIT_SHA} \
+    SPAWNPOINT_BUILD_REPOSITORY=/tmp/build-history
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,id=s/325fd00f-04e2-4636-b422-60f576dd4dab-/root/.npm,target=/root/.npm \
     npm ci --prefer-offline --no-audit
 COPY . .
-RUN npm run build:frontend
+# The Docker context excludes .git. Fetch history without source blobs so the
+# version counts the exact deployment commit, even if main has advanced.
+RUN test -n "$RAILWAY_GIT_COMMIT_SHA" \
+    && git init "$SPAWNPOINT_BUILD_REPOSITORY" \
+    && git -C "$SPAWNPOINT_BUILD_REPOSITORY" fetch --filter=blob:none \
+       https://github.com/gandandev/spawnpoint.git "$RAILWAY_GIT_COMMIT_SHA" \
+    && npm run build:frontend
 
 FROM caddy:2.11.4-alpine AS runtime
 ENV PORT=3000 \
