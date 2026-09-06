@@ -6,10 +6,25 @@ import { source, work, root } from './common.mjs';
 
 export const cdnOrigin = 'https://spawnpoint-game-assets.pages.dev';
 export const releasePath = path.join(source, 'cdn-release.json');
+export const brotliQuality = 11;
 const files = [
   'classes-spawnpoint.wasm.br', 'mesh-worker.wasm.br', 'server-worker.wasm.br',
   'assets-spawnpoint-vanilla.epk', 'assets-spawnpoint.epk', 'sounds.epk',
 ];
+
+export async function assetSourceHash() {
+  const hash = createHash('sha256').update(`brotli-quality:${brotliQuality}\n`);
+  for (const file of [
+    'experiments/minecraft-26/artifacts-26.2.json',
+    'experiments/minecraft-26/patch-client.py', 'experiments/minecraft-26/build-assets.py',
+    'experiments/minecraft-26/eagler-ko_kr.json', 'experiments/minecraft-26/minecraft-ko_kr-overrides.json',
+    'vendor/fonts/galmuri/Galmuri11.ttf', 'vendor/fonts/galmuri/Galmuri11-Bold.ttf',
+    'vendor/clients/stable-galmuri.epw',
+  ]) {
+    hash.update(file).update('\0').update(await fs.readFile(path.join(root, file)));
+  }
+  return hash.digest('hex');
+}
 
 export async function packageGameAssets(output = path.join(root, 'dist/game-assets')) {
   await fs.mkdir(output, { recursive: true });
@@ -32,7 +47,7 @@ export async function packageGameAssets(output = path.join(root, 'dist/game-asse
   const release = createHash('sha256').update(JSON.stringify(assets)).digest('hex').slice(0, 16);
   const branch = `r-${release}`;
   for (const asset of Object.values(assets)) asset.url = asset.url.replace(cdnOrigin, `https://${branch}.spawnpoint-game-assets.pages.dev`);
-  return { branch, assets, preload: ['classes-spawnpoint.wasm.br', 'mesh-worker.wasm.br', 'assets-spawnpoint-vanilla.epk', 'sounds.epk'] };
+  return { sourceHash: await assetSourceHash(), branch, assets, preload: ['classes-spawnpoint.wasm.br', 'mesh-worker.wasm.br', 'assets-spawnpoint-vanilla.epk', 'sounds.epk'] };
 }
 
 export function applyGameAssets(html, manifest) {

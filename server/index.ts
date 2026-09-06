@@ -119,6 +119,7 @@ if (config.minecraftVersion === "26.2") {
     response.sendFile(path.resolve("public/game-asset-loader.js"));
   });
   app.get("/game/client-assets.json", (_request, response) => {
+    // The client build verifies this published release against its asset sources.
     response.setHeader("Cache-Control", "no-cache");
     response.sendFile(path.join(modernClientDir, "client-assets.json"));
   });

@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createLauncher262 } from '../experiments/minecraft-26/build-26.2.mjs';
-import { applyGameAssets } from '../experiments/minecraft-26/game-assets.mjs';
+import { applyGameAssets, assetSourceHash } from '../experiments/minecraft-26/game-assets.mjs';
+
+it('keeps the published release tied to the checked-in asset sources', async () => {
+  const release = JSON.parse(readFileSync('experiments/minecraft-26/cdn-release.json', 'utf8'));
+  expect(await assetSourceHash()).toBe(release.sourceHash);
+});
 
 // This integration check uses the optional, hash-pinned 26.2 download.
 describe.skipIf(!existsSync('work/minecraft-26/client-26.2/index.html'))('Pages game launcher', () => {

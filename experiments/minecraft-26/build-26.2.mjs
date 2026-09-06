@@ -5,7 +5,7 @@ import { brotliDecompressSync, brotliCompressSync, constants } from 'node:zlib';
 import { source, work, root, run } from './common.mjs';
 import { buildPortalBridge262 } from './build-portal-bridge.mjs';
 import { localizeLauncher } from './localize-client.mjs';
-import { applyGameAssets, packageGameAssets, releasePath } from './game-assets.mjs';
+import { applyGameAssets, assetSourceHash, brotliQuality, releasePath } from './game-assets.mjs';
 
 export async function build262() {
   const artifacts = JSON.parse(await fs.readFile(path.join(source, 'artifacts-26.2.json'), 'utf8'));
@@ -18,19 +18,20 @@ export async function build262() {
   const html = createLauncher262(await fs.readFile(path.join(work, 'client-26.2/index.html'), 'utf8'));
   await fs.copyFile(path.join(root, 'vendor/fonts/galmuri/Galmuri11.woff2'), path.join(work, 'client-26.2/Galmuri11.woff2'));
   await fs.writeFile(path.join(work, 'client-26.2/launch.html'), html);
-  await fs.writeFile(path.join(work, 'client-26.2/classes.wasm'), brotliDecompressSync(await fs.readFile(path.join(work, 'client-26.2/classes.wasm.br'))));
-  await run('python3', [path.join(source, 'patch-client.py')]);
-  // Spend build time once to reduce every cold client download. WASM bytes stay identical.
-  await fs.writeFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm.br'), brotliCompressSync(await fs.readFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm')), { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } }));
   await fs.copyFile(path.join(source, "client-26.2.js"), path.join(work, "client-26.2/client-26.2.js"));
   await fs.copyFile(path.join(source, "render-state-26.2.js"), path.join(work, "client-26.2/render-state-26.2.js"));
   await buildPortalBridge262();
-  await run('python3', [path.join(source, 'build-assets.py')]);
-  if (process.env.GAME_ASSETS_PUBLISH !== 'true') {
+  if (process.env.GAME_ASSETS_PUBLISH === 'true') {
+    await fs.writeFile(path.join(work, 'client-26.2/classes.wasm'), brotliDecompressSync(await fs.readFile(path.join(work, 'client-26.2/classes.wasm.br'))));
+    await run('python3', [path.join(source, 'patch-client.py')]);
+    // Build and publish these bytes once, instead of repeating font rendering and
+    // expensive compression on each Railway deployment or a different OS.
+    await fs.writeFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm.br'), brotliCompressSync(await fs.readFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm')), { params: { [constants.BROTLI_PARAM_QUALITY]: brotliQuality } }));
+    await run('python3', [path.join(source, 'build-assets.py')]);
+  } else {
     const release = JSON.parse(await fs.readFile(releasePath, 'utf8'));
-    const current = await packageGameAssets();
-    if (JSON.stringify(current) !== JSON.stringify(release)) {
-      throw new Error('Game assets changed. Run npm run deploy:game-assets before deploying Railway.');
+    if (await assetSourceHash() !== release.sourceHash) {
+      throw new Error('Game asset sources changed. Run npm run deploy:game-assets before deploying Railway.');
     }
     await fs.writeFile(path.join(work, 'client-26.2/client-assets.json'), JSON.stringify(release));
     await fs.writeFile(path.join(work, 'client-26.2/launch.html'), applyGameAssets(html, release));
