@@ -372,6 +372,12 @@ describe("hidden administrator unlock", () => {
 });
 
 describe("player locator API", () => {
+  it("requires a session for head assets and distant terrain", async () => {
+    const harness = await createHarness();
+    for (const endpoint of ["/api/game/heads.epk", "/api/game/terrain"]) {
+      expect((await fetch(harness.origin + endpoint)).status).toBe(401);
+    }
+  });
   it("returns other online players for the TPA picker", async () => {
     const harness = await createHarness({
       serverStatus: { ...serverStatus, phase: "online", players: ["adminuser", "normaluser"] },

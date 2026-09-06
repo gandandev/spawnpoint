@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import sharp from "sharp";
+import { chatHeadPack, headImage } from "./chat-head-pack.js";
+import { offlinePlayerUuid } from "./player-data.js";
 import type { AppDatabase } from "./db.js";
 import type { PublicUser, SkinModel, SkinType, UserRecord } from "./types.js";
 
@@ -270,6 +272,7 @@ export function encodeClientProfile(username: string, model: SkinModel, rgbaSkin
 }
 
 export class SkinService {
+  private headsCache?: { key: string; pack: Promise<Buffer> };
   private readonly skinDir: string;
   private readonly catalogSkinDir: string;
   private readonly profileCache = new Map<string, Promise<string>>();
@@ -287,6 +290,31 @@ export class SkinService {
   skinFile(id: string): string | null {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
     return path.join(this.skinDir, `${id}.png`);
+  }
+
+  gameChatHeads(): Promise<Buffer> {
+    const users = this.database.listUsers().flatMap(({ id }) => {
+      const user = this.database.getUserById(id);
+      return user ? [user] : [];
+    });
+    const key = users.map(user => `${user.gameUsername}:${user.skinType}:${user.skinRef}:${user.skinUpdatedAt}`).sort().join("|");
+    if (this.headsCache?.key === key) return this.headsCache.pack;
+    const pack = (async () => {
+      const heads = [];
+      for (const user of users) {
+        const file = user.skinType === "preset"
+          ? path.join(this.clientDir, "assets", "skins", `${user.skinRef}.png`)
+          : this.skinFile(user.id);
+        if (!file) continue;
+        const png = await headImage(await fs.readFile(file)).catch(async () =>
+          headImage(await fs.readFile(path.join(this.clientDir, "assets", "skins", "steve.png"))));
+        heads.push({ uuid: offlinePlayerUuid(user.gameUsername), png });
+      }
+      return chatHeadPack(heads);
+    })();
+    this.headsCache = { key, pack };
+    pack.catch(() => { if (this.headsCache?.pack === pack) this.headsCache = undefined; });
+    return pack;
   }
 
   async applyUpload(user: UserRecord, file: Express.Multer.File | undefined): Promise<UserRecord> {
