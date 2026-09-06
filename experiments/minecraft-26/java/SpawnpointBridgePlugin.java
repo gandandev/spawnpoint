@@ -62,21 +62,19 @@ import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.imageio.ImageIO;
-import net.md_5.bungee.api.chat.BaseComponent;
-import net.md_5.bungee.api.chat.ClickEvent;
-import net.md_5.bungee.api.chat.HoverEvent;
-import net.md_5.bungee.api.chat.TextComponent;
-import net.md_5.bungee.api.chat.TranslatableComponent;
-import net.md_5.bungee.chat.ComponentSerializer;
-import org.bukkit.ChatColor;
-import org.bukkit.BanList;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.bukkit.GameRules;
 import org.bukkit.Chunk;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Statistic;
 import org.bukkit.World;
-import org.bukkit.advancement.Advancement;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -91,12 +89,10 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerBedEnterEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
@@ -166,7 +162,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private final Map<UUID, TeleportRequest> teleportRequests = new HashMap<>();
     private final Map<UUID, BukkitTask> teleportExpiryTasks = new HashMap<>();
     private final Map<UUID, Long> teleportRequestCooldowns = new HashMap<>();
-    private final Map<UUID, String> advancementRuleRestores = new HashMap<>();
     private final Object diamondMarkerLock = new Object();
     private final Object diamondMarkerWriteLock = new Object();
     private final Set<ProcessedChunk> legacyProcessedDiamondChunks = new HashSet<>();
@@ -177,8 +172,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private long diamondMarkerGeneration;
     private long flushedDiamondMarkerGeneration = -1L;
     private boolean diamondMarkersLoaded;
-    private boolean advancementReflectionWarningLogged;
-    private boolean deathTranslationWarningLogged;
     private boolean packetReflectionWarningLogged;
     private boolean commandIdentityWarningLogged;
     private volatile boolean historyEventWarningLogged;
@@ -247,7 +240,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     private void applyKeepInventory(boolean enabled) {
         int updatedWorlds = 0;
         for (World world : getServer().getWorlds()) {
-            if (world.setGameRule(org.bukkit.GameRule.KEEP_INVENTORY, enabled)) {
+            if (world.setGameRule(GameRules.KEEP_INVENTORY, enabled)) {
                 updatedWorlds++;
             } else {
                 getLogger().warning("Could not update keepInventory in world " + world.getName() + ".");
@@ -263,7 +256,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (diamondBonusTask != null) diamondBonusTask.cancel();
         if (diamondMarkerFlushTask != null) diamondMarkerFlushTask.cancel();
         flushDiamondMarkers();
-        restoreAdvancementAnnouncementRules();
         getServer().getOnlinePlayers().forEach(this::removeDisplayNamePacketHandler);
         locatorSnapshots = Map.of();
         commandTargets = List.of();
@@ -786,68 +778,33 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             return;
         }
 
-        TextComponent marker = new TextComponent("» ");
-        marker.setBold(true);
-        marker.setColor(net.md_5.bungee.api.ChatColor.GOLD);
-
-        TextComponent prompt = new TextComponent("순간이동할 플레이어를 선택하세요");
-        prompt.setColor(net.md_5.bungee.api.ChatColor.GRAY);
-        requester.spigot().sendMessage(marker, prompt);
-
+        requester.sendMessage(Component.empty()
+            .append(Component.text("» ", NamedTextColor.GOLD, TextDecoration.BOLD))
+            .append(Component.text("순간이동할 플레이어를 선택하세요", NamedTextColor.GRAY)));
         for (Player target : targets) {
             String name = playerLabel(target);
-            TextComponent indent = new TextComponent("  ");
-            TextComponent bullet = new TextComponent("• ");
-            bullet.setColor(net.md_5.bungee.api.ChatColor.DARK_GRAY);
-
-            TextComponent playerButton = new TextComponent(name);
-            playerButton.setBold(true);
-            playerButton.setColor(net.md_5.bungee.api.ChatColor.GREEN);
-            playerButton.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpa " + target.getName()));
-            playerButton.setHoverEvent(hoverText("클릭해서 " + name + "님에게 요청"));
-            requester.spigot().sendMessage(indent, bullet, playerButton);
+            requester.sendMessage(Component.text("  ")
+                .append(Component.text("• ", NamedTextColor.DARK_GRAY))
+                .append(Component.text(name, NamedTextColor.GREEN, TextDecoration.BOLD)
+                    .clickEvent(ClickEvent.runCommand("/tpa " + target.getName()))
+                    .hoverEvent(Component.text("클릭해서 " + name + "님에게 요청"))));
         }
     }
 
     private static void sendTeleportRequestMessage(Player target, Player requester) {
-        TextComponent marker = new TextComponent("» ");
-        marker.setBold(true);
-        marker.setColor(net.md_5.bungee.api.ChatColor.GOLD);
-
-        TextComponent requesterName = new TextComponent(playerLabel(requester));
-        requesterName.setBold(true);
-        requesterName.setColor(net.md_5.bungee.api.ChatColor.YELLOW);
-
-        TextComponent request = new TextComponent("님이 순간이동을 요청했어요!");
-        request.setColor(net.md_5.bungee.api.ChatColor.GRAY);
-
-        target.spigot().sendMessage(marker, requesterName, request);
-
-        TextComponent commandHint = new TextComponent("        채팅에 /수락 또는 /거절을 입력하세요.");
-        commandHint.setColor(net.md_5.bungee.api.ChatColor.GRAY);
-        target.spigot().sendMessage(commandHint);
-
-        TextComponent indent = new TextComponent("        ");
-
-        TextComponent accept = new TextComponent("수락");
-        accept.setBold(true);
-        accept.setColor(net.md_5.bungee.api.ChatColor.GREEN);
-        accept.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpaccept __spawnpoint_chat"));
-        accept.setHoverEvent(hoverText("클릭해서 수락"));
-
-        TextComponent spacing = new TextComponent("      ");
-
-        TextComponent deny = new TextComponent("거절");
-        deny.setBold(true);
-        deny.setColor(net.md_5.bungee.api.ChatColor.RED);
-        deny.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tpdeny __spawnpoint_chat"));
-        deny.setHoverEvent(hoverText("클릭해서 거절"));
-
-        target.spigot().sendMessage(indent, accept, spacing, deny);
-    }
-
-    private static HoverEvent hoverText(String text) {
-        return new HoverEvent(HoverEvent.Action.SHOW_TEXT, TextComponent.fromLegacyText(text));
+        target.sendMessage(Component.empty()
+            .append(Component.text("» ", NamedTextColor.GOLD, TextDecoration.BOLD))
+            .append(Component.text(playerLabel(requester), NamedTextColor.YELLOW, TextDecoration.BOLD))
+            .append(Component.text("님이 순간이동을 요청했어요!", NamedTextColor.GRAY)));
+        target.sendMessage(Component.text("        채팅에 /수락 또는 /거절을 입력하세요.", NamedTextColor.GRAY));
+        target.sendMessage(Component.text("        ")
+            .append(Component.text("수락", NamedTextColor.GREEN, TextDecoration.BOLD)
+                .clickEvent(ClickEvent.runCommand("/tpaccept __spawnpoint_chat"))
+                .hoverEvent(Component.text("클릭해서 수락")))
+            .append(Component.text("      "))
+            .append(Component.text("거절", NamedTextColor.RED, TextDecoration.BOLD)
+                .clickEvent(ClickEvent.runCommand("/tpdeny __spawnpoint_chat"))
+                .hoverEvent(Component.text("클릭해서 거절"))));
     }
 
     private boolean handleTpaResponse(CommandSender sender, String[] args, boolean accept) {
@@ -896,11 +853,8 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     }
 
     private static void sendTeleportResponse(Player target, String text) {
-        TextComponent indent = new TextComponent("        ");
-        TextComponent response = new TextComponent(text);
-        response.setColor(net.md_5.bungee.api.ChatColor.GRAY);
-        response.setItalic(true);
-        target.spigot().sendMessage(indent, response);
+        target.sendMessage(Component.text("        ").append(
+            Component.text(text, NamedTextColor.GRAY, TextDecoration.ITALIC)));
     }
 
     private void closeChat(Player player) {
@@ -922,7 +876,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
         Player displayNameMatch = null;
         for (Player candidate : getServer().getOnlinePlayers()) {
-            if (!requester.canSee(candidate) || !candidate.getDisplayName().equals(name)) continue;
+            if (!requester.canSee(candidate) || !PlainTextComponentSerializer.plainText().serialize(candidate.displayName()).equals(name)) continue;
             if (displayNameMatch != null) return new PlayerLookup(null, true);
             displayNameMatch = candidate;
         }
@@ -987,7 +941,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 response = input.readNBytes(MAX_RESPONSE_BYTES + 1);
             }
             if (response.length > MAX_RESPONSE_BYTES) throw new IOException("portal response is too large");
-            JsonObject body = new JsonParser().parse(new String(response, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject body = JsonParser.parseString(new String(response, StandardCharsets.UTF_8)).getAsJsonObject();
             JsonArray identities = body.getAsJsonArray("identities");
             if (identities == null) throw new JsonParseException("identities are missing");
             List<CommandTargetName> refreshed = new ArrayList<>();
@@ -1689,7 +1643,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         }
         if (bytes.length > MAX_REQUEST_BYTES) throw new RequestTooLargeException();
         try {
-            JsonElement value = new JsonParser().parse(new String(bytes, StandardCharsets.UTF_8));
+            JsonElement value = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
             return value.isJsonObject() ? value.getAsJsonObject() : null;
         } catch (JsonParseException | IllegalStateException exception) {
             return null;
@@ -1774,7 +1728,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             value.addProperty("skinUrl", identity == null ? null : identity.skinPath);
             value.addProperty("uuid", target.player.getUniqueId().toString());
             value.addProperty("username", target.player.getName());
-            value.addProperty("displayName", target.player.getDisplayName());
+            value.addProperty("displayName", PlainTextComponentSerializer.plainText().serialize(target.player.displayName()));
             value.addProperty("angle", relativeYaw(viewerLocation, target.location));
             value.addProperty("distance", Math.sqrt(target.distanceSquared));
             targets.add(value);
@@ -1790,13 +1744,13 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         PlayerIdentity identity = activeIdentities.get(player.getUniqueId());
         result.addProperty("accountId", identity == null ? null : identity.accountId);
         result.addProperty("username", player.getName());
-        result.addProperty("displayName", player.getDisplayName());
+        result.addProperty("displayName", PlainTextComponentSerializer.plainText().serialize(player.displayName()));
         result.addProperty("online", true);
         result.addProperty("dataAvailable", true);
         result.addProperty("firstSeenAt", player.getFirstPlayed());
         result.addProperty("lastSeenAt", System.currentTimeMillis());
         result.addProperty("playTimeTicks", player.getStatistic(Statistic.PLAY_ONE_MINUTE));
-        result.addProperty("banned", getServer().getBanList(BanList.Type.NAME).isBanned(player.getName()));
+        result.addProperty("banned", getServer().getBanList(io.papermc.paper.ban.BanListType.PROFILE).isBanned(player.getPlayerProfile()));
         result.addProperty("operator", player.isOp());
         result.addProperty("world", player.getWorld().getName());
         result.addProperty("x", location.getX());
@@ -1838,12 +1792,12 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             value.addProperty("section", section);
             value.addProperty("type", item.getType().name().toLowerCase(Locale.ROOT));
             value.addProperty("amount", item.getAmount());
-            value.addProperty("durability", item.getDurability());
             ItemMeta meta = item.hasItemMeta() ? item.getItemMeta() : null;
-            if (meta != null && meta.hasDisplayName()) value.addProperty("displayName", meta.getDisplayName());
+            value.addProperty("durability", meta instanceof org.bukkit.inventory.meta.Damageable damage ? damage.getDamage() : 0);
+            if (meta != null && meta.hasDisplayName()) value.addProperty("displayName", LegacyComponentSerializer.legacySection().serialize(meta.displayName()));
             if (meta != null && meta.hasLore()) {
                 JsonArray lore = new JsonArray();
-                meta.getLore().forEach(lore::add);
+                meta.lore().forEach(line -> lore.add(LegacyComponentSerializer.legacySection().serialize(line)));
                 value.add("lore", lore);
             }
             if (!item.getEnchantments().isEmpty()) {
@@ -1867,7 +1821,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (player == null) return null;
         if (request.has("health")) {
             double health = finiteJsonNumber(request, "health", 0.0D, 20.0D);
-            player.setHealth(Math.min(health, player.getMaxHealth()));
+            player.setHealth(Math.min(health, player.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getValue()));
         }
         if (request.has("foodLevel")) {
             int foodLevel = integerJsonNumber(request, "foodLevel", 0, 20);
@@ -1923,7 +1877,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             if (material == null || material == Material.AIR) throw new IllegalArgumentException("Unknown inventory item.");
             int amount = integerJsonNumber(value, "amount", 1, Math.min(64, material.getMaxStackSize()));
             int durability = integerJsonNumber(value, "durability", 0, Short.MAX_VALUE);
-            item = new ItemStack(material, amount, (short) durability);
+            item = new ItemStack(material, amount);
+            if (durability > 0 && item.getItemMeta() instanceof org.bukkit.inventory.meta.Damageable damage) {
+                damage.setDamage(durability);
+                item.setItemMeta(damage);
+            }
         }
         Player player = resolvePlayer(playerKey);
         if (player == null) return null;
@@ -1951,19 +1909,19 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (player == null) return null;
         JsonObject result = playerIdentity(player);
         result.addProperty("kicked", true);
-        player.kickPlayer(reason);
+        player.kick(Component.text(reason));
         return result;
     }
 
     private JsonObject setPlayerBanned(String playerKey, boolean banned, String reason) {
         Player player = resolvePlayer(playerKey);
         if (player == null) return null;
-        BanList bans = getServer().getBanList(BanList.Type.NAME);
-        if (banned) bans.addBan(player.getName(), reason, (java.util.Date) null, "spawnpoint admin");
-        else bans.pardon(player.getName());
+        var bans = getServer().getBanList(io.papermc.paper.ban.BanListType.PROFILE);
+        if (banned) bans.addBan(player.getPlayerProfile(), reason, (java.util.Date) null, "spawnpoint admin");
+        else bans.pardon(player.getPlayerProfile());
         JsonObject result = playerIdentity(player);
         result.addProperty("banned", banned);
-        if (banned) player.kickPlayer(reason);
+        if (banned) player.kick(Component.text(reason));
         return result;
     }
 
@@ -2003,16 +1961,11 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 if (player != null && player.isOnline()) recipients.add(player);
             }
         }
-        String colorPrefix = ChatColor.valueOf(color.toUpperCase(Locale.ROOT)).toString();
-        for (Player player : recipients) {
-            player.sendTitle(
-                title.isEmpty() ? "" : colorPrefix + title,
-                subtitle.isEmpty() ? "" : colorPrefix + subtitle,
-                10,
-                70,
-                20
-            );
-        }
+        NamedTextColor textColor = NamedTextColor.NAMES.value(color.toLowerCase(Locale.ROOT));
+        if (textColor == null) throw new IllegalArgumentException("Invalid title color.");
+        var message = net.kyori.adventure.title.Title.title(Component.text(title, textColor), Component.text(subtitle, textColor),
+            net.kyori.adventure.title.Title.Times.times(java.time.Duration.ofMillis(500), java.time.Duration.ofMillis(3500), java.time.Duration.ofMillis(1000)));
+        for (Player player : recipients) player.showTitle(message);
         JsonObject result = new JsonObject();
         result.addProperty("sent", recipients.size());
         return result;
@@ -2023,7 +1976,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (player == null) return null;
         JsonObject result = playerIdentity(player);
         result.addProperty("disconnected", true);
-        player.kickPlayer("계정 비밀번호가 초기화됐어요. 다시 로그인하세요.");
+        player.kick(Component.text("계정 비밀번호가 초기화됐어요. 다시 로그인하세요."));
         return result;
     }
 
@@ -2111,8 +2064,8 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (!(bedHead.getBlockData() instanceof Bed)) return;
 
         Player player = event.getPlayer();
-        player.setBedSpawnLocation(bedHead.getLocation(), false);
-        player.sendMessage(ChatColor.YELLOW + "리스폰 지점을 설정했어요.");
+        player.setRespawnLocation(bedHead.getLocation(), false);
+        player.sendMessage(Component.text("리스폰 지점을 설정했어요.", NamedTextColor.YELLOW));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -2125,7 +2078,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             world.setFullTime(fullTime + 24_000L - Math.floorMod(fullTime, 24_000L));
             world.setStorm(false);
             world.setThundering(false);
-            getServer().broadcastMessage(ChatColor.YELLOW + playerLabel(sleeper) + "님이 잠들어 아침이 됐어요.");
+            getServer().broadcast(Component.text(playerLabel(sleeper) + "님이 잠들어 아침이 됐어요.", NamedTextColor.YELLOW));
         }, 1L);
     }
 
@@ -2138,9 +2091,13 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onQuietSpectatorPing(org.bukkit.event.server.ServerListPingEvent event) {
-        java.util.Iterator<Player> players = event.iterator();
-        while (players.hasNext()) if (isQuietSpectator(players.next())) players.remove();
+    public void onQuietSpectatorPing(com.destroystokyo.paper.event.server.PaperServerListPingEvent event) {
+        Set<UUID> hidden = new HashSet<>();
+        for (Player player : getServer().getOnlinePlayers()) {
+            if (isQuietSpectator(player)) hidden.add(player.getUniqueId());
+        }
+        event.getListedPlayers().removeIf(player -> hidden.contains(player.id()));
+        if (!event.shouldHidePlayers()) event.setNumPlayers(Math.max(0, event.getNumPlayers() - hidden.size()));
     }
 
     private boolean isQuietSpectator(Player player) {
@@ -2150,22 +2107,27 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onQuietSpectatorLogin(PlayerLoginEvent event) {
-        PlayerIdentity identity = pendingIdentities.get(event.getPlayer().getName().toLowerCase(Locale.ROOT));
+    public void onQuietSpectatorLogin(io.papermc.paper.event.connection.PlayerConnectionValidateLoginEvent event) {
+        var connection = event.getConnection();
+        var profile = connection instanceof io.papermc.paper.connection.PlayerLoginConnection login
+            ? login.getAuthenticatedProfile()
+            : connection instanceof io.papermc.paper.connection.PlayerConfigurationConnection configuration
+                ? configuration.getProfile() : null;
+        if (profile == null || profile.getName() == null) return;
+        String username = profile.getName();
+        PlayerIdentity identity = pendingIdentities.get(username.toLowerCase(Locale.ROOT));
         if (identity == null || !identity.spectator) return;
-        UUID spectatorUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + event.getPlayer().getName()).getBytes(StandardCharsets.UTF_8));
-        if (!spectatorUuid.equals(event.getPlayer().getUniqueId())) {
-            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, "관전 프로필로 다시 접속하세요.");
-            pendingIdentities.remove(event.getPlayer().getName().toLowerCase(Locale.ROOT));
+        UUID spectatorUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + username).getBytes(StandardCharsets.UTF_8));
+        if (!spectatorUuid.equals(profile.getId())) {
+            event.kickMessage(Component.text("관전 프로필로 다시 접속하세요."));
+            pendingIdentities.remove(username.toLowerCase(Locale.ROOT));
             return;
         }
         UUID operatorUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + identity.operatorUsername).getBytes(StandardCharsets.UTF_8));
         if (!getServer().getOfflinePlayer(operatorUuid).isOp()) {
-            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, "관전 접속은 OP 계정만 사용할 수 있어요.");
-            pendingIdentities.remove(event.getPlayer().getName().toLowerCase(Locale.ROOT));
-            return;
+            event.kickMessage(Component.text("관전 접속은 OP 계정만 사용할 수 있어요."));
+            pendingIdentities.remove(username.toLowerCase(Locale.ROOT));
         }
-        event.getPlayer().setGameMode(GameMode.SPECTATOR);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -2193,7 +2155,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         Player player = event.getPlayer();
         installDisplayNamePacketHandler(player);
         applyPendingIdentity(player);
-        event.setJoinMessage(null);
+        event.joinMessage(null);
         for (Player other : getServer().getOnlinePlayers()) {
             if (other == player) continue;
             if (isQuietSpectator(player)) other.hidePlayer(this, player);
@@ -2209,15 +2171,9 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         announcePlayerJoin(player, IDENTITY_RESOLVE_ATTEMPTS);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
-        if (isQuietSpectator(event.getPlayer())) { event.setCancelled(true); return; }
-        event.setFormat("<" + playerLabel(event.getPlayer()) + "> %2$s");
-    }
-
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerChatHistory(AsyncPlayerChatEvent event) {
-        recordPlayerHistory("chat", event.getPlayer(), event.getMessage());
+    public void onPlayerChatHistory(io.papermc.paper.event.player.AsyncChatEvent event) {
+        recordPlayerHistory("chat", event.getPlayer(), PlainTextComponentSerializer.plainText().serialize(event.message()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -2240,7 +2196,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         if (isQuietSpectator(event.getEntity())) { event.deathMessage(null); return; }
         Location location = event.getEntity().getLocation();
         String coordinates = location.getBlockX() + ", " + location.getBlockY() + ", " + location.getBlockZ();
-        if (!Boolean.TRUE.equals(event.getEntity().getWorld().getGameRuleValue(org.bukkit.GameRule.SHOW_DEATH_MESSAGES))) {
+        if (!Boolean.TRUE.equals(event.getEntity().getWorld().getGameRuleValue(GameRules.SHOW_DEATH_MESSAGES))) {
             event.deathMessage(null);
             event.getEntity().sendMessage("사망 좌표: " + coordinates);
             return;
@@ -2258,43 +2214,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         return message;
     }
 
-    private BaseComponent[] localizedDeathMessage(Player player) {
-        try {
-            Object handle = player.getClass().getMethod("getHandle").invoke(player);
-            Object tracker = handle.getClass().getMethod("getCombatTracker").invoke(handle);
-            Object component = tracker.getClass().getMethod("getDeathMessage").invoke(tracker);
-            Class<?> componentType = Class.forName("net.minecraft.server.v1_12_R1.IChatBaseComponent");
-            Class<?> serializerType = Class.forName("net.minecraft.server.v1_12_R1.IChatBaseComponent$ChatSerializer");
-            String json = (String) serializerType.getMethod("a", componentType).invoke(null, component);
-            BaseComponent[] translated = ComponentSerializer.parse(json);
-            for (BaseComponent part : translated) replaceTechnicalPlayerNames(part);
-            return translated;
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
-            if (!deathTranslationWarningLogged) {
-                deathTranslationWarningLogged = true;
-                getLogger().warning("Could not preserve the localized death message: " + exception.getMessage());
-            }
-            return null;
-        }
-    }
-
-    private void replaceTechnicalPlayerNames(BaseComponent component) {
-        if (component instanceof TextComponent text) {
-            text.setText(replaceTechnicalPlayerNames(text.getText()));
-        } else if (component instanceof TranslatableComponent translated) {
-            if (translated.getWith() != null) {
-                for (BaseComponent argument : translated.getWith()) replaceTechnicalPlayerNames(argument);
-            }
-        }
-        if (component.getExtra() != null) {
-            for (BaseComponent extra : component.getExtra()) replaceTechnicalPlayerNames(extra);
-        }
-        HoverEvent hover = component.getHoverEvent();
-        if (hover != null && hover.getValue() != null) {
-            for (BaseComponent value : hover.getValue()) replaceTechnicalPlayerNames(value);
-        }
-    }
-
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerAdvancement(PlayerAdvancementDoneEvent event) {
         if (isQuietSpectator(event.getPlayer())) { event.message(null); return; }
@@ -2304,9 +2223,9 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerQuit(PlayerQuitEvent event) {
         String displayName = resolvedPlayerName(event.getPlayer());
-        event.setQuitMessage(isQuietSpectator(event.getPlayer()) || displayName == null
+        event.quitMessage(isQuietSpectator(event.getPlayer()) || displayName == null
             ? null
-            : ChatColor.YELLOW + displayName + "님이 게임에서 나갔습니다.");
+            : Component.text(displayName + "님이 게임에서 나갔습니다.", NamedTextColor.YELLOW));
         removeTeleportRequestsFor(event.getPlayer());
         recordPlayerHistory("quit", event.getPlayer(), null);
         publicPlayerNames = getServer().getOnlinePlayers().stream()
@@ -2333,7 +2252,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             return;
         }
         recordPlayerHistory("join", player, null);
-        getServer().broadcastMessage(ChatColor.YELLOW + displayName + "님이 게임에 참여했습니다.");
+        getServer().broadcast(Component.text(displayName + "님이 게임에 참여했습니다.", NamedTextColor.YELLOW));
     }
 
     private PlayerIdentity applyPendingIdentity(Player player) {
@@ -2343,30 +2262,20 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             if (identity != null) activeIdentities.put(player.getUniqueId(), identity);
         }
         if (identity == null) return null;
-        player.setDisplayName(identity.displayName);
+        player.displayName(Component.text(identity.displayName));
         try {
-            player.setPlayerListName(identity.displayName);
+            player.playerListName(Component.text(identity.displayName));
         } catch (IllegalArgumentException exception) {
-            player.setPlayerListName("플레이어");
+            player.playerListName(Component.text("플레이어"));
             getLogger().warning("Could not apply the display name to the player list for " + player.getName() + ".");
         }
         return identity;
     }
 
     private static String resolvedPlayerName(Player player) {
-        String displayName = player.getDisplayName();
+        String displayName = PlainTextComponentSerializer.plainText().serialize(player.displayName());
         if (displayName == null || displayName.isBlank() || isTechnicalGameUsername(displayName)) return null;
         return displayName;
-    }
-
-    private String replaceTechnicalPlayerNames(String message) {
-        String visible = message;
-        for (Player player : getServer().getOnlinePlayers()) {
-            if (!player.getName().equals(player.getDisplayName())) {
-                visible = visible.replace(player.getName(), playerLabel(player));
-            }
-        }
-        return TECHNICAL_GAME_USERNAME.matcher(visible).replaceAll("플레이어");
     }
 
     private static boolean isTechnicalGameUsername(String value) {
@@ -2468,52 +2377,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         return ((org.bukkit.craftbukkit.entity.CraftPlayer) player).getHandle().connection.connection.channel;
     }
 
-    private boolean disableDefaultAdvancementAnnouncement(World world) {
-        UUID worldId = world.getUID();
-        if (advancementRuleRestores.containsKey(worldId)) return true;
-        String current = world.getGameRuleValue("announceAdvancements");
-        if (!"true".equalsIgnoreCase(current)) return false;
-        if (!world.setGameRuleValue("announceAdvancements", "false")) return false;
-        advancementRuleRestores.put(worldId, current);
-        getServer().getScheduler().runTaskLater(this, () -> restoreAdvancementAnnouncementRule(world), 1L);
-        return true;
-    }
-
-    private void restoreAdvancementAnnouncementRule(World world) {
-        String original = advancementRuleRestores.remove(world.getUID());
-        if (original != null) world.setGameRuleValue("announceAdvancements", original);
-    }
-
-    private void restoreAdvancementAnnouncementRules() {
-        for (World world : getServer().getWorlds()) restoreAdvancementAnnouncementRule(world);
-        advancementRuleRestores.clear();
-    }
-
-    private AdvancementAnnouncement advancementAnnouncement(Advancement advancement) {
-        try {
-            Object handle = advancement.getClass().getMethod("getHandle").invoke(advancement);
-            Object display = handle.getClass().getMethod("c").invoke(handle);
-            if (display == null || !((Boolean) display.getClass().getMethod("i").invoke(display))) return null;
-            Object frame = display.getClass().getMethod("e").invoke(display);
-            String frameName = (String) frame.getClass().getMethod("a").invoke(frame);
-            Object title = handle.getClass().getMethod("j").invoke(handle);
-            String craftPackage = getServer().getClass().getPackage().getName();
-            String version = craftPackage.substring(craftPackage.lastIndexOf('.') + 1);
-            Class<?> componentType = Class.forName("net.minecraft.server." + version + ".IChatBaseComponent");
-            Class<?> serializer = Class.forName("net.minecraft.server." + version + ".IChatBaseComponent$ChatSerializer");
-            String titleJson = (String) serializer.getMethod("a", componentType).invoke(null, title);
-            BaseComponent[] titleParts = ComponentSerializer.parse(titleJson);
-            BaseComponent titleComponent = titleParts.length == 1 ? titleParts[0] : new TextComponent(titleParts);
-            return new AdvancementAnnouncement(frameName, titleComponent);
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError exception) {
-            if (!advancementReflectionWarningLogged) {
-                advancementReflectionWarningLogged = true;
-                getLogger().warning("Could not replace advancement player IDs with display names: " + exception.getMessage());
-            }
-            return null;
-        }
-    }
-
     private static double relativeYaw(Location origin, Location destination) {
         double targetYaw = Math.toDegrees(Math.atan2(-(destination.getX() - origin.getX()), destination.getZ() - origin.getZ()));
         return signedYaw(targetYaw - origin.getYaw());
@@ -2567,7 +2430,7 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             byte[] supplied = Base64.getUrlDecoder().decode(parts[1]);
             if (!MessageDigest.isEqual(expected, supplied)) return null;
             String payload = new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8);
-            JsonObject json = new JsonParser().parse(payload).getAsJsonObject();
+            JsonObject json = JsonParser.parseString(payload).getAsJsonObject();
             if (!"game".equals(string(json, "aud"))) return null;
             long expiresAt = json.get("exp").getAsLong();
             if (expiresAt <= System.currentTimeMillis() / 1000L) return null;
@@ -2651,7 +2514,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
 
     record DiamondBonusBlock(int x, int y, int z) {}
 
-    private record AdvancementAnnouncement(String frame, BaseComponent title) {}
 
     private static final class BridgeThreadFactory implements ThreadFactory {
         private int number;

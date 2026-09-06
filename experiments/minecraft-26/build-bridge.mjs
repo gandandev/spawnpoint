@@ -4,7 +4,7 @@ import { work, source, root, javac, jars, run } from './common.mjs';
 const output = path.join(work, 'modern-bridge');
 await fs.mkdir(output, { recursive: true });
 const cp = [path.join(work, 'annotations.jar'), ...await jars(path.join(work, 'runtime/libraries')), ...await jars(path.join(work, 'runtime/versions'))].join(path.delimiter);
-await run(javac, ['-proc:none', '-encoding', 'UTF-8', '-cp', cp, '-d', output, path.join(source, 'java/SpawnpointBridgePlugin.java'), path.join(source, 'java/FoodSnapshot.java')]);
+await run(javac, ['-Xlint:deprecation', '-Werror', '-proc:none', '-encoding', 'UTF-8', '-cp', cp, '-d', output, path.join(source, 'java/SpawnpointBridgePlugin.java'), path.join(source, 'java/FoodSnapshot.java')]);
 const plugin = (await fs.readFile(path.join(root, 'server-plugin/plugin.yml'), 'utf8')).replace('depend:\n  - EaglercraftXServer\n', "api-version: '26.2'\n");
 await fs.writeFile(path.join(output, 'plugin.yml'), plugin);
 await run(path.join(path.dirname(javac), 'jar'), ['--create', '--file', path.join(work, 'SpawnpointBridge.jar'), '-C', output, '.']);
