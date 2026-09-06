@@ -7,6 +7,7 @@ import { source, work, root } from './common.mjs';
 export const cdnOrigin = 'https://spawnpoint-game-assets.pages.dev';
 export const releasePath = path.join(source, 'cdn-release.json');
 export const brotliQuality = 11;
+export const launcherArtifacts = new Set(['index.html', 'classes.wasm-runtime.js', 'worker-bootstrap.js']);
 const files = [
   'classes-spawnpoint.wasm.br', 'mesh-worker.wasm.br', 'server-worker.wasm.br',
   'assets-spawnpoint-vanilla.epk', 'assets-spawnpoint.epk', 'sounds.epk',

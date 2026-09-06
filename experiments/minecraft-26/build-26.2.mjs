@@ -5,11 +5,12 @@ import { brotliDecompressSync, brotliCompressSync, constants } from 'node:zlib';
 import { source, work, root, run } from './common.mjs';
 import { buildPortalBridge262 } from './build-portal-bridge.mjs';
 import { localizeLauncher } from './localize-client.mjs';
-import { applyGameAssets, assetSourceHash, brotliQuality, releasePath } from './game-assets.mjs';
+import { applyGameAssets, assetSourceHash, brotliQuality, launcherArtifacts, releasePath } from './game-assets.mjs';
 
 export async function build262() {
   const artifacts = JSON.parse(await fs.readFile(path.join(source, 'artifacts-26.2.json'), 'utf8'));
-  for (const artifact of Object.values(artifacts)) {
+  for (const [name, artifact] of Object.entries(artifacts)) {
+    if (process.env.GAME_ASSETS_PUBLISH !== 'true' && !launcherArtifacts.has(name)) continue;
     const bytes = await fs.readFile(path.join(work, artifact.file));
     if (createHash('sha256').update(bytes).digest('hex') !== artifact.sha256) {
       throw new Error(`26.2 artifact changed: ${artifact.file}`);

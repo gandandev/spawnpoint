@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { source, work, java, flags, run, compileTools } from './common.mjs';
 import { buildClient } from './build-client.mjs';
 import { build262 } from './build-26.2.mjs';
+import { launcherArtifacts } from './game-assets.mjs';
 
 const artifacts = { ...JSON.parse(await fs.readFile(path.join(source, 'artifacts.json'), 'utf8')),
   ...Object.fromEntries(Object.entries(JSON.parse(await fs.readFile(path.join(source, 'artifacts-26.2.json'), 'utf8'))).map(([key, value]) => [`262-${key}`, value])) };
@@ -16,6 +17,8 @@ async function hash(file) {
 }
 for (const [name, artifact] of Object.entries(artifacts)) {
   if (process.env.PREVIEW_BUILD === 'true' && ['client', 'assets'].includes(name)) continue;
+  // Railway serves the small launcher; the already-published client data lives on Pages.
+  if (name.startsWith('262-') && process.env.GAME_ASSETS_PUBLISH !== 'true' && !launcherArtifacts.has(name.slice(4))) continue;
   const file = path.join(work, artifact.file);
   await fs.mkdir(path.dirname(file), { recursive: true });
   try {
