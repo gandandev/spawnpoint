@@ -2,10 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import opentype from "opentype.js";
 import sharp from "sharp";
-import {
-  loadMinecraftAsciiAtlas,
-  renderMinecraftAsciiText,
-} from "./minecraft-ascii-font.mjs";
 
 const width = 1200;
 const height = 630;
@@ -13,12 +9,10 @@ const outlineWidth = 12;
 const publicDir = path.join(process.cwd(), "public");
 const backgroundDir = path.join(process.cwd(), "vendor", "og");
 const fontPath = path.join(process.cwd(), "vendor", "fonts", "galmuri", "Galmuri11.ttf");
-const clientPath = path.join(process.cwd(), "vendor", "clients", "stable-locale-fixed.epw");
 const fontBuffer = await fs.readFile(fontPath);
 const galmuri = opentype.parse(
   fontBuffer.buffer.slice(fontBuffer.byteOffset, fontBuffer.byteOffset + fontBuffer.byteLength),
 );
-const minecraftAsciiAtlas = await loadMinecraftAsciiAtlas(clientPath);
 const backgroundFiles = [
   "forest-pond.jpg",
   "garden-cottage.jpg",
@@ -143,13 +137,6 @@ async function renderGalmuriText(name, fontSize) {
     .toBuffer();
 }
 
-async function renderText(name, fontSize) {
-  if (/^[\x20-\x7e]+$/.test(name)) {
-    return addOutline(await renderMinecraftAsciiText(minecraftAsciiAtlas, name, fontSize));
-  }
-  return renderGalmuriText(name, fontSize);
-}
-
 async function renderBackground(file) {
   return sharp(path.join(backgroundDir, file))
     .resize(width, height, { fit: "cover", position: "centre" })
@@ -160,7 +147,7 @@ async function renderBackground(file) {
 const backgrounds = await Promise.all(backgroundFiles.map(renderBackground));
 
 await Promise.all(sites.map(async ({ key, name, files, fontSize, fallbackBackgroundIndex }) => {
-  const text = await renderText(name, fontSize);
+  const text = await renderGalmuriText(name, fontSize);
   const textMetadata = await sharp(text).metadata();
   const textWidth = textMetadata.width ?? 0;
   const textHeight = textMetadata.height ?? 0;
