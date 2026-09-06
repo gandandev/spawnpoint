@@ -62,7 +62,7 @@
       });
     },
     async warm() {
-      if (mobile) return;
+      if (mobile || apple) return;
       const manifest = await api.manifest();
       await Promise.all(manifest.preload.map(name => {
         const asset = manifest.assets[name];
@@ -73,7 +73,10 @@
       // Only the same-origin game frame can access this in-memory cache.
       let shared = api;
       try { shared = window.parent.spawnpointGameAssets || api; } catch { /* Standalone launch. */ }
-      window.spawnpointCompileWasm = name => shared.compile(manifest.assets[name]);
+      // Keep Safari's native Module in the same realm as its runtime.
+      // Keep Blob downloads shared, but do not pass parent-owned Modules to it.
+      const compiler = apple ? api : shared;
+      window.spawnpointCompileWasm = name => compiler.compile(manifest.assets[name]);
       window.spawnpointPrepareAssets = async options => {
         const assets = new Map(Object.values(manifest.assets).map(asset => [asset.url, asset]));
         await Promise.all(options.assetsURI.map(async entry => {

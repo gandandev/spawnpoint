@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { brotliDecompressSync, brotliCompressSync, constants } from 'node:zlib';
 import { source, work, root, run } from './common.mjs';
 import { buildPortalBridge262 } from './build-portal-bridge.mjs';
+import { patchRuntime, formatStartupError } from './patch-runtime.mjs';
 import { brandLoadingScreen } from './loading-screen.mjs';
 import { localizeLauncher } from './localize-client.mjs';
 import { applyGameAssets, assetSourceHash, brotliQuality, launcherArtifacts, releasePath } from './game-assets.mjs';
@@ -21,6 +22,8 @@ export async function build262() {
       throw new Error(`26.2 artifact changed: ${artifact.file}`);
     }
   }
+  const runtime = await fs.readFile(path.join(work, 'client-26.2/classes.wasm-runtime.js'), 'utf8');
+  await fs.writeFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm-runtime.js'), patchRuntime(runtime));
   const html = createLauncher262(await fs.readFile(path.join(work, 'client-26.2/index.html'), 'utf8'));
   await fs.copyFile(path.join(root, 'vendor/fonts/galmuri/Galmuri11.woff2'), path.join(work, 'client-26.2/Galmuri11.woff2'));
   await fs.writeFile(path.join(work, 'client-26.2/launch.html'), html);
@@ -63,6 +66,8 @@ export function createLauncher262(html) {
     if (html.split(before).length !== 2) throw new Error(`${label} anchor changed`);
     html = html.replace(before, after);
   };
+  replaceOnce('journal.error = "" + (error && (error.stack || error.message || error));',
+    `journal.error = (${formatStartupError.toString()})(error);`, 'Startup error message');
   html = brandLoadingScreen(localizeLauncher(html));
   html = html.replace('</head>', '<style>@font-face{font-family:Galmuri11;src:url("Galmuri11.woff2") format("woff2");font-display:swap}body,body *{font-family:Galmuri11,sans-serif!important;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}</style></head>');
   const overlayScripts = '<script src="escape-26.2.js"></script><script src="game-hud-26.2.js"></script><script src="food-hud-26.2.js"></script><script src="ime-26.2.js"></script>';
@@ -77,5 +82,6 @@ export function createLauncher262(html) {
   html = html.replaceAll('classes.wasm.br?', 'classes-spawnpoint.wasm.br?').replaceAll('classes.wasm?', 'classes-spawnpoint.wasm?');
   html = html.replaceAll('mesh-worker.wasm.br?', 'mesh-worker-spawnpoint.wasm.br?');
   html = html.replace(/<!-- Cloudflare Pages Analytics -->[\s\S]*?<!-- Cloudflare Pages Analytics -->/, '');
+  html = html.replaceAll('classes.wasm-runtime.js', 'classes-spawnpoint.wasm-runtime.js');
   return html;
 }

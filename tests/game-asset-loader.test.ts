@@ -104,3 +104,22 @@ describe('game asset preloading', () => {
     expect(compile).not.toHaveBeenCalled();
   });
 });
+
+it('keeps Safari modules in the game realm while sharing downloaded asset blobs', async () => {
+  const portal = fixture();
+  const frame = fixture(portal.runtime);
+  frame.runtime.spawnpointGameAssets = undefined;
+  frame.runtime.navigator = { vendor: 'Apple Computer, Inc.', userAgent: 'iPhone' };
+  vm.runInNewContext(script, frame.runtime);
+  const local = frame.runtime.spawnpointGameAssets;
+  local.install(manifest);
+  const parentCompile = vi.spyOn(portal.api, 'compile');
+  const module = await frame.runtime.spawnpointCompileWasm('wasm');
+  expect(module).toBeInstanceOf(WebAssembly.Module);
+  expect(parentCompile).not.toHaveBeenCalled();
+  expect(frame.fetch).toHaveBeenCalledWith(wasm.url, expect.anything());
+  const options = { assetsURI: [{ url: asset.url }] };
+  await frame.runtime.spawnpointPrepareAssets(options);
+  expect(portal.fetch).toHaveBeenCalledWith(asset.url, expect.anything());
+  URL.revokeObjectURL(options.assetsURI[0].url);
+});
