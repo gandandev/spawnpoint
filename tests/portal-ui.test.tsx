@@ -219,7 +219,8 @@ describe("administrator access", () => {
     expect(adminButton).toBeTruthy();
     const logo = adminButton.parentElement?.querySelector('[aria-label="spawnpoint"]');
     expect(logo).toBeTruthy();
-    expect(logo?.querySelector('[data-font="minecraft-1.12"]')).toBeTruthy();
+    expect(logo?.querySelector("span.font-mark")?.textContent).toBe("spawnpoint");
+    expect(logo?.querySelector('[data-build-number]')?.textContent).toBe(`v${__BUILD_NUMBER__}`);
     await act(async () => adminButton.click());
     expect(document.body.querySelector('[aria-label="관리자 비밀번호"]')).toBeTruthy();
     await act(async () => root.unmount());

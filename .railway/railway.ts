@@ -21,6 +21,7 @@ export default defineRailway(() => {
         "/scripts/generate-og-images.mjs",
         "/scripts/generate-site-metadata.mjs",
         "/scripts/compress-client-assets.mjs",
+        "/scripts/build-number.mjs",
         "/index.html",
         "/vite.config.ts",
         "/tsconfig.json",

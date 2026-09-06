@@ -5,11 +5,6 @@ import type { OnlinePlayer, ServerStatus } from "@/types";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { currentSiteName } from "@/lib/site-name";
-import {
-  SPAWNPOINT_MINECRAFT_WORDMARK_HEIGHT,
-  SPAWNPOINT_MINECRAFT_WORDMARK_PATH,
-  SPAWNPOINT_MINECRAFT_WORDMARK_WIDTH,
-} from "@/lib/minecraft-wordmark";
 import { cn } from "@/lib/utils";
 
 export function AnimatedHeight({ children }: { children: ReactNode }) {
@@ -37,19 +32,14 @@ export function AnimatedHeight({ children }: { children: ReactNode }) {
 
 export function Logo() {
   const siteName = currentSiteName();
-  return <div className="flex shrink-0 select-none items-center gap-3" aria-label={siteName}>
+  return <div className="ml-1 flex shrink-0 select-none items-center gap-3" aria-label={siteName}>
     <svg aria-hidden="true" className="size-[18px]" viewBox="0 0 18 18" fill="none">
       <path fill="#96ce4d" fillRule="evenodd" d="M0 0h18v13H13v5H0zM4 4v7h7V4z" />
     </svg>
-    {siteName === "spawnpoint" ? <svg
-      aria-hidden="true"
-      className="h-4 w-[108px] max-[359px]:hidden"
-      data-font="minecraft-1.12"
-      viewBox={`0 0 ${SPAWNPOINT_MINECRAFT_WORDMARK_WIDTH} ${SPAWNPOINT_MINECRAFT_WORDMARK_HEIGHT}`}
-      shapeRendering="crispEdges"
-    >
-      <path d={SPAWNPOINT_MINECRAFT_WORDMARK_PATH} fill="currentColor" />
-    </svg> : <span className="font-mark text-sm font-bold tracking-normal max-[359px]:hidden">{siteName}</span>}
+    <span className="flex items-center gap-1.5 max-[359px]:hidden">
+      <span className="font-mark text-sm font-bold tracking-normal">{siteName}</span>
+      <span className="font-mark text-[10px] font-normal tabular-nums text-muted-foreground/60" data-build-number>v{__BUILD_NUMBER__}</span>
+    </span>
   </div>;
 }
 
@@ -132,7 +122,7 @@ export function ServerCard({ status, showPlayerDropdown = false }: ServerCardPro
       </span> : status.phase === "online" ? label.detail && <span className="relative ml-auto mr-2 text-sm text-[#65952c]">{label.detail}</span> : null}
     </>;
 
-  return <Card size="sm" className={cn("t-acc relative gap-0 overflow-hidden border-0 bg-muted py-0 shadow-none ring-0", status.phase === "online" && "bg-[#96ce4d]/15", canExpand && "cursor-pointer transition-[background-color,transform] duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-[#96ce4d]/25 has-[:active]:scale-[var(--scale-large)] has-[:active]:bg-[#96ce4d]/35 motion-reduce:transition-none motion-reduce:has-[:active]:scale-100")} data-open={expanded}>
+  return <Card size="sm" className={cn("server-card t-acc relative gap-0 overflow-hidden border-0 bg-muted py-0 shadow-none ring-0", status.phase === "online" && "bg-[#96ce4d]/15", canExpand && "cursor-pointer transition-[background-color,transform] duration-[var(--duration-quick)] ease-[var(--ease-smooth-out)] hover:bg-[#96ce4d]/25 has-[:active]:scale-[var(--scale-large)] has-[:active]:bg-[#96ce4d]/35 motion-reduce:transition-none motion-reduce:has-[:active]:scale-100")} data-open={expanded}>
     {canExpand && <button
         type="button"
         className="t-acc-toggle absolute inset-0 z-10 touch-manipulation cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#65952c]/30"

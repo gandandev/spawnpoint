@@ -270,6 +270,10 @@
     @apply flex min-w-0 items-center justify-between gap-2;
   }
 
+  .dashboard-header + .server-card {
+    @apply -mt-2;
+  }
+
   .dashboard-actions {
     @apply flex min-w-0 flex-1 items-center justify-end gap-0;
   }

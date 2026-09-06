@@ -6,7 +6,16 @@ import {
   loadMinecraftAsciiAtlas,
   renderMinecraftAsciiText,
 } from "../scripts/minecraft-ascii-font.mjs";
-import { SPAWNPOINT_MINECRAFT_WORDMARK_ROWS } from "../src/lib/minecraft-wordmark";
+const expectedWordmarkRows = [
+  "..........................................#........#..",
+  "...................................................#..",
+  ".####.#.##...###..#...#.####..#.##...###..#.####..###.",
+  "#.....##..#.....#.#...#.#...#.##..#.#...#.#.#...#..#..",
+  ".###..#...#..####.#.#.#.#...#.#...#.#...#.#.#...#..#..",
+  "....#.####..#...#.#.#.#.#...#.####..#...#.#.#...#..#..",
+  "####..#......####..####.#...#.#......###..#.#...#...#.",
+  "......#.......................#.......................",
+] as const;
 
 const clientPath = path.join(process.cwd(), "vendor", "clients", "stable-locale-fixed.epw");
 
@@ -36,7 +45,7 @@ describe("Minecraft ASCII font", () => {
         data[((y * 10) * info.width + x * 10) * info.channels + 3] > 0 ? "#" : "."
       )).join("")
     ));
-    expect(rows).toEqual(SPAWNPOINT_MINECRAFT_WORDMARK_ROWS);
+    expect(rows).toEqual(expectedWordmarkRows);
   });
 
   it("rejects characters outside the bundled ASCII atlas", async () => {
