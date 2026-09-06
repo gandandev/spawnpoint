@@ -75,10 +75,10 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
       </Dialog>
     </section>
     <div className="flex w-full items-center gap-2">
+      {data.canSpectate && <Button variant="secondary" size="lg" className="h-11 shrink-0 rounded-full" aria-label="관전" title="조용히 관전" disabled={launching || serverBusy || !data.setup.eulaAccepted} onClick={() => void execute(true)}><Eye className="-translate-y-px" /><span className="translate-y-[0.5px] leading-none">관전</span></Button>}
       <Button size="lg" className="h-11 min-w-0 flex-1 rounded-full px-4" disabled={launching || serverBusy || !data.setup.eulaAccepted} onClick={() => void execute()}>
-        {launching || serverBusy ? <Spinner /> : <Play fill="currentColor" />}<span>{data.server.phase === "off" ? "서버 켜고 실행" : "실행"}</span>
+        {launching || serverBusy ? <Spinner /> : <Play fill="currentColor" />}<span className="translate-y-[0.5px] leading-none">{data.server.phase === "off" ? "서버 켜고 실행" : "실행"}</span>
       </Button>
-      {data.canSpectate && <Button variant="outline" size="lg" className="h-11 shrink-0 rounded-full border-0 bg-white text-black hover:bg-white/90" aria-label="관전" title="조용히 관전" disabled={launching || serverBusy || !data.setup.eulaAccepted} onClick={() => void execute(true)}><Eye /><span>관전</span></Button>}
     </div>
   </main>;
 }
