@@ -58,6 +58,12 @@ under its ignored `sources/libs/`, with the 26.2 client linked as
 `minecraft-26.2.jar`.
 
 Both the original 26.1.2 and adapted 26.2 `:sources:compileTeavmJava` tasks passed.
+Deeper inspection found that this candidate is not a working renderer: its
+GpuDevice, CommandEncoder and RenderPipeline overrides contain empty bodies,
+null returns and placeholder resource objects. It is rejected as a production
+base. The initial 16 missing methods are only the first link errors, not a
+complete estimate of remaining porting work.
+
 This proves the adapter source compiles against the new JAR, not complete binary
 API compatibility or a playable game. The subsequent Wasm-GC link exposes 16
 missing methods, including 26.2 `BindGroupLayout`, backend/device/surface creation,

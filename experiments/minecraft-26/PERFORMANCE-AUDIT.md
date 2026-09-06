@@ -79,3 +79,65 @@ Java adapter against 26.2 after a constructor update. The exact source of the
 pinned production WASM is still unverified, but source acquisition no longer
 requires user input. See SOURCE-BUILD.md for build evidence and remaining
 Wasm-GC/runtime porting work. No production renderer replacement is claimed.
+
+## Rejected renderer and binary experiments, 2026-09-06
+
+These experiments were tested locally and were **not deployed**. Production keeps
+its existing render-state cache and the original patched TeaVM binary. The coarse
+surface LOD removal above is the production change from this investigation.
+
+A WebGL2 `WEBGL_multi_draw` prototype grouped up to 64 native terrain draws. It
+validated the complete sequential quad-index range, retained sorted/unsupported
+geometry on the native path, shared model matrices and texture dimensions, and
+uploaded only per-chunk positions and visibility. Index buffers were cached with
+an 8 MiB/64-entry bound. Uniform/resource changes, other draws and state changes
+flushed the queue. Per-chunk attribute updates were deferred and temporary draw
+records were reused. Eleven transition tests passed, including sorted indices,
+uniform mutation, shader rejection, different matrices, cache eviction and context
+loss. The actual world rendered with the prototype and native fallback.
+
+At the fixed local spectator position, a four-second window grouped 23,760 terrain
+draws into 720 multi-draw calls with zero new index uploads after warmup. This
+large command reduction did **not** produce a clear CPU improvement. Four final
+alternating off/on/off/on windows each presented 240 frames, with mean intervals
+16.65–16.67 ms, p99 20.9–21.4 ms and no intervals above 50 ms. CDP ScriptDuration
+was 0.835 / 0.837 / 0.873 / 0.885 seconds; TaskDuration was 0.907 / 0.918 / 0.951 /
+0.965 seconds. The first broader shader version had also shown a single >50 ms
+interval in an earlier window. It was not a consistent performance win.
+
+A separate VAO attribute-enable/divisor cache removed roughly 115,000 additional
+state calls per four-second window. Its six state-transition tests passed, but
+ScriptDuration was 0.803 / 0.832 / 0.812 / 0.808 seconds in alternating off/on
+windows. It also had no clear CPU benefit, so it was not added to production.
+
+Measurements used a 60 Hz Chromium window on this Mac, with local Paper running.
+Only actual default-framebuffer present draws were timestamped; that diagnostic
+also queried the framebuffer binding. CDP timings and these short, instrumented
+stationary runs are not GPU timings, statistical performance proof, or Gram/Tab
+S7 FE measurements. They justify withholding the changes, not claiming FO parity.
+The rejected renderer and test snapshots remain local under
+`work/minecraft-26/rejected-optimizations/`; they are not loaded by the launcher.
+
+Binaryen 132 was tested against `classes-spawnpoint.wasm` after our guarded screen
+patch. The unrestricted `-O2 --all-features` run spent over 35 minutes in optimizer
+work, including inlining/precompute, and was terminated without a result. Two
+bounded rewrites completed and passed `wasm-tools validate --features all`:
+
+| Rewrite | Raw bytes | Brotli quality 5 bytes | Result |
+| --- | ---: | ---: | --- |
+| Existing patched binary | 101,558,801 | 18,550,415 | Production retained |
+| `--all-features --dce --remove-unused-brs --vacuum` | 111,639,553 | 27,316,873 | Real local world join passed; not adopted |
+| Same passes plus `--preserve-type-order` | 111,168,626 | Not measured | Validated; not adopted |
+
+The first rewrite preserved the TeaVM custom sections and ran the local multiplayer
+world through a browser-only response override. Its compressed download grew by
+47%, and no compensating performance gain was established. It was not substituted
+into production or the normal build pipeline. Reproducible inputs and outputs are
+local under `work/minecraft-26/client-26.2/`; use the pinned Binaryen 132 executable
+rather than replacing system `wasm2c`/WABT tools.
+
+Prism provides the real Java game and Fabric mod bytecode, but that does not supply
+the matching TeaVM browser platform. The examined public browser source candidate
+contains placeholder GPU devices, command encoders and pipelines. Its successful
+Java compilation and initial 16 linker failures are not evidence of a nearly
+finished browser renderer. Full Sodium/FO porting remains incomplete.
