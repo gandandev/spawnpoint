@@ -13,11 +13,11 @@ it('keeps the published release tied to the checked-in asset sources', async () 
   expect(await assetSourceHash()).toBe(release.sourceHash);
 });
 
-it('refuses to publish a local food HUD experiment as the normal CDN release', async () => {
+it('refuses to publish low-compression local assets as the normal CDN release', async () => {
   vi.stubEnv('GAME_ASSETS_LOCAL', 'true');
   vi.stubEnv('GAME_ASSETS_PUBLISH', 'true');
   try {
-    await expect(build262()).rejects.toThrow('Local food HUD experiments cannot be published');
+    await expect(build262()).rejects.toThrow('Local low-compression assets cannot be published');
   } finally {
     vi.unstubAllEnvs();
   }
@@ -25,11 +25,11 @@ it('refuses to publish a local food HUD experiment as the normal CDN release', a
 
 // This integration check uses the optional, hash-pinned 26.2 download.
 describe.skipIf(!existsSync('work/minecraft-26/client-26.2/index.html'))('Pages game launcher', () => {
-  it('loads the food overlay script only for the local experiment', () => {
+  it('loads the food overlay script in production and local launchers', () => {
     const input = readFileSync('work/minecraft-26/client-26.2/index.html', 'utf8');
     try {
       vi.stubEnv('GAME_ASSETS_LOCAL', 'false');
-      expect(createLauncher262(input)).not.toContain('src="food-hud-26.2.js"');
+      expect(createLauncher262(input)).toContain('src="food-hud-26.2.js"');
       vi.stubEnv('GAME_ASSETS_LOCAL', 'true');
       expect(createLauncher262(input)).toContain('src="food-hud-26.2.js"');
     } finally {
@@ -48,6 +48,7 @@ describe.skipIf(!existsSync('work/minecraft-26/client-26.2/index.html'))('Pages 
     expect(html).not.toContain('__eagFetchBrotliWasm(');
     expect(html).not.toContain('src="brotli-loader.js');
     expect(html).not.toContain('<link rel="preload"');
+    expect(html).toContain('src="food-hud-26.2.js"');
     expect(html).toContain("window.spawnpointCompileWasm('classes-spawnpoint.wasm.br')");
     expect(html).toContain("window.spawnpointCompileWasm('mesh-worker.wasm.br')");
     expect(html).toContain('window.spawnpointAssetsReady = window.spawnpointPrepareAssets(window.eaglercraftXOpts)');

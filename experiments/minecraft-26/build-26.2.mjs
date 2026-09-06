@@ -10,7 +10,7 @@ import { applyGameAssets, assetSourceHash, brotliQuality, launcherArtifacts, rel
 export async function build262() {
   const localAssets = process.env.GAME_ASSETS_LOCAL === 'true';
   if (localAssets && process.env.GAME_ASSETS_PUBLISH === 'true') {
-    throw new Error('Local food HUD experiments cannot be published as the normal asset release.');
+    throw new Error('Local low-compression assets cannot be published as the normal asset release.');
   }
   const artifacts = JSON.parse(await fs.readFile(path.join(source, 'artifacts-26.2.json'), 'utf8'));
   for (const [name, artifact] of Object.entries(artifacts)) {
@@ -24,10 +24,8 @@ export async function build262() {
   await fs.copyFile(path.join(root, 'vendor/fonts/galmuri/Galmuri11.woff2'), path.join(work, 'client-26.2/Galmuri11.woff2'));
   await fs.writeFile(path.join(work, 'client-26.2/launch.html'), html);
   await fs.copyFile(path.join(source, "client-26.2.js"), path.join(work, "client-26.2/client-26.2.js"));
-  if (localAssets) {
-    await fs.copyFile(path.join(source, 'food-hud-26.2.js'), path.join(work, 'client-26.2/food-hud-26.2.js'));
-    await fs.cp(path.join(root, 'public/game/food-hud'), path.join(work, 'client-26.2/food-hud'), { recursive: true });
-  }
+  await fs.copyFile(path.join(source, 'food-hud-26.2.js'), path.join(work, 'client-26.2/food-hud-26.2.js'));
+  await fs.cp(path.join(root, 'public/game/food-hud'), path.join(work, 'client-26.2/food-hud'), { recursive: true });
   await fs.copyFile(path.join(source, "render-state-26.2.js"), path.join(work, "client-26.2/render-state-26.2.js"));
   await buildPortalBridge262();
   if (localAssets || process.env.GAME_ASSETS_PUBLISH === 'true') {
@@ -38,7 +36,7 @@ export async function build262() {
     await fs.writeFile(meshInput, brotliDecompressSync(await fs.readFile(path.join(work, 'client-26.2/mesh-worker.wasm.br'))));
     await run('python3', [path.join(source, 'native-math.py'), 'mesh', meshInput, meshOutput]);
     await fs.writeFile(`${meshOutput}.br`, brotliCompressSync(await fs.readFile(meshOutput), { params: { [constants.BROTLI_PARAM_QUALITY]: localAssets ? 4 : brotliQuality } }));
-    if (localAssets) await run('python3', [path.join(source, 'patch-food-hud.py')]);
+    await run('python3', [path.join(source, 'patch-food-hud.py')]);
     // Build and publish these bytes once, instead of repeating font rendering and
     // expensive compression on each Railway deployment or a different OS.
     await fs.writeFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm.br'), brotliCompressSync(await fs.readFile(path.join(work, 'client-26.2/classes-spawnpoint.wasm')), { params: { [constants.BROTLI_PARAM_QUALITY]: localAssets ? 4 : brotliQuality } }));
@@ -61,7 +59,7 @@ export function createLauncher262(html) {
   };
   html = localizeLauncher(html);
   html = html.replace('</head>', '<style>@font-face{font-family:Galmuri11;src:url("Galmuri11.woff2") format("woff2");font-display:swap}body,body *{font-family:Galmuri11,sans-serif!important;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}</style></head>');
-  const foodHudScript = process.env.GAME_ASSETS_LOCAL === 'true' ? '<script src="food-hud-26.2.js"></script>' : '';
+  const foodHudScript = '<script src="food-hud-26.2.js"></script>';
   const anchor = '<script type="text/javascript" src="classes.wasm-runtime.js';
   replaceOnce(anchor, `<script>window.spawnpointPreviewCloud=${process.env.PREVIEW_CLOUD === 'true'};</script><script src="/profile-26.2.js"></script><script>if(new URLSearchParams(location.search).has("launch"))document.write('<script src="portal-bridge-26.2.js"><\\/script>');</script><script src="render-state-26.2.js"></script>${foodHudScript}<script src="client-26.2.js"></script>\n` + anchor, '26.2 launcher');
   const mainAnchor = 'const main = tv.exports && tv.exports.main;';

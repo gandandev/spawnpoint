@@ -1,8 +1,9 @@
-# 26.2 food HUD experiment
+# 26.2 food HUD
 
 This implements the AppleSkin-style food HUD, inventory tooltips and health prediction on the pinned o_xer 26.2 WASM, without
-Fabric or a full game source build. It is opt-in for local verification. Normal
-builds continue to use the published CDN client, which has no food hook.
+Fabric or a full game source build. Normal builds load the food HUD script and
+sprites alongside the published CDN client. Both local and published WASM builds
+include the guarded food hooks.
 
 ## Build and verify
 
@@ -80,9 +81,10 @@ preview indicates its food value, but does not predict whether an interactable
 main-hand item or targeted block will consume the use action first. Network state
 updates at the existing 200 ms interval, not every game tick.
 
-The hook is deliberately not in the published asset pipeline yet. A production
-release needs explicit inclusion of this patch in the asset source hash and
-publish build, then a new immutable CDN release and portal deployment.
+The food patch is included in the asset source hash and publish build. Publish a
+new immutable CDN release before deploying the matching portal and server.
+`GAME_ASSETS_LOCAL=true` only selects local assets and faster compression; it does
+not enable a separate feature set.
 
 ## Earlier basic HUD evidence, 2026-09-06
 
@@ -131,4 +133,4 @@ a tablet performance measurement or full AppleSkin validation.
   asset-source changes are not reflected in the published manifest; the other
   four asset-build tests passed. No CDN manifest was rewritten for this feature.
 - Screenshots: `output/playwright/food262-tooltip.png` and
-  `output/playwright/food262-health.png`. This remains a local opt-in build.
+  `output/playwright/food262-health.png`. This evidence was collected in a local build before production integration.

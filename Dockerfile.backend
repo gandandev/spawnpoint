@@ -14,6 +14,7 @@ COPY experiments/minecraft-26 ./experiments/minecraft-26
 COPY vendor/clients/stable-galmuri.epw ./vendor/clients/stable-galmuri.epw
 COPY vendor/fonts/galmuri ./vendor/fonts/galmuri
 COPY public/game/portal-bridge.js ./public/game/portal-bridge.js
+COPY public/game/food-hud ./public/game/food-hud
 COPY public/game-asset-loader.js ./public/game-asset-loader.js
 COPY experiments/minecraft-26/cache/ ./work/minecraft-26/runtime/cache/
 RUN npm run build:server && PREVIEW_BUILD=true PREVIEW_CLOUD=true node experiments/minecraft-26/prepare.mjs \

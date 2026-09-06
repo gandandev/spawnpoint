@@ -17,7 +17,8 @@ export async function assetSourceHash() {
   const hash = createHash('sha256').update(`brotli-quality:${brotliQuality}\n`);
   for (const file of [
     'experiments/minecraft-26/artifacts-26.2.json',
-    'experiments/minecraft-26/patch-client.py', 'experiments/minecraft-26/build-assets.py',
+    'experiments/minecraft-26/patch-client.py', 'experiments/minecraft-26/patch-food-hud.py',
+    'experiments/minecraft-26/build-assets.py',
     'experiments/minecraft-26/native-math.py', 'experiments/minecraft-26/native-math.json',
     'experiments/minecraft-26/eagler-ko_kr.json', 'experiments/minecraft-26/minecraft-ko_kr-overrides.json',
     'vendor/fonts/galmuri/Galmuri11.ttf', 'vendor/fonts/galmuri/Galmuri11-Bold.ttf',

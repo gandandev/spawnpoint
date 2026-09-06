@@ -1,39 +1,39 @@
 {
-  "sourceHash": "06b90b764d93f69c6e8ec8b849e055b9b6858a18bbe5d663f9f50658094683ba",
-  "branch": "r-fbb940ad1bb52555",
+  "sourceHash": "0de826dab9377a05716939326bbdac9af6cfaea5164b572365065366096f91d9",
+  "branch": "r-1b70df0304e82465",
   "assets": {
     "classes-spawnpoint.wasm.br": {
-      "url": "https://r-fbb940ad1bb52555.spawnpoint-game-assets.pages.dev/classes-spawnpoint-c2730aa57056d9a9.wasm",
+      "url": "https://r-1b70df0304e82465.spawnpoint-game-assets.pages.dev/classes-spawnpoint-7824e47ca159494c.wasm",
       "type": "application/wasm",
-      "sha256": "c2730aa57056d9a980e6fb620a4dbe5e92d595b2e3c986ddbf4dc78794b268c8",
-      "decodedSha256": "592b3c45bb1f3f1496acc565527eb52c4492d1a37d230232b91f365905e30636"
+      "sha256": "7824e47ca159494caabfa0f084e68ffe77e4decd707a8279af829f32a94f66a4",
+      "decodedSha256": "ce9f081e91b669d5ec4517bfa0046d6e26970e05ac7165b361332250c1818dc9"
     },
     "mesh-worker.wasm.br": {
-      "url": "https://r-fbb940ad1bb52555.spawnpoint-game-assets.pages.dev/mesh-worker-4c3daeae73262d9e.wasm",
+      "url": "https://r-1b70df0304e82465.spawnpoint-game-assets.pages.dev/mesh-worker-4c3daeae73262d9e.wasm",
       "type": "application/wasm",
       "sha256": "4c3daeae73262d9efd32c19ee346a66068b10c3257bcc1a90ab2b18817ed2688",
       "decodedSha256": "62570c1a81424f0ed0ed121215875fb9cc88747cbd15a1f30b9c56959936daf6"
     },
     "server-worker.wasm.br": {
-      "url": "https://r-fbb940ad1bb52555.spawnpoint-game-assets.pages.dev/server-worker-e416859afa1e9a88.wasm",
+      "url": "https://r-1b70df0304e82465.spawnpoint-game-assets.pages.dev/server-worker-e416859afa1e9a88.wasm",
       "type": "application/wasm",
       "sha256": "e416859afa1e9a88f161d8b829bdfbc7e1d50ac39f532892e03a4fbb56f43d05",
       "decodedSha256": "fe9f470d754699e5cc17f2a4b21f14bb7755ea4dfb2cca6e60e46fc91284a16b"
     },
     "assets-spawnpoint-vanilla.epk": {
-      "url": "https://r-fbb940ad1bb52555.spawnpoint-game-assets.pages.dev/assets-spawnpoint-vanilla-c6982a99a1d1207e.epk",
+      "url": "https://r-1b70df0304e82465.spawnpoint-game-assets.pages.dev/assets-spawnpoint-vanilla-c6982a99a1d1207e.epk",
       "type": "application/octet-stream",
       "sha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827",
       "decodedSha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827"
     },
     "assets-spawnpoint.epk": {
-      "url": "https://r-fbb940ad1bb52555.spawnpoint-game-assets.pages.dev/assets-spawnpoint-c6982a99a1d1207e.epk",
+      "url": "https://r-1b70df0304e82465.spawnpoint-game-assets.pages.dev/assets-spawnpoint-c6982a99a1d1207e.epk",
       "type": "application/octet-stream",
       "sha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827",
       "decodedSha256": "c6982a99a1d1207e475e2d4801b1b3596964cd7679ff78610d3a15281aea0827"
     },
     "sounds.epk": {
-      "url": "https://r-fbb940ad1bb52555.spawnpoint-game-assets.pages.dev/sounds-94bc8bfcf4132c52.epk",
+      "url": "https://r-1b70df0304e82465.spawnpoint-game-assets.pages.dev/sounds-94bc8bfcf4132c52.epk",
       "type": "application/octet-stream",
       "sha256": "94bc8bfcf4132c52c6d5f61f3f92e50532a6fad1f5bc901ee25a462db8ba4fc6",
       "decodedSha256": "94bc8bfcf4132c52c6d5f61f3f92e50532a6fad1f5bc901ee25a462db8ba4fc6"
