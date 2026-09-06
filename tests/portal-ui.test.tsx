@@ -839,19 +839,24 @@ describe("skin change flow", () => {
     await act(async () => changelogButton.click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain("2026. 9. 3.");
-    const details = dialog.querySelector("details")!;
-    expect(details.open).toBe(false);
-    expect(details.querySelector("summary")?.textContent).toContain("키 입력과 게임 메뉴");
-    expect(dialog.querySelectorAll("details").length).toBeGreaterThan(1);
-    expect(dialog.textContent).toContain("위치 표시기에 플레이어 이름, 머리와 직선 거리를 추가했어요.");
-    expect(dialog.textContent).toContain("위치 표시기의 거리는 정수 m로 표시해요.");
-    expect(dialog.textContent).toContain("채팅 메시지에 플레이어 머리를 추가했어요.");
-    expect(dialog.textContent).toContain("서버 업데이트 전에는 카운트다운을 보여줘요.");
-    expect(dialog.textContent).toContain("대시보드의 중복 서버 시작 버튼을 없앴어요.");
+    expect(dialog.querySelectorAll("details")).toHaveLength(0);
+    expect(dialog.querySelectorAll("summary")).toHaveLength(0);
+    expect(dialog.textContent).not.toContain("상세 정보");
+    expect(dialog.textContent).toContain("게임 화면 성능을 최적화했어요.");
+    expect(dialog.textContent).toContain("채팅에 플레이어 머리를 추가했어요.");
+    expect(dialog.textContent).toContain("업데이트 알림과 카운트다운을 추가했어요.");
+    expect(dialog.textContent).toContain("관리자에서 인벤토리와 서버를 관리할 수 있어요.");
     expect(dialog.textContent).toContain("2026. 9. 1.");
-    expect(dialog.textContent).toContain("포탈 전체 글꼴을 갈무리로 통일했어요.");
+    expect(dialog.textContent).toContain("글꼴을 통일했어요.");
     expect(dialog.textContent).toContain("2026. 8. 29.");
-    expect(dialog.textContent).toContain("회원가입 흐름과 모바일 게임 조작을 정식으로 추가했어요.");
+    expect(dialog.textContent).toContain("회원가입과 모바일 조작을 추가했어요.");
+    expect(dialog.querySelectorAll("article")).toHaveLength(10);
+    expect(dialog.querySelectorAll("article p").length).toBeLessThanOrEqual(50);
+    expect(dialog.querySelector("time")?.className).toContain("text-muted-foreground");
+    expect(dialog.querySelector("article")?.className).not.toMatch(/border|p-4/);
+    for (const article of dialog.querySelectorAll("article")) {
+      expect(article.querySelectorAll("p").length).toBeLessThanOrEqual(5);
+    }
 
     await act(async () => root.unmount());
   });
