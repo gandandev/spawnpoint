@@ -24,7 +24,7 @@ export function brandLoadingScreen(html) {
       const showCrash = window.__eaglerShowShellCrash;
       window.__eaglerShowShellCrash = error => {
         clearInterval(timer);
-        document.getElementById('loading_screen').remove();
+        document.getElementById('loading_screen')?.remove();
         showCrash(error);
         const panel = document.querySelector('._eaglercraftX_crash_element');
         if (panel) panel.appendChild(exit);
