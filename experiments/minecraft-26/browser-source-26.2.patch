@@ -1,0 +1,54 @@
+diff --git a/build.gradle b/build.gradle
+index 4bc1714..0e3f779 100755
+--- a/build.gradle
++++ b/build.gradle
+@@ -18,2 +18,2 @@ ext {
+-    minecraftVersion = '26.1.2'
+-    protocolVersion = 775
++    minecraftVersion = '26.2'
++    protocolVersion = 776
+diff --git a/sources/build.gradle b/sources/build.gradle
+index 50aba94..9ae1a8c 100755
+--- a/sources/build.gradle
++++ b/sources/build.gradle
+@@ -327 +327 @@ tasks.register('compileTeavmPatches') {
+-        def jdkHome = System.getenv('JAVA_HOME') ?: '/home/z/.jdks/jdk-25.0.3+9'
++        def jdkHome = System.getenv('JAVA_HOME') ?: System.getProperty('java.home')
+@@ -379 +379 @@ tasks.register('compileJdkJfrPatches') {
+-        def jdkHome = System.getenv('JAVA_HOME') ?: '/home/z/.jdks/jdk-25.0.3+9'
++        def jdkHome = System.getenv('JAVA_HOME') ?: System.getProperty('java.home')
+@@ -417 +417 @@ java {
+-def jdkHome = System.getenv('JAVA_HOME') ?: '/home/z/.jdks/jdk-25.0.3+9'
++def jdkHome = System.getenv('JAVA_HOME') ?: System.getProperty('java.home')
+@@ -667,0 +668,10 @@ tasks.named('build') {
++
++// Spawnpoint source-build probe: use local class overrides for Wasm-GC too.
++// Do not run the upstream tasks that rewrite the global Gradle artifact cache.
++afterEvaluate { tasks.named('generateWasmGC') {
++    dependsOn 'compileTeavmPatches', 'compileJdkJfrPatches'
++    processMemory = 3072
++    def existing = classpath.files
++    classpath.setFrom(files('teavm/patch/classes', 'teavm/patch/jdk-classes'))
++    classpath.from(sourceSets.teavm.output, sourceSets.main.output, existing)
++} }
+diff --git a/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraft.java b/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraft.java
+index a018300..59eff78 100755
+--- a/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraft.java
++++ b/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraft.java
+@@ -379 +379,2 @@ public class EaglerCraft {
+-                                        false, false, false, false, false
++                                        false, false, false, false, false,
++                                        net.minecraft.client.PreferredGraphicsApi.OPENGL, false
+diff --git a/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraftConfig.java b/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraftConfig.java
+index 1387c85..d19232e 100755
+--- a/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraftConfig.java
++++ b/sources/teavm/java/net/lax1dude/eaglercraft/v2_6/EaglerCraftConfig.java
+@@ -26 +26 @@ public final class EaglerCraftConfig {
+-	public static final String VERSION = "26.1.2";
++	public static final String VERSION = "26.2";
+@@ -31 +31 @@ public final class EaglerCraftConfig {
+-	public static final int PROTOCOL_VERSION = 775;
++	public static final int PROTOCOL_VERSION = 776;
+@@ -43 +43 @@ public final class EaglerCraftConfig {
+-	public static final String MINECRAFT_VERSION = "26.1.2";
++	public static final String MINECRAFT_VERSION = "26.2";

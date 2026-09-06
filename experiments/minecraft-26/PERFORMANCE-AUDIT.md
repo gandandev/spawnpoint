@@ -2,7 +2,7 @@
 
 The browser runs a pinned TeaVM Wasm-GC build, not a Fabric JVM. A Fabric JAR cannot patch this binary. The following table distinguishes comparable changes from ports. No Sodium, Voxy, or Distant Horizons installation is claimed.
 
-The [Fabulously Optimized list](https://github.com/Fabulously-Optimized/fabulously-optimized/blob/main/INCLUDED-MODS.md) currently lists 26.1.2, not a verified 26.2 pack. Its performance entries were reviewed individually:
+The initial [Fabulously Optimized list](https://github.com/Fabulously-Optimized/fabulously-optimized/blob/main/INCLUDED-MODS.md) review used a 26.1.2 web snapshot. The local Prism installation has since verified FO 14.0.0-beta.2 for 26.2; see SOURCE-BUILD.md for exact installed versions. Its performance entries were reviewed individually:
 
 | Mod | Mechanism | This browser build |
 | --- | --- | --- |
@@ -68,12 +68,12 @@ Five transition tests cover aliases, texture units/VAOs, indexed binding side ef
 uniform resets, deletion, context restoration and A/B toggles. A diagnostic toggle is
 `window.__spawnpoint262.renderState.enabled`; calls/skipped are cumulative counters.
 
-### Remaining source dependency
+### Source acquisition update
 
-The pinned 26.2 distribution has no Java sources or function-name custom section.
-The distributor credits o_xer but only links playable/offline binaries. Public
-`slungus57/eaglercraft` is a binary mirror; `NT9712/eaglercraft-262-workspace` is a
-separate scaffold, not the source of this pinned artifact. The examined 26.1.2 trees
-are not verified build inputs for this 26.2 binary. A matching source/build pipeline
-is still needed for a maintainable terrain batching renderer, entity/block-entity
-occlusion and simulation/data-layout ports. None of these is claimed by this cache.
+Prism supplied the actual Java 26.2 JAR and FO 26.2 mod binaries. Readable Java
+has been recovered locally; `prepare-source.py` reproduces the extraction and
+hash inventory. A separate 26.1.2 browser platform candidate now compiles its
+Java adapter against 26.2 after a constructor update. The exact source of the
+pinned production WASM is still unverified, but source acquisition no longer
+requires user input. See SOURCE-BUILD.md for build evidence and remaining
+Wasm-GC/runtime porting work. No production renderer replacement is claimed.
