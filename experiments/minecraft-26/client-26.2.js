@@ -17,6 +17,7 @@
       state.foodHook = true;
     }
     exports['spawnpoint.screenChanged'].value = name => {
+      window.spawnpoint262Ime?.clear();
       const screen = name || '';
       state.nativeScreens = true;
       state.screen = screen;

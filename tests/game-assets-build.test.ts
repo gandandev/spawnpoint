@@ -41,6 +41,13 @@ describe.skipIf(!existsSync('work/minecraft-26/client-26.2/index.html'))('Pages 
     expect(html).toContain('mesh-worker-spawnpoint.wasm.br?');
     expect(html).not.toContain('"mesh-worker.wasm.br?');
   });
+  it('installs the IME preview before binding the native caret hook and starting the client', () => {
+    const html = createLauncher262(readFileSync('work/minecraft-26/client-26.2/index.html', 'utf8'));
+    expect(html).toContain('src="ime-26.2.js"');
+    const bind = html.indexOf('window.spawnpoint262Ime.bind(tv.instance.exports)');
+    expect(bind).toBeGreaterThan(html.indexOf('src="ime-26.2.js"'));
+    expect(bind).toBeLessThan(html.indexOf('const main = tv.exports && tv.exports.main;'));
+  });
   it('shares precompiled modules, prepares EPKs before main, and keeps authenticated requests on the portal', () => {
     const input = readFileSync('work/minecraft-26/client-26.2/index.html', 'utf8');
     const release = JSON.parse(readFileSync('experiments/minecraft-26/cdn-release.json', 'utf8'));

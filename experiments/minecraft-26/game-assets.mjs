@@ -18,6 +18,7 @@ export async function assetSourceHash() {
   for (const file of [
     'experiments/minecraft-26/artifacts-26.2.json',
     'experiments/minecraft-26/patch-client.py', 'experiments/minecraft-26/patch-food-hud.py',
+    'experiments/minecraft-26/patch-ime.py',
     'experiments/minecraft-26/build-assets.py',
     'experiments/minecraft-26/native-math.py', 'experiments/minecraft-26/native-math.json',
     'experiments/minecraft-26/eagler-ko_kr.json', 'experiments/minecraft-26/minecraft-ko_kr-overrides.json',
