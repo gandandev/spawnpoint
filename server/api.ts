@@ -1286,21 +1286,6 @@ export function createApiRouter(context: ApiContext): express.Router {
     response.type("application/octet-stream").send(await context.skins.gameChatHeads());
   });
 
-  const terrainRequests = new Map<string, number>();
-  router.get("/game/terrain", async (request, response) => {
-    const user = requireUser(request, response, context);
-    if (!user) return;
-    const now = Date.now();
-    if (now - (terrainRequests.get(user.id) ?? 0) < 2500) { response.status(429).end(); return; }
-    terrainRequests.set(user.id, now);
-    for (const [id, time] of terrainRequests) if (now - time > 60000) terrainRequests.delete(id);
-    const cursor = typeof request.query.cursor === "string" && /^\d{1,6}$/.test(request.query.cursor) ? request.query.cursor : "0";
-    if (context.serverManager.getStatus().phase !== "online") { response.json({ active: false }); return; }
-    response.setHeader("Cache-Control", "private, no-store");
-    const snapshot = await bridgeRequest(context, `/v1/terrain/${user.id}/${cursor}`);
-    response.json(await snapshot.json());
-  });
-
   router.get("/game/locator", async (request, response) => {
     const user = requireUser(request, response, context);
     if (!user) return;

@@ -1428,14 +1428,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
                 sendJson(exchange, 200, root);
                 return;
             }
-            if ("GET".equals(method) && path.startsWith("/v1/terrain/")) {
-                String[] parts = path.substring("/v1/terrain/".length()).split("/");
-                if (parts.length != 2 || !parts[0].matches("[0-9a-f-]{36}") || !parts[1].matches("[0-9]{1,6}")) {
-                    sendError(exchange, 400, "invalid_request"); return;
-                }
-                sendJson(exchange, 200, onMainThread(() -> snapshotTerrain(parts[0], Integer.parseInt(parts[1]))));
-                return;
-            }
             if ("GET".equals(method) && "/v1/settings".equals(path)) {
                 sendJson(exchange, 200, onMainThread(this::snapshotSettings));
                 return;
@@ -1725,53 +1717,6 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
             future.cancel(false);
             throw exception;
         }
-    }
-
-    private int terrainBudgetTick = -1;
-    private long terrainBudgetUsed;
-
-    private JsonObject snapshotTerrain(String accountId, int cursor) {
-        long started = System.nanoTime();
-        JsonObject result = new JsonObject();
-        result.addProperty("active", false);
-        Player player = resolvePlayer(accountId);
-        if (player == null || player.getWorld().getEnvironment() != World.Environment.NORMAL) return result;
-        World world = player.getWorld();
-        Location position = player.getLocation();
-        int cx = position.getBlockX() >> 4, cz = position.getBlockZ() >> 4;
-        if (!world.isChunkLoaded(cx, cz)) return result;
-        result.addProperty("active", position.getY() + 4 >= world.getHighestBlockYAt(position.getBlockX(), position.getBlockZ()));
-        result.addProperty("world", world.getUID().toString());
-        result.addProperty("x", position.getX()); result.addProperty("z", position.getZ());
-        int tick = getServer().getCurrentTick();
-        if (terrainBudgetTick != tick) { terrainBudgetTick = tick; terrainBudgetUsed = 0; }
-        result.addProperty("cursor", cursor);
-        if (terrainBudgetUsed >= 3_000_000L) return result;
-        var chunks = java.util.Arrays.stream(world.getLoadedChunks())
-            .filter(chunk -> Math.abs(chunk.getX() - cx) <= 32 && Math.abs(chunk.getZ() - cz) <= 32)
-            .sorted(Comparator.comparingInt(org.bukkit.Chunk::getX).thenComparingInt(org.bukkit.Chunk::getZ)).toList();
-        JsonArray tiles = new JsonArray();
-        int visited = 0;
-        long deadline = started + 3_000_000L - terrainBudgetUsed;
-        while (visited < Math.min(32, chunks.size())) {
-            var chunk = chunks.get((cursor + visited) % chunks.size());
-            visited++;
-            JsonObject tile = new JsonObject();
-            tile.addProperty("x", chunk.getX()); tile.addProperty("z", chunk.getZ());
-            JsonArray cells = new JsonArray();
-            for (int z = 2; z < 16; z += 4) for (int x = 2; x < 16; x += 4) {
-                int bx = chunk.getX() * 16 + x, bz = chunk.getZ() * 16 + z;
-                int y = world.getHighestBlockYAt(bx, bz, org.bukkit.HeightMap.WORLD_SURFACE);
-                cells.add(y + 1);
-                cells.add(world.getBlockAt(bx, y, bz).getBlockData().getMapColor().asRGB());
-            }
-            tile.add("cells", cells); tiles.add(tile);
-            if (System.nanoTime() >= deadline) break;
-        }
-        result.addProperty("cursor", chunks.isEmpty() ? 0 : (cursor + visited) % chunks.size());
-        result.add("tiles", tiles);
-        terrainBudgetUsed += System.nanoTime() - started;
-        return result;
     }
 
     private JsonObject snapshotPlayers() {

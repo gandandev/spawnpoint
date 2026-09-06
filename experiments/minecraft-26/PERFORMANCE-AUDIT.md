@@ -23,7 +23,9 @@ Older entries: Better Beds/FastChest/Enhanced Block Entities overlap the block-e
 
 Primary implementation references: [Sodium](https://github.com/CaffeineMC/sodium), [ImmediatelyFast](https://github.com/RaphiMC/ImmediatelyFast), [EntityCulling](https://github.com/tr7zw/EntityCulling), [FerriteCore](https://github.com/malte0811/FerriteCore), [Lithium](https://github.com/CaffeineMC/lithium), [Dynamic FPS](https://github.com/juliand665/Dynamic-FPS), [LanguageReload](https://github.com/Jerozgen/LanguageReload), [FastQuit](https://github.com/contariaa/FastQuit), [RRLS](https://github.com/dima-dencep/rrls).
 
-## Distant terrain
+## Distant terrain (removed 2026-09-06)
+
+The surface LOD experiment was removed after visible coarse geometry appeared too close to the player. Its worker, client fetch loop, API and server sampling were removed together. Server view distance was not increased. The following describes the rejected experiment, not the current renderer.
 
 Voxy and Distant Horizons simplify distant geometry, not merely textures. Voxy's [capability checks](https://github.com/MCRcortex/voxy/blob/dev/src/main/java/me/cortex/voxy/client/core/gl/Capabilities.java) use desktop OpenGL compute/SSBO/indirect APIs unavailable in this WebGL2 renderer. [Distant Horizons](https://gitlab.com/distant-horizons-team/distant-horizons) also needs its terrain storage, generation, and rendering pipeline. Neither runs as a drop-in browser mod. The browser now has a bounded surface LOD implementation: loaded chunks are sampled at four-block intervals, meshed in a separate Worker, and retained in IndexedDB. It uses the native camera uniform blocks and depth buffer. It stores at most 256 tiles on tablets and 512 on other profiles. It does not generate chunks or model caves and overhangs, and it is not a Voxy/DH binary port. Mipmaps are the existing mechanism for lower-resolution distant textures; they must not be reported as a Voxy/DH port.
 

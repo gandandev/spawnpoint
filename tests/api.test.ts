@@ -372,11 +372,10 @@ describe("hidden administrator unlock", () => {
 });
 
 describe("player locator API", () => {
-  it("requires a session for head assets and distant terrain", async () => {
+  it("requires a session for head assets and removes distant terrain sampling", async () => {
     const harness = await createHarness();
-    for (const endpoint of ["/api/game/heads.epk", "/api/game/terrain"]) {
-      expect((await fetch(harness.origin + endpoint)).status).toBe(401);
-    }
+    expect((await fetch(harness.origin + "/api/game/heads.epk")).status).toBe(401);
+    expect((await fetch(harness.origin + "/api/game/terrain")).status).toBe(404);
   });
   it("returns other online players for the TPA picker", async () => {
     const harness = await createHarness({
