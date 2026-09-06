@@ -839,6 +839,10 @@ describe("skin change flow", () => {
     await act(async () => changelogButton.click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain("2026. 9. 3.");
+    const details = dialog.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toContain("키 입력과 게임 메뉴");
+    expect(dialog.querySelectorAll("details").length).toBeGreaterThan(1);
     expect(dialog.textContent).toContain("위치 표시기에 플레이어 이름, 머리와 직선 거리를 추가했어요.");
     expect(dialog.textContent).toContain("위치 표시기의 거리는 정수 m로 표시해요.");
     expect(dialog.textContent).toContain("채팅 메시지에 플레이어 머리를 추가했어요.");
@@ -1005,6 +1009,10 @@ describe("mobile portal controls", () => {
 
     expect(container.querySelector('[aria-label="게임 종료"]')).toBeNull();
     expect(container.querySelector("iframe")?.getAttribute("allow")).toContain("microphone");
+    const frame = container.querySelector("iframe")!;
+    const focus = vi.spyOn(frame, "focus");
+    await act(async () => { frame.dispatchEvent(new Event("load")); });
+    expect(focus).toHaveBeenCalledOnce();
     await act(async () => root.unmount());
   });
 

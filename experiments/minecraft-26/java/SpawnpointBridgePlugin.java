@@ -2219,6 +2219,16 @@ public final class SpawnpointBridgePlugin extends JavaPlugin implements Listener
         recordPlayerHistory("chat", event.getPlayer(), event.getMessage());
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onModernPlayerChat(io.papermc.paper.event.player.AsyncChatEvent event) {
+        if (isQuietSpectator(event.getPlayer())) { event.setCancelled(true); return; }
+        var head = net.kyori.adventure.text.Component.object(net.kyori.adventure.text.object.ObjectContents.playerHead()
+            .id(event.getPlayer().getUniqueId()).name(event.getPlayer().getName()).hat(true).build());
+        String label = playerLabel(event.getPlayer());
+        event.renderer(io.papermc.paper.chat.ChatRenderer.viewerUnaware((source, displayName, message) ->
+            head.append(net.kyori.adventure.text.Component.text(" <" + label + "> ")).append(message)));
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
         if (isQuietSpectator(event.getEntity())) { event.deathMessage(null); return; }

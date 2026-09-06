@@ -16,9 +16,7 @@
   opts.joinServer = gateway;
   opts.relays = [];
   if (managed) {
-    let vanilla = false;
-    try { vanilla = JSON.parse(localStorage.getItem('_spawnpoint_' + (params.get('account') || '').toLowerCase() + '.launch') || '{}').resourcePackPreference === 'vanilla'; } catch {}
-    opts.assetsURI[0].url = vanilla ? 'assets-spawnpoint-vanilla.epk' : 'assets-spawnpoint.epk';
+    opts.assetsURI[0].url = 'assets-spawnpoint-vanilla.epk';
   }
   opts.lang = 'ko_kr';
   opts.allowUpdateSvc = false;
@@ -38,6 +36,20 @@
   };
   window.eaglercraftXIwaBundleURL = '';
   window.__spawnpoint262 = { profile, nativeRatio, ratio };
+  window.spawnpoint262ServerReady = managed ? (async () => {
+    const deadline = Date.now() + 135000;
+    while (Date.now() < deadline) {
+      const response = await fetch('/api/server/status', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw Error('서버 상태를 확인하지 못했어요.');
+      const { server } = await response.json();
+      if (server.phase === 'online') return;
+      if (server.phase === 'off' || server.phase === 'error') throw Error(server.lastError || '서버를 시작하지 못했어요.');
+      await new Promise(resolve => setTimeout(resolve, 750));
+    }
+    throw Error('서버 시작이 예상보다 오래 걸려요.');
+  })() : Promise.resolve();
+  // Attach a handler immediately while WASM downloads and compiles in parallel.
+  window.spawnpoint262ServerReady.catch(() => {});
   window.spawnpoint262SettingsReady = (async () => {
     if (window.spawnpointPreviewCloud && !managed) {
       const response = await fetch('/preview-session', { cache: 'no-store' });
@@ -71,6 +83,11 @@
     // Same apparent size as GUI 4 on a DPR-2 MacBook, constrained to fit.
     const guiScale = Math.max(1, Math.min(Math.round(2 * ratio), Math.floor(innerWidth * ratio / 320), Math.floor(innerHeight * ratio / 240)));
     settings.set('guiScale', String(guiScale));
+    settings.set('resourcePacks', '[]');
+    settings.set('incompatibleResourcePacks', '[]');
+    settings.set('skipMultiplayerWarning', 'true');
+    settings.set('key_key.saveToolbarActivator', 'key.keyboard.unknown');
+    settings.set('key_key.loadToolbarActivator', 'key.keyboard.unknown');
     settings.set('lastServer', gateway);
     const encoded = new TextEncoder().encode([...settings].map(([key, value]) => `${key}:${value}`).join('\n') + '\n');
     const compressed = new Uint8Array(await new Response(new Blob([encoded]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());

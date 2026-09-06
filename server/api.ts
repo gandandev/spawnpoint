@@ -1855,7 +1855,9 @@ export function createApiRouter(context: ApiContext): express.Router {
     if (!requireSameOrigin(request, response)) return;
     const user = requireUser(request, response, context, true);
     if (!user) return;
-    if (context.serverManager.getStatus().phase !== "online") {
+    const status = context.serverManager.getStatus();
+    const modernStarting = status.version === "Paper 26.2" && ["preparing", "starting"].includes(status.phase);
+    if (status.phase !== "online" && !modernStarting) {
       fail(response, 409, "클라이언트를 실행하기 전에 서버를 시작하세요.", "SERVER_OFFLINE");
       return;
     }

@@ -36,7 +36,7 @@ export function Dashboard({ data, onData, onSession, onStart, onLogout, notice, 
     try {
       if (data.server.phase !== "online") {
         await onStart();
-        await waitForServerOnline();
+        if (data.server.version !== "Paper 26.2") await waitForServerOnline();
       }
       if (spectator) await onPlay(true);
       else await onPlay();

@@ -4,7 +4,22 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 
 const changelog = [
   {
+    dateTime: "2026-09-06",
+    label: "2026. 9. 6.",
+    summary: "키 입력과 게임 메뉴를 고치고, 로딩을 줄였어요. 빈 서버는 3분 뒤 꺼져요.",
+    changes: [
+      "포탈·로딩 화면·게임의 한글, 영문, 숫자를 갈무리11로 통일해요. 기본 리소스에 한국어를 등록해 메뉴에도 한국어가 적용돼요.",
+      "게임 프레임을 로드하거나 캔버스를 누르면 키보드 포커스를 게임으로 옮겨요. 포탈 복귀는 기본 Esc 메뉴의 나가기 버튼을 사용해요.",
+      "시작 프로필 화면을 건너뛰고, 게임 내부 프로필 편집을 막아요. 스킨과 이름은 포탈에서 관리해요.",
+      "추가 텍스처팩과 중복 위치 표시기를 제거해요. 기본 텍스처와 기본 위치 표시기를 사용해요.",
+      "서버 시작 중에 브라우저 WASM을 내려받고 컴파일해요. 멀티플레이에 필요 없는 내장 서버 WASM은 컴파일하지 않아요.",
+      "횃불 조명 값이 바뀔 때만 셰이더에 전달해 같은 값을 반복해서 GPU에 보내지 않아요.",
+      "접속자가 없는 서버의 자동 종료 시간을 기본 15분에서 3분으로 줄여요. 접속자가 있으면 자동 종료하지 않아요.",
+    ],
+  },
+  {
     dateTime: "2026-09-05",
+    summary: "26.2로 업데이트했어요. 인벤토리는 유지하고 월드는 초기화했어요.",
     label: "2026. 9. 5.",
     changes: [
       "운영 게임을 Java 26.2로 전환해요. 인벤토리·장비·엔더 상자·경험치는 유지하고 새 지형의 스폰에서 시작해요. 이전 월드는 별도로 백업했어요.",
@@ -46,6 +61,7 @@ const changelog = [
   },
   {
     dateTime: "2026-09-03",
+    summary: "채팅 머리 아이콘과 관리자 기능을 추가하고 조작을 개선했어요.",
     label: "2026. 9. 3.",
     changes: [
       "기본 스킨을 진짜 마인크래프트 스티브로 바꿨어요.",
@@ -63,6 +79,7 @@ const changelog = [
   },
   {
     dateTime: "2026-09-02",
+    summary: "게임 조작과 포탈 화면을 다듬었어요.",
     label: "2026. 9. 2.",
     changes: [
       "모바일에서도 인벤토리와 게임 UI를 ESC 버튼으로 닫을 수 있어요.",
@@ -71,6 +88,7 @@ const changelog = [
   },
   {
     dateTime: "2026-09-01",
+    summary: "글꼴을 통일하고 채팅과 접속 문제를 고쳤어요.",
     label: "2026. 9. 1.",
     changes: [
       "포탈 전체 글꼴을 갈무리로 통일했어요.",
@@ -83,6 +101,7 @@ const changelog = [
   },
   {
     dateTime: "2026-08-31",
+    summary: "스킨 표시와 로그인 안내를 고쳤어요.",
     label: "2026. 8. 31.",
     changes: [
       "멀티플레이 스킨 표시와 위치 표시기의 움직임을 고쳤어요.",
@@ -93,6 +112,7 @@ const changelog = [
   },
   {
     dateTime: "2026-08-30",
+    summary: "게임 클라이언트를 업데이트하고 관리자 기능을 늘렸어요.",
     label: "2026. 8. 30.",
     changes: [
       "내장 게임 클라이언트를 새 버전으로 올렸어요.",
@@ -104,6 +124,7 @@ const changelog = [
   },
   {
     dateTime: "2026-08-29",
+    summary: "스킨을 추가하고 게임 로딩을 개선했어요.",
     label: "2026. 8. 29.",
     changes: [
       "스킨 목록을 늘리고 가려진 3D 미리보기의 렌더링을 멈추게 했어요.",
@@ -116,6 +137,7 @@ const changelog = [
   },
   {
     dateTime: "2026-08-28",
+    summary: "회원가입과 모바일 조작을 추가했어요.",
     label: "2026. 8. 28.",
     changes: [
       "회원가입 흐름과 모바일 게임 조작을 정식으로 추가했어요.",
@@ -126,6 +148,7 @@ const changelog = [
   },
   {
     dateTime: "2026-08-26",
+    summary: "한국어 마인크래프트와 포탈 연동을 시작했어요.",
     label: "2026. 8. 26.부터",
     changes: [
       "한국어 게임 클라이언트와 포탈 연동을 시작했어요.",
@@ -152,9 +175,15 @@ export function ChangelogDialog() {
             <time dateTime={entry.dateTime} className="font-medium">{entry.label}</time>
             {index === 0 ? <span className="rounded-full bg-[#96ce4d]/15 px-2 py-0.5 text-[11px] font-medium text-[#65952c]">최신</span> : null}
           </div>
-          <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
-            {entry.changes.map((change) => <li key={change}>{change}</li>)}
-          </ul>
+          <details className="group text-sm leading-relaxed">
+            <summary className="cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+              {entry.summary}
+              <span className="ml-2 text-xs text-muted-foreground">상세 정보</span>
+            </summary>
+            <ul className="mt-3 list-disc space-y-2 border-t pt-3 pl-5 text-muted-foreground">
+              {entry.changes.map((change) => <li key={change}>{change}</li>)}
+            </ul>
+          </details>
         </article>)}
       </section>
     </DialogContent>

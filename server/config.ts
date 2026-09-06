@@ -36,7 +36,7 @@ export const config = {
   javaBin: process.env.MC_JAVA_BIN?.trim() || "java",
   eulaAccepted: process.env.MC_EULA === "true",
   memoryMb: integerEnv("MC_MEMORY_MB", 512, 512, 2_048),
-  idleMinutes: integerEnv("MC_IDLE_MINUTES", 15, 5, 120),
+  idleMinutes: integerEnv("MC_IDLE_MINUTES", 3, 1, 120),
   startCooldownSeconds: integerEnv("MC_START_COOLDOWN_SECONDS", 45, 15, 600),
   maxPlayers: integerEnv("MC_MAX_PLAYERS", 16, 2, 40),
   mockServer: process.env.MC_MOCK === "true",

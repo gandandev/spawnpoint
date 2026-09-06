@@ -15,10 +15,17 @@ afterEach(() => {
   else process.env.MC_MEMORY_MB = originalMemory;
   if (originalMaxPlayers === undefined) delete process.env.MC_MAX_PLAYERS;
   else process.env.MC_MAX_PLAYERS = originalMaxPlayers;
+  vi.unstubAllEnvs();
   vi.resetModules();
 });
 
 describe.sequential("server capacity environment", () => {
+  it("defaults empty-server shutdown to three minutes and accepts that override", async () => {
+    vi.stubEnv("MC_IDLE_MINUTES", "");
+    expect((await loadConfig("", "")).idleMinutes).toBe(3);
+    vi.stubEnv("MC_IDLE_MINUTES", "3");
+    expect((await loadConfig("", "")).idleMinutes).toBe(3);
+  });
   it("defaults to the tested 16-player 512 MB profile", async () => {
     const config = await loadConfig("", "");
 

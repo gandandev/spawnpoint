@@ -1,6 +1,25 @@
 (() => {
   if (!new URLSearchParams(location.search).has('launch')) return;
   const state = window.__spawnpoint262;
+  // Canvas handlers prevent the browser's default focus transfer into an iframe.
+  window.addEventListener('pointerdown', event => {
+    if (event.target instanceof HTMLCanvasElement) window.focus();
+  }, true);
+  let enteredWorld = false;
+  window.__spawnpointBind262 = exports => {
+    exports['spawnpoint.screenChanged'].value = name => {
+      const screen = name || '';
+      state.nativeScreens = true;
+      state.screen = screen;
+      if (!screen && window.__eaglerWorldReady) enteredWorld = true;
+      if ((enteredWorld || window.__eaglerWorldReady) && /(?:TitleScreen|JoinMultiplayerScreen)$/.test(screen)) {
+        window.parent.postMessage({type:'spawnpoint:return-to-menu',launchId:new URLSearchParams(location.search).get('launch')}, location.origin);
+      }
+      const canvas = document.querySelector('canvas');
+      const scale = state.guiScale || 2;
+      window.eaglercraftXOpts.hooks?.screenChanged?.(screen, (canvas?.width || innerWidth) / scale, (canvas?.height || innerHeight) / scale, canvas?.width || innerWidth, canvas?.height || innerHeight, scale);
+    };
+  };
   const emission = new Map([['torch',14],['copper_torch',14],['lantern',15],['soul_torch',10],['soul_lantern',10],['glowstone',15],['sea_lantern',15],['shroomlight',15],['jack_o_lantern',15],['end_rod',14]]);
   const light = new Float32Array(4);
   state.heldLight = light;
@@ -26,27 +45,28 @@
       if (!ctx) contexts.set(this, ctx = { uniforms: new WeakMap() });
       ctx.program = program;
       if (!program) return;
-      if (!ctx.uniforms.has(program)) ctx.uniforms.set(program, this.getUniformLocation(program, 'SpawnpointHeldLight'));
+      if (!ctx.uniforms.has(program)) ctx.uniforms.set(program, {
+        location: this.getUniformLocation(program, 'SpawnpointHeldLight'),
+        previous: new Float32Array([NaN, NaN, NaN, NaN]),
+      });
       const uniform = ctx.uniforms.get(program);
-      if (uniform !== null) this.uniform4fv(uniform, light);
+      if (uniform.location !== null && (light[0] !== uniform.previous[0] || light[1] !== uniform.previous[1] || light[2] !== uniform.previous[2] || light[3] !== uniform.previous[3])) {
+        this.uniform4fv(uniform.location, light);
+        uniform.previous.set(light);
+      }
     };
   }
-  const returnButton = document.createElement('button');
-  returnButton.textContent = '포탈로 돌아가기';
-  returnButton.style.cssText = 'position:fixed;top:12px;right:12px;z-index:10000;padding:10px 16px;background:#202020;color:white;border:1px solid #777;font:14px sans-serif;cursor:pointer;display:none';
-  returnButton.onclick = () => window.parent.postMessage({type:'spawnpoint:return-to-menu',launchId:new URLSearchParams(location.search).get('launch')}, location.origin);
-  document.addEventListener('DOMContentLoaded', () => document.body.append(returnButton));
   let pending = false, lastResponse = 0, lastScreen;
   function updateScreen() {
     if (!window.__eaglerWorldReady) return;
+    enteredWorld = true;
     const canvas = document.querySelector('canvas');
     if (!canvas) return;
-    const screen = document.pointerLockElement ? '' : 'PauseScreen';
-    returnButton.style.display = screen ? 'block' : 'none';
+    const screen = state.nativeScreens ? state.screen : document.pointerLockElement ? '' : 'PauseScreen';
     if (screen === lastScreen) return;
     lastScreen = screen;
     const scale = state.guiScale || 2;
-    window.eaglercraftXOpts.hooks?.screenChanged?.(screen, canvas.width / scale, canvas.height / scale, canvas.width, canvas.height, scale);
+    if (!state.nativeScreens) window.eaglercraftXOpts.hooks?.screenChanged?.(screen, canvas.width / scale, canvas.height / scale, canvas.width, canvas.height, scale);
   }
   document.addEventListener('pointerlockchange', updateScreen);
   setInterval(async () => {

@@ -1,6 +1,8 @@
-"""Overlay the maintained portal font and textures onto current-version assets."""
+"""Build Galmuri11 fonts and portal labels into current-version vanilla assets."""
 from pathlib import Path
-import gzip, lzma, struct, zlib, json, tarfile
+import gzip, lzma, struct, zlib, json, io
+from PIL import Image, ImageDraw, ImageFont
+from fontTools.ttLib import TTFont
 ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / 'work/minecraft-26/client-26.2'
 
@@ -48,18 +50,40 @@ offset,length = struct.unpack_from('<II',epw,276+16)
 _, old_entries = parse(lzma.decompress(epw[offset:offset+length]))
 old = {name:value for kind,name,value in old_entries if kind == b'FILE'}
 assets['assets/minecraft/lang/ko_kr.json'] = (WORK/'ko_kr.json').read_bytes()
-providers = []
-sizes = old['assets/minecraft/font/glyph_sizes.bin']
-for number in range(1,256):
-    key = f'assets/minecraft/textures/font/unicode_page_{number:02x}.png'
-    if key not in old: continue
-    chars = [''.join(chr(number*256+y*16+x) if sizes[number*256+y*16+x] and not 0xd800 <= number*256+y*16+x <= 0xdfff else '\0' for x in range(16)) for y in range(16)]
-    if not any(c.strip('\0') for c in chars): continue
-    assets[key] = old[key]
-    providers.append({'type':'bitmap','file':f'minecraft:font/unicode_page_{number:02x}.png','height':8,'ascent':7,'chars':chars})
-font=json.loads(assets['assets/minecraft/font/default.json'])
-font['providers']=providers+font['providers']
-assets['assets/minecraft/font/default.json']=json.dumps(font,ensure_ascii=True).encode()
+metadata = json.loads(assets['pack.mcmeta'])
+metadata.setdefault('language', {})['ko_kr'] = {'name':'한국어','region':'대한민국','bidirectional':False}
+assets['pack.mcmeta'] = json.dumps(metadata,ensure_ascii=False).encode()
+for language in ('en_us', 'ko_kr'):
+    key = f'assets/minecraft/lang/{language}.json'
+    translations = json.loads(assets[key])
+    translations['menu.disconnect'] = '포탈로 돌아가기' if language == 'ko_kr' else 'Return to Portal'
+    translations['menu.returnToMenu'] = translations['menu.disconnect']
+    assets[key] = json.dumps(translations, ensure_ascii=False).encode()
+# Build every supported glyph from Galmuri11, including Latin and digits.
+font_path = ROOT/'vendor/fonts/galmuri/Galmuri11.ttf'
+font = ImageFont.truetype(str(font_path), 12, layout_engine=ImageFont.Layout.BASIC)
+cmap = TTFont(font_path).getBestCmap()
+providers = [{'type':'space','advances':{' ':4,'\u00a0':4}}]
+for page in sorted({code >> 8 for code in cmap if 32 < code <= 65535 and not 0xd800 <= code <= 0xdfff}):
+    image = Image.new('RGBA',(256,256),(255,255,255,0))
+    draw = ImageDraw.Draw(image)
+    rows = [['\0']*16 for _ in range(16)]
+    for slot in range(256):
+        code = page*256+slot
+        if code not in cmap or code <= 32 or code == 160 or 0xd800 <= code <= 0xdfff: continue
+        character = chr(code)
+        left,_,right,_ = font.getbbox(character)
+        if right-left > 16: continue
+        x,y = slot%16*16,slot//16*16
+        draw.text((x-left,y+1),character,font=font,fill=(255,255,255,255))
+        if image.crop((x,y,x+16,y+16)).getchannel('A').getbbox(): rows[slot//16][slot%16]=character
+    if not any(c != '\0' for row in rows for c in row): continue
+    key=f'assets/minecraft/textures/font/galmuri11_{page:02x}.png'
+    output=io.BytesIO();image.save(output,format='PNG',optimize=True)
+    assets[key]=output.getvalue()
+    providers.append({'type':'bitmap','file':f'minecraft:font/galmuri11_{page:02x}.png','height':8,'ascent':7,'chars':[''.join(row) for row in rows]})
+for name in ('default','uniform','alt'):
+    assets[f'assets/minecraft/font/{name}.json']=json.dumps({'providers':providers},ensure_ascii=True).encode()
 for key,value in old.items():
     if key.startswith('assets/spawnpoint/fonts/') or key == 'assets/eagler/eagtek.png': assets[key]=value
 
@@ -67,12 +91,6 @@ original_names = {e[1] for e in entries}
 def merged():
     return [(kind,name,assets[name] if kind==b'FILE' else value) for kind,name,value in entries]+[(b'FILE',name,value) for name,value in assets.items() if name not in original_names]
 write(prefix,merged(),'assets-spawnpoint-vanilla.epk')
-count=0
-with tarfile.open(ROOT/'public/game/resource-packs/new-default-v2.tar.gz') as archive:
-    for member in archive:
-        if not member.isfile(): continue
-        name=member.name.removeprefix('./').replace('/textures/blocks/','/textures/block/').replace('/textures/items/','/textures/item/')
-        if name.startswith('assets/minecraft/textures/') and name in assets and name.endswith('.png'):
-            assets[name]=archive.extractfile(member).read();count+=1
+# Keep the compatibility filename vanilla too, including cached launch preferences.
 write(prefix,merged(),'assets-spawnpoint.epk')
-print(json.dumps({'fontPages':len(providers),'currentVersionTexturesOverlaid':count}))
+print(json.dumps({'fontPages':len(providers),'currentVersionTexturesOverlaid':0}))
